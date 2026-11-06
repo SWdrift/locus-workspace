@@ -1,0 +1,4 @@
+.agents/skills
+.cp/
+temp/*
+node_modules/

@@ -1,0 +1,3 @@
+- [DeepSeek Harness（DSH）](https://github.com/deepseek-ai/deepseek-harness)
+- [Variable & Command Protocol（VCP）](https://github.com/lioensky/VCPToolBox)
+- [Can Bölük——The Harness Playbook](https://stencil.so/blog/harness-playbook)
