@@ -2,6 +2,19 @@
 
 本页登记当前可用的仓库命令：调用方式、用途与成功判据。环境前提与可运行范围见[开发与验证](development.md)，脚本实现见[维护脚本](../scripts/README.md)。
 
+## 构建
+
+| 命令 | 用途 | 成功判据 |
+|---|---|---|
+| `pnpm install` | 安装 workspace 依赖并链接本地包 | 退出码 0；`node_modules` 出现 workspace 链接 |
+| `pnpm build` | 按项目引用编译 `packages/*` 与 `plugins/*` | 退出码 0；各包生成 `lib/index.js` 与 `lib/index.d.ts` |
+
+## 宿主运行
+
+| 命令 | 用途 | 成功判据 |
+|---|---|---|
+| `DSH_HOME=.dsh pnpm exec dsh --profile locus version` | 启动项目内 `locus` profile 并打印版本 | stdout 为 `0.0.0`，退出码 0 |
+
 ## 文档检查
 
 | 命令 | 用途 | 成功判据 |

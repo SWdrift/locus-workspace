@@ -1,4 +1,7 @@
 .agents/skills
 .cp/
+.dsh/
+packages/*/lib/
+plugins/*/lib/
 temp/*
 node_modules/
