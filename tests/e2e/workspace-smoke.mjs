@@ -23,6 +23,9 @@ writeFileSync(missingFilesystem, [
   '- id: locus-session',
   "  name: '@locus/session'",
   '  disabled: true',
+  '- id: locus-remote-machine',
+  "  name: '@locus/remote-machine'",
+  '  disabled: true',
   '',
 ].join('\n'))
 let invocations = 0
@@ -33,6 +36,7 @@ function prepareProfile() {
     join(resolve('.'), 'packages/host-dsh'),
     join(resolve('.'), 'plugins/filesystem'),
     join(resolve('.'), 'plugins/git'),
+    join(resolve('.'), 'plugins/remote-machine'),
     join(resolve('.'), 'plugins/session'),
     join(resolve('.'), 'plugins/cli'),
   ]
@@ -61,6 +65,8 @@ function prepareProfile() {
     "      name: '@locus/filesystem'",
     "    - id: locus-git",
     "      name: '@locus/git'",
+    "    - id: locus-remote-machine",
+    "      name: '@locus/remote-machine'",
     "    - id: locus-session",
     "      name: '@locus/session'",
     "    - id: locus-cli",
@@ -224,10 +230,49 @@ try {
   assert.equal(run(['workspace', 'show', secondWorkspace.id]).relations.length, 0)
   assert.equal(run(['session', 'list']).length, 3)
 
+  const machine = run(['machine', 'register', 'Smoke Host', '--description', 'profile smoke'])
+  const machineWithAddress = run([
+    'machine', 'address', 'add', machine.id, '--kind', 'ssh', '--value', '127.0.0.1', '--port', '1',
+  ])
+  const machineAddress = machineWithAddress.addresses[0]
+  run(['capability', 'configure', workspace.id, 'remote-machine'])
+  run(['capability', 'configure', secondWorkspace.id, 'remote-machine'])
+  const machineRelationA = run(['machine', 'associate', workspace.id, machine.id])
+  const machineRelationB = run(['machine', 'associate', secondWorkspace.id, machine.id])
+  assert.equal(machineRelationA.target.namespace, 'locus.remote-machine')
+  assert.equal(run(['machine', 'list', workspace.id]).length, 1)
+  const machineWorkspaces = run(['machine', 'workspaces', machine.id])
+  assert.deepEqual(machineWorkspaces.map((item) => item.workspaceId).sort(), [workspace.id, secondWorkspace.id].sort())
+  assert.equal(run(['machine', 'update', machine.id, '--name', 'Smoke Host Renamed']).id, machine.id)
+  assert.equal(run([
+    'machine', 'address', 'update', machine.id, machineAddress.id, '--value', '127.0.0.2',
+  ]).addresses[0].id, machineAddress.id)
+  assert.equal(run(['machine', 'show', machine.id]).machine.name, 'Smoke Host Renamed')
+  const failedObservation = run(['machine', 'observe', machine.id], { code: 2 })
+  const observation = JSON.parse(failedObservation.stdout)
+  assert.equal(observation.scope, 'single-address')
+  assert.equal(observation.source.endpoint, '127.0.0.2')
+  assert.ok(['unreachable', 'denied', 'unavailable', 'error'].includes(observation.state))
+
+  run(['machine', 'dissociate', secondWorkspace.id, machineRelationB.id, '--yes'])
+  assert.equal(run(['machine', 'list', secondWorkspace.id]).length, 0)
+  assert.equal(run(['machine', 'show', machine.id]).machine.id, machine.id)
+
+  const machineShell = runShell([
+    `--json machine show ${machine.id}`,
+    `--json machine list ${workspace.id}`,
+    `--json machine observe ${machine.id}`,
+  ], { code: 2 })
+  const machineOutputs = machineShell.stdout.trim().split(/\r?\n/).map((line) => JSON.parse(line))
+  assert.equal(machineOutputs[0].machine.id, machine.id)
+  assert.equal(machineOutputs[1].length, 1)
+  assert.equal(machineOutputs[2].scope, 'single-address')
+
   const offline = runShell([
     `--json workspace show ${workspace.id}`,
     `--json capability list ${workspace.id}`,
     `--json session links ${workspace.id}`,
+    `--json machine list`,
     `fs register ${workspace.id} ${shared}`,
   ], { patch: missingFilesystem, code: 2 })
   assert.match(offline.stdout, new RegExp(workspace.id))
@@ -236,6 +281,12 @@ try {
   assert.match(offline.stdout, /"state":"unavailable"/)
   assert.match(offline.stdout, /"removedRelationId"|dsh\.session\./)
   assert.match(offline.stderr, /Filesystem 能力不可用/)
+  assert.match(offline.stderr, /Remote Machine 能力不可用/)
+  assert.equal(run(['workspace', 'show', workspace.id]).relations.some((relation) =>
+    relation.target.namespace === 'locus.remote-machine' && relation.target.id === machine.id), true)
+  run(['machine', 'dissociate', workspace.id, machineRelationA.id, '--yes'])
+  assert.equal(run(['workspace', 'show', workspace.id]).relations.some((relation) =>
+    relation.target.namespace === 'locus.remote-machine'), false)
 
   console.log('PASS profile: launcher、退出码、跨进程恢复、插件停用与 shell 组合符合断言。')
   console.log(`Workspace profile smoke: PASS (${invocations} independent DSH processes)`)

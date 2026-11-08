@@ -7,12 +7,15 @@ import test from 'node:test'
 import { createLocusCore } from '../packages/core/lib/index.js'
 import { createFilesystemService } from '../plugins/filesystem/lib/index.js'
 import { createGitService } from '../plugins/git/lib/index.js'
+import { createRemoteMachineService } from '../plugins/remote-machine/lib/index.js'
 import { createSessionService } from '../plugins/session/lib/index.js'
 import { createCommands } from '../plugins/cli/lib/commands.js'
 
 /** 复用真实应用命令树，但不启动 launcher；DSH profile 装配由 smoke 覆盖。 */
 async function invoke(services, argv) {
-  const commands = createCommands(services.locus, services.filesystem, services.git, services.session)
+  const commands = createCommands(
+    services.locus, services.filesystem, services.git, services.session, services.remoteMachine,
+  )
   const silence = (program) => {
     program.exitOverride()
     program.configureOutput({ writeOut() {}, writeErr() {} })
@@ -43,6 +46,13 @@ function fixture(t) {
   let core = createLocusCore({ dataDirectory: data })
   let filesystem = createFilesystemService(core)
   let git = createGitService(core, filesystem)
+  let remoteMachine = createRemoteMachineService(core, {
+    run: async (args) => {
+      if (args[0] === '-V') return { stdout: '', stderr: 'OpenSSH_9.5', error: null }
+      if (args.at(-1) === 'hostname') return { stdout: 'remote-cli\n', stderr: '', error: null }
+      return { stdout: '', stderr: '', error: { code: 'UNKNOWN' } }
+    },
+  })
   const sessionRecords = []
   const sessionQuery = {
     async listSessions() {
@@ -71,6 +81,7 @@ function fixture(t) {
   })
   t.after(async () => {
     await git.dispose()
+    await remoteMachine.dispose()
     await filesystem.dispose()
     await core.dispose()
     rmSync(root, { recursive: true, force: true })
@@ -78,14 +89,22 @@ function fixture(t) {
   return {
     root, data, resources, parent, child, sibling,
     sessionRecords,
-    services: () => ({ locus: core, filesystem, git, session }),
+    services: () => ({ locus: core, filesystem, git, session, remoteMachine }),
     async restart() {
       await git.dispose()
+      await remoteMachine.dispose()
       await filesystem.dispose()
       await core.dispose()
       core = createLocusCore({ dataDirectory: data })
       filesystem = createFilesystemService(core)
       git = createGitService(core, filesystem)
+      remoteMachine = createRemoteMachineService(core, {
+        run: async (args) => {
+          if (args[0] === '-V') return { stdout: '', stderr: 'OpenSSH_9.5', error: null }
+          if (args.at(-1) === 'hostname') return { stdout: 'remote-cli\n', stderr: '', error: null }
+          return { stdout: '', stderr: '', error: { code: 'UNKNOWN' } }
+        },
+      })
       session = createSessionService({
         source: { home: 'C:/tmp/locus-cli-dsh', label: 'locus' },
         query: () => sessionQuery,
@@ -359,4 +378,86 @@ test('Session 关联要求当前可访问，且 capability 状态区分声明与
     /无法关联 Session missing-session/,
   )
   assert.equal((await invoke(f.services(), ['workspace', 'show', workspace.id])).value.relations.length, 0)
+})
+
+test('Remote Machine 登记、共享关联、地址修改与只读观察不依赖 SSH 连接', async (t) => {
+  const f = fixture(t)
+  const a = await createWorkspace(f, 'MachineA')
+  const b = await createWorkspace(f, 'MachineB')
+  assert.equal(a.relations.length, 0)
+
+  const machine = (await invoke(f.services(), ['machine', 'register', 'Build Host', '--description', '离线登记'])).value
+  assert.equal(machine.description, '离线登记')
+  const withAddress = (await invoke(f.services(), [
+    'machine', 'address', 'add', machine.id, '--kind', 'ssh', '--value', 'build.example', '--port', '2222', '--label', 'primary',
+  ])).value
+  const address = withAddress.addresses[0]
+  assert.equal(address.kind, 'ssh')
+  assert.equal(address.port, 2222)
+
+  const other = (await invoke(f.services(), ['machine', 'register', 'Same Address'])).value
+  const otherWithAddress = (await invoke(f.services(), [
+    'machine', 'address', 'add', other.id, '--kind', 'ssh', '--value', 'build.example', '--port', '2222',
+  ])).value
+  assert.notEqual(otherWithAddress.id, machine.id)
+  assert.equal(otherWithAddress.addresses[0].value, 'build.example')
+
+  await assert.rejects(
+    invoke(f.services(), ['machine', 'associate', a.id, machine.id]),
+    /尚未启用能力 locus\.remote-machine/,
+  )
+  await invoke(f.services(), ['capability', 'configure', a.id, 'remote-machine'])
+  await invoke(f.services(), ['capability', 'configure', b.id, 'remote-machine'])
+  const relationA = (await invoke(f.services(), ['machine', 'associate', a.id, machine.id])).value
+  const relationB = (await invoke(f.services(), ['machine', 'associate', b.id, machine.id])).value
+  assert.equal(relationA.target.namespace, 'locus.remote-machine')
+  assert.equal(relationA.target.id, machine.id)
+
+  const listA = (await invoke(f.services(), ['machine', 'list', a.id])).value
+  assert.equal(listA.length, 1)
+  assert.equal(listA[0].machine.id, machine.id)
+  assert.deepEqual(
+    (await invoke(f.services(), ['machine', 'workspaces', machine.id])).value
+      .map((item) => item.workspaceId).sort(),
+    [a.id, b.id].sort(),
+  )
+
+  const renamed = (await invoke(f.services(), ['machine', 'update', machine.id, '--name', 'Renamed Host'])).value
+  assert.equal(renamed.id, machine.id)
+  assert.equal(renamed.addresses[0].id, address.id)
+  const changedAddress = (await invoke(f.services(), [
+    'machine', 'address', 'update', machine.id, address.id, '--value', 'build.example.internal',
+  ])).value
+  assert.equal(changedAddress.id, machine.id)
+  assert.equal(changedAddress.addresses[0].id, address.id)
+  assert.equal(changedAddress.addresses[0].value, 'build.example.internal')
+
+  const observed = (await invoke(f.services(), ['machine', 'observe', machine.id])).value
+  assert.equal(observed.state, 'observed')
+  assert.equal(observed.scope, 'single-address')
+  assert.equal(observed.source.endpoint, 'build.example.internal')
+  assert.equal(observed.source.port, 2222)
+  assert.equal(observed.host.hostname, 'remote-cli')
+  assert.match(observed.observedAt, /^\d{4}-/)
+
+  const noConfirm = await invoke(f.services(), ['machine', 'dissociate', a.id, relationA.id])
+  assert.equal(noConfirm.exitCode, 1)
+  await invoke(f.services(), ['machine', 'dissociate', a.id, relationA.id, '--yes'])
+  assert.equal((await invoke(f.services(), ['workspace', 'show', a.id])).value.relations.length, 0)
+  assert.equal((await invoke(f.services(), ['workspace', 'show', b.id])).value.relations.length, 1)
+  assert.equal((await invoke(f.services(), ['machine', 'list'])).value.length, 2)
+
+  await f.restart()
+  const restored = (await invoke(f.services(), ['machine', 'show', machine.id])).value.machine
+  assert.equal(restored.id, machine.id)
+  assert.equal(restored.name, 'Renamed Host')
+  assert.equal((await invoke(f.services(), ['machine', 'list', a.id])).value.length, 0)
+  assert.equal((await invoke(f.services(), ['machine', 'list', b.id])).value.length, 1)
+
+  const withoutMachine = { ...f.services(), remoteMachine: undefined }
+  await assert.rejects(invoke(withoutMachine, ['machine', 'list']), /Remote Machine 能力不可用/)
+  assert.equal((await invoke(withoutMachine, ['workspace', 'show', b.id])).value.relations.length, 1)
+  await invoke(withoutMachine, ['machine', 'dissociate', b.id, relationB.id, '--yes'])
+  assert.equal((await invoke(withoutMachine, ['workspace', 'show', b.id])).value.relations.length, 0)
+  await assert.rejects(invoke(withoutMachine, ['machine', 'list', b.id]), /Remote Machine 能力不可用/)
 })

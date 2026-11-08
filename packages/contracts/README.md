@@ -24,6 +24,7 @@ function workspaceNames(locus: LocusService): readonly string[] {
 | Filesystem 位置与观察 | Filesystem → CLI、Git | [Filesystem](../../plugins/filesystem/README.md) |
 | Git 只读观察 | Git → CLI | [Git](../../plugins/git/README.md) |
 | Session 发现、引用与原生入口 | Session → CLI | [Session](../../plugins/session/README.md) |
+| Remote Machine 资料、地址与观察 | Remote Machine → CLI | [Remote Machine](../../plugins/remote-machine/README.md) |
 
 具体字段与方法由[源码](src/index.ts)维护，不在 README 重抄类型清单。Core 的领域引用对其自身是不透明的；Plugin 返回当前观察，应用显式确认后才调用长期关系用例。提供方声明、保存的选择、加载与可用性不是同一事实，Tag 不能解释为依赖或授权。
 

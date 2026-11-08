@@ -4,23 +4,23 @@
 
 本平面控制 Workspace 的产品语义、Capability 组合和后续功能演进。它回答“Workspace 是什么、可以聚合哪些工作对象、下一项能力为何值得交付”，不替代架构决策、模块 README、命令手册或验证记录。
 
-Workspace Foundation、Filesystem、最小只读 Git、Session v0 与长驻 CLI 已交付；功能状态以代码、模块 README 和 implemented Agent Notes 为准。Core 自身的身份、不透明引用与持久化边界仍由 [Core Primitives CP](./cp-2026-11-06-core-primitives.md) 控制；DSH/Cordis 装配与生命周期由 [Host-DSH CP](./cp-2026-11-08-host-dsh.md) 控制；构建与 profile 由 [Bootstrap CP](./cp-2026-11-06-bootstrap.md) 控制。
+Workspace Foundation、Filesystem、最小只读 Git、Remote Machine v0、Session v0 与长驻 CLI 已交付；功能状态以代码、模块 README 和 implemented Agent Notes 为准。Core 自身的身份、不透明引用与持久化边界仍由 [Core Primitives CP](./cp-2026-11-06-core-primitives.md) 控制；DSH/Cordis 装配与生命周期由 [Host-DSH CP](./cp-2026-11-08-host-dsh.md) 控制；构建与 profile 由 [Bootstrap CP](./cp-2026-11-06-bootstrap.md) 控制。
 
 ## Meta Reference
 
 - [cp-meta.md](./cp-meta.md)：控制平面命名、结构与更新规则。
 - [项目架构](../docs/architecture.md)：组件、依赖和所有权；本平面不复制组件表。
-- [Workspace 产品决定](../.agents/notes/implemented/feature/2026-11-08-workspace-capability-slice.md)、[Session 集成决定](../.agents/notes/implemented/feature/2026-11-09-session-integration.md)：已交付产品语义。
+- [Workspace 产品决定](../.agents/notes/implemented/feature/2026-11-08-workspace-capability-slice.md)、[Session 集成决定](../.agents/notes/implemented/feature/2026-11-09-session-integration.md)、[Remote Machine 决定](../.agents/notes/implemented/feature/2026-11-09-remote-machine.md)：已交付产品语义。
 - [组件与恢复决定](../.agents/notes/implemented/architecture/2026-11-08-workspace-capability-composition.md)：Core/Plugin/宿主边界。
 - [后续 Capability 提案](../.agents/notes/proposed/feature/2026-11-08-workspace-capability-evolution.md)：未交付候选与排序输入。
-- 模块契约与用法：[Core](../packages/core/README.md)、[Filesystem](../plugins/filesystem/README.md)、[Git](../plugins/git/README.md)、[Session](../plugins/session/README.md)、[CLI](../plugins/cli/README.md)。
+- 模块契约与用法：[Core](../packages/core/README.md)、[Filesystem](../plugins/filesystem/README.md)、[Git](../plugins/git/README.md)、[Remote Machine](../plugins/remote-machine/README.md)、[Session](../plugins/session/README.md)、[CLI](../plugins/cli/README.md)。
 - 扩展/收尾使用 `create-control-plane` / `compact-control-plane`；本平面不承载测试系统、文档整理或提交过程。
 
 ## Scope
 
 - Workspace 的产品定义、Capability 组合模型、候选能力和功能交付次序。
 - 已交付能力的产品基线，以及未交付能力的范围、非目标与验收条件。
-- Session v0 的产品语义与后续扩展条件；OMP、Activity、Resume、Handoff 等只在真实调用方出现后评估。
+- Remote Machine v0 与 Session v0 的产品语义、后续扩展条件和连接边界；OMP、Activity、Resume、Handoff、FRP/SSH 等只在真实调用方出现后评估。
 - 不包含：Core schema/持久化实现、DSH/Cordis 装配细节、命令语法、测试分层、文档规范、代码搬迁与提交拆分。
 
 ## Core Rules
@@ -62,7 +62,8 @@ Workspace Foundation、Filesystem、最小只读 Git、Session v0 与长驻 CLI 
 
 ### 当前
 
-- [ ] 评估下一 Capability，默认候选 Remote Machine；先验证真实设备、机器身份、可达性与登记边界，不把“已登记”当成“SSH 可达”。
+- [ ] 评估下一 Capability，默认候选 Gitea；先验证真实实例、授权与只读仓库/CI 观察，不把候选表当成建包义务。
+- [ ] 为 FRP/SSH 保留 Machine Identity 引用条件；连接能力不得接管机器所有权或建立第二运行时。
 - [ ] 为 Session v0 的后续扩展保留触发条件：仅在出现 OMP Provider、Web 授权入口或 Activity/Resume 真实调用方时再设计，不预建 Session Runtime、Memory 或 Handoff 框架。
 
 ### 暂缓
@@ -79,9 +80,10 @@ Workspace Foundation、Filesystem、最小只读 Git、Session v0 与长驻 CLI 
 | Filesystem | 本机位置登记、按需发现、检查与有界读取；区分缺失/拒绝/不可用；路径不是跨设备全局身份。 |
 | Git | 通过 Filesystem 线索只读观察仓库、分支、提交、工作树和脱敏 Remote；非仓库正常；不修改原生仓库。 |
 | Session v0 | 通过 DSH `sessionQuery` 只读发现；显式关联/解除；区分 live/persisted/unavailable；来源命名空间隔离；不复制 transcript 或执行状态；条件允许时返回 headless 原生入口。 |
+| Remote Machine v0 | 稳定 UUID、多个地址、显式 Workspace 关联；登记不要求 SSH/在线；改名/地址修改保持 Identity；单 SSH 地址只读观察，区分不可达/拒绝/不可用/未知；不保存凭据、不拥有连接。 |
 | 交互基础 | 长驻 CLI shell 复用既有命令树与领域服务；保留单次 CLI；HMR 属于开发交互基础，不在此 CP 建立新的测试或重构任务。 |
 
-已交付决定与限制：[Workspace 切片](../.agents/notes/implemented/feature/2026-11-08-workspace-capability-slice.md)、[Session 集成](../.agents/notes/implemented/feature/2026-11-09-session-integration.md)。
+已交付决定与限制：[Workspace 切片](../.agents/notes/implemented/feature/2026-11-08-workspace-capability-slice.md)、[Session 集成](../.agents/notes/implemented/feature/2026-11-09-session-integration.md)、[Remote Machine](../.agents/notes/implemented/feature/2026-11-09-remote-machine.md)。
 
 ## Candidate Backlog
 
@@ -90,12 +92,11 @@ Workspace Foundation、Filesystem、最小只读 Git、Session v0 与长驻 CLI 
 | Gitea | `development`、`collaboration` | 仓库、CI/CD 流水线与执行结果；Gitea 拥有原生事实，授权与秘密处理成本高。 |
 | Nginx | `environment` | 初期只观察配置与运行信息；不要求部署、修改或管理 Nginx。 |
 | Database | `environment`、`development` | 数据源登记、连接、结构与状态；需要驱动、端点和凭据，先做只读观察。 |
-| Remote Machine | `environment` | 远程机器身份、登记、环境与状态；机器存在不等于 SSH 可达。 |
 | FRP / SSH | `connectivity` | SSH 连接、FRP Link、隧道与可达性；连接不拥有机器或数据库生命周期。 |
 | Project Management | `collaboration` | 看板、排期、任务和进度；不能反向定义 Workspace 身份。 |
 | Project Template | `development` | 项目结构、初始化和脚手架；与 Workspace Blueprint 不是同一概念，写操作风险最高。 |
 
-Gitea、FRP 等产品集成与一般 Capability/Protocol 可能处于不同抽象层；当前按产品功能保留，不急于统一实现形态。Filesystem、Git、Session 已交付，不再列为待实现候选。
+Gitea、FRP 等产品集成与一般 Capability/Protocol 可能处于不同抽象层；当前按产品功能保留，不急于统一实现形态。Filesystem、Git、Remote Machine、Session 已交付，不再列为待实现候选。
 
 ## Session v0 Acceptance
 
@@ -111,10 +112,26 @@ Session v0 已满足产品验收：
 
 验证证据与已知限制见 [Session 集成决定](../.agents/notes/implemented/feature/2026-11-09-session-integration.md#测试)和 [Session README](../plugins/session/README.md#状态与返回)。
 
+## Remote Machine v0 Acceptance
+
+Remote Machine v0 已满足产品验收：
+
+- 零目录 Workspace 可以关联机器；同一机器可被多个 Workspace 共享。
+- 登记不要求 SSH、凭据或机器在线；改名、地址增删与修改不改变 Machine Identity。
+- hostname/IP/SSH 地址相同不会自动合并不同机器。
+- 解除一处关联不删除机器、地址或其他 Workspace 关联；插件停用与 DSH 重启后长期关系仍保留。
+- 资料/地址/关联与连接验证分离；`machine observe` 只对一个 SSH 地址做只读 `hostname` 观察，并返回来源、时间和 `single-address` 范围。
+- 无 SSH、不可达、认证拒绝、主机密钥失败与未知错误分别表达；失败不删除机器或关联。
+- 不保存 SSH 私钥、密码、Token 或原始 stderr；不网络扫描、不自动创建连接、不修改远端系统。
+- CLI shell 连续执行机器命令；Remote Machine 构建产物变化触发 HMR 后同一 shell 继续工作，既有 Filesystem/Git/Session/Core-Host/CLI 回归通过。
+
+真实 OpenSSH 成功观察使用本机临时 sshd 完成；外部主机、ProxyJump、FRP 与跨网络条件未验证。证据与限制见 [Remote Machine 决定](../.agents/notes/implemented/feature/2026-11-09-remote-machine.md#测试)。
+
 ## Unresolved Product Questions
 
 - OMP Session Provider 的来源标识、ID 映射、恢复能力和权限契约尚未定义。
 - Session 的 Activity/Resume/Handoff 是否应成为独立产品概念，仍需真实工作流证据。
 - Workspace 如何聚合“持续发生的工作”，而不是只聚合资源，仍未有足够工程证据。
 - Gitea、FRP/SSH 与通用 Capability/Protocol 的抽象层级关系尚未统一；先按产品功能推进。
+- Remote Machine 的 Connection 生命周期、机器删除、共享引用清理与外部网络观察仍未定义。
 - 跨设备同步、在线一致备份和远程资源发现不在当前承诺内。

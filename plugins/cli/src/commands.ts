@@ -5,12 +5,17 @@ import type {
   FilesystemService,
   GitService,
   LocusService,
+  MachineAddress,
+  MachineAddressKind,
+  MachineObservation,
+  RemoteMachine,
+  RemoteMachineService,
   SessionService,
   SessionSummary,
   Workspace,
   WorkspaceRelation,
 } from '@locus/contracts'
-import { SESSION_NAMESPACE_PREFIX } from '@locus/contracts'
+import { REMOTE_MACHINE_NAMESPACE, SESSION_NAMESPACE_PREFIX } from '@locus/contracts'
 
 export interface CommandResult {
   readonly value: unknown
@@ -31,6 +36,12 @@ function integer(value: string): number {
     throw new InvalidArgumentError('必须为正整数。')
   }
   return Number(value)
+}
+
+function port(value: string): number {
+  const parsed = integer(value)
+  if (parsed > 65535) throw new InvalidArgumentError('必须在 1–65535 之间。')
+  return parsed
 }
 
 function workspaceText(workspace: Workspace): string {
@@ -61,12 +72,47 @@ function sessionText(value: SessionSummary): string {
   return `${value.state}  ${value.sessionId}  ${directory}${title}${value.error ? `  (${value.error})` : ''}`
 }
 
+function addressText(value: MachineAddress): string {
+  const endpoint = `${value.value}${value.port === undefined ? '' : `:${value.port}`}`
+  return `${value.id}  ${value.kind}  ${endpoint}${value.label === undefined ? '' : `  (${value.label})`}`
+}
+
+function machineSummaryText(value: RemoteMachine): string {
+  const addresses = value.addresses.map((address) =>
+    `${address.kind}:${address.value}${address.port === undefined ? '' : `:${address.port}`}`).join(', ')
+  return `${value.id}  ${value.name}  ${addresses || '无地址'}`
+}
+
+function machineText(value: RemoteMachine): string {
+  return [
+    `Machine: ${value.name}`,
+    `Identity: ${value.id}`,
+    `描述: ${value.description || '无'}`,
+    `创建时间: ${value.createdAt}`,
+    `更新时间: ${value.updatedAt}`,
+    '地址:',
+    ...value.addresses.map((address) => `  ${addressText(address)}`),
+    ...(value.addresses.length ? [] : ['  无']),
+  ].join('\n')
+}
+
+function machineObservationText(value: MachineObservation): string {
+  const endpoint = `${value.source.endpoint}${value.source.port === undefined ? '' : `:${value.source.port}`}`
+  return [
+    `${value.state}  ${endpoint}  ${value.observedAt}`,
+    ...(value.host === undefined ? [] : [`hostname: ${value.host.hostname}`]),
+    ...(value.error === undefined ? [] : [value.error]),
+    `范围: 单一 SSH 地址（${value.source.addressId}），不代表机器全局在线。`,
+  ].join('\n')
+}
+
 /** 语法解析只选择用例，异步 I/O 留到 parseCmdline 完成后执行。 */
 export function createCommands(
   locus: LocusService,
   filesystem: FilesystemService | undefined,
   git: GitService | undefined,
   session: SessionService | undefined,
+  remoteMachine: RemoteMachineService | undefined,
 ): ParsedCommand {
   const program = new Command()
     .name('dsh --profile locus')
@@ -89,9 +135,24 @@ export function createCommands(
     if (!session) throw new Error('Session 能力不可用：profile 未加载 locusSession；Workspace 与已保存关系不受影响。')
     return session
   }
+  const remoteMachineService = (): RemoteMachineService => {
+    if (!remoteMachine) throw new Error('Remote Machine 能力不可用：profile 未加载 locusRemoteMachine；Workspace 与已保存关系不受影响。')
+    return remoteMachine
+  }
+  const workspacesFor = (machineId: string): { workspaceId: string; workspaceName: string; relationId: string }[] =>
+    locus.workspaces.list().flatMap((workspace) =>
+      workspace.relations
+        .filter((relation) =>
+          relation.target.namespace === REMOTE_MACHINE_NAMESPACE && relation.target.id === machineId)
+        .map((relation) => ({
+          workspaceId: workspace.id,
+          workspaceName: workspace.name,
+          relationId: relation.id,
+        })))
   const declared: CapabilityDescriptor[] = []
   if (filesystem) declared.push(filesystem.capability)
   if (git) declared.push(git.capability)
+  if (remoteMachine) declared.push(remoteMachine.capability)
   if (session) declared.push(session.capability)
   const descriptor = (input: string): CapabilityDescriptor => {
     const result = declared.find((item) => item.id === input || item.provider === input)
@@ -160,6 +221,7 @@ export function createCommands(
   status.action((id: string) => choose(status, async () => {
     const current = locus.workspaces.get(id)
     const gitAvailability = git ? await git.availability() : undefined
+    const remoteMachineAvailability = remoteMachine ? await remoteMachine.availability() : undefined
     const sessionAvailability = session ? await session.availability() : undefined
     const loaded = new Map(declared.map((item) => [item.id, item]))
     const ids = new Set([...current.capabilities.map((item) => item.id), ...loaded.keys()])
@@ -172,6 +234,8 @@ export function createCommands(
       const available = loadedHere && (
         capabilityId === 'locus.git'
           ? gitAvailability?.available === true
+          : capabilityId === 'locus.remote-machine'
+            ? remoteMachineAvailability?.available === true
           : capabilityId === 'locus.session'
             ? sessionAvailability?.available === true
             : true
@@ -183,6 +247,8 @@ export function createCommands(
           : !available
             ? capabilityId === 'locus.git'
               ? gitAvailability?.error ?? '原生依赖不可用。'
+              : capabilityId === 'locus.remote-machine'
+                ? remoteMachineAvailability?.error ?? 'OpenSSH 不可用；机器资料与关联仍可用。'
               : sessionAvailability?.error ?? 'Session 查询服务不可用。'
             : '服务已就绪；具体资源的访问状态由能力查询。'
       return {
@@ -301,6 +367,191 @@ export function createCommands(
       kind: 'discovery', detail: `Git 只读观察，Filesystem 位置 ${location}，仓库 ${result.root}`,
     })
     return { value: relation, text: relationText(relation) }
+  }))
+
+  const machines = program.command('machine')
+    .description('Remote Machine：稳定机器身份、多个地址与只读 SSH 观察；登记不要求 SSH')
+  const machineRegister = machines.command('register <name>')
+    .description('显式登记机器并生成稳定 Identity；不要求 Workspace 或 SSH 连接')
+    .option('--description <text>', '机器描述')
+  machineRegister.action((name: string) => choose(machineRegister, () => {
+    const result = remoteMachineService().register(name, machineRegister.opts<{ description?: string }>().description)
+    return { value: result, text: `${machineText(result)}\n登记与连接验证分离；尚未关联任何 Workspace。` }
+  }))
+  const machineList = machines.command('list [workspace]')
+    .description('列出已登记机器；给出 Workspace 时只列该 Workspace 的机器关联')
+  machineList.action((workspaceId?: string) => choose(machineList, () => {
+    const service = remoteMachineService()
+    if (workspaceId === undefined) {
+      const result = service.list()
+      return {
+        value: result,
+        text: result.map(machineSummaryText).join('\n') || '没有已登记机器。',
+      }
+    }
+    const workspace = locus.workspaces.get(workspaceId)
+    const relations = workspace.relations.filter((relation) =>
+      relation.target.namespace === REMOTE_MACHINE_NAMESPACE)
+    const result = relations.map((relation) => {
+      try {
+        return { relation, machine: service.get(relation.target.id) }
+      } catch (error) {
+        return {
+          relation,
+          error: error instanceof Error ? error.message : String(error),
+        }
+      }
+    })
+    return {
+      value: result,
+      text: result.map((item) => 'machine' in item
+        ? `${item.relation.id}  ${machineSummaryText(item.machine)}  [${item.relation.source.detail}]`
+        : `${item.relation.id}  ${item.relation.target.id}  不可用: ${item.error}`).join('\n')
+        || '该 Workspace 没有机器关联。',
+    }
+  }))
+  const machineShow = machines.command('show <machine>')
+    .description('查看机器资料、地址与 Workspace 关联')
+  machineShow.action((machineId: string) => choose(machineShow, () => {
+    const machine = remoteMachineService().get(machineId)
+    const workspaces = workspacesFor(machine.id)
+    return {
+      value: { machine, workspaces },
+      text: [
+        machineText(machine),
+        'Workspace 关联:',
+        ...workspaces.map((item) =>
+          `  ${item.relationId}  ${item.workspaceName} (${item.workspaceId})`),
+        ...(workspaces.length ? [] : ['  无']),
+      ].join('\n'),
+    }
+  }))
+  const machineUpdate = machines.command('update <machine>')
+    .description('修改名称或描述，不改变 Machine Identity')
+    .option('--name <name>', '新的显示名称')
+    .option('--description <text>', '新的描述；空字符串可清除')
+  machineUpdate.action((machineId: string) => choose(machineUpdate, () => {
+    const options = machineUpdate.opts<{ name?: string; description?: string }>()
+    if (options.name === undefined && options.description === undefined) {
+      throw new Error('至少提供 --name 或 --description')
+    }
+    const result = remoteMachineService().update(machineId, {
+      ...(options.name === undefined ? {} : { name: options.name }),
+      ...(options.description === undefined ? {} : { description: options.description }),
+    })
+    return { value: result, text: machineText(result) }
+  }))
+  const machineAddress = machines.command('address')
+    .description('机器地址：同一机器可有多个地址，地址重合不证明机器身份相同')
+  const machineAddressAdd = machineAddress.command('add <machine>')
+    .description('添加已知地址；不会自动创建或验证连接')
+    .addOption(new Option('--kind <kind>', '地址类型').choices(['ssh', 'hostname', 'ip', 'other']).default('ssh'))
+    .requiredOption('--value <value>', '地址值，例如 user@host 或 192.0.2.10')
+    .option('--port <port>', 'SSH 端口（仅 ssh）', port)
+    .option('--label <label>', '地址标签')
+  machineAddressAdd.action((machineId: string) => choose(machineAddressAdd, () => {
+    const options = machineAddressAdd.opts<{
+      kind: MachineAddressKind
+      value: string
+      port?: number
+      label?: string
+    }>()
+    const result = remoteMachineService().addAddress(machineId, {
+      kind: options.kind,
+      value: options.value,
+      ...(options.port === undefined ? {} : { port: options.port }),
+      ...(options.label === undefined ? {} : { label: options.label }),
+    })
+    return { value: result, text: machineText(result) }
+  }))
+  const machineAddressUpdate = machineAddress.command('update <machine> <address>')
+    .description('修改地址值、类型、端口或标签，不改变 Machine Identity')
+    .addOption(new Option('--kind <kind>', '地址类型').choices(['ssh', 'hostname', 'ip', 'other']))
+    .option('--value <value>', '新的地址值')
+    .option('--port <port>', 'SSH 端口（仅 ssh）', port)
+    .option('--label <label>', '新的地址标签')
+  machineAddressUpdate.action((machineId: string, addressId: string) => choose(machineAddressUpdate, () => {
+    const options = machineAddressUpdate.opts<{
+      kind?: MachineAddressKind
+      value?: string
+      port?: number
+      label?: string
+    }>()
+    if (options.kind === undefined && options.value === undefined &&
+      options.port === undefined && options.label === undefined) {
+      throw new Error('至少提供 --kind、--value、--port 或 --label')
+    }
+    const result = remoteMachineService().updateAddress(machineId, addressId, {
+      ...(options.kind === undefined ? {} : { kind: options.kind }),
+      ...(options.value === undefined ? {} : { value: options.value }),
+      ...(options.port === undefined ? {} : { port: options.port }),
+      ...(options.label === undefined ? {} : { label: options.label }),
+    })
+    return { value: result, text: machineText(result) }
+  }))
+  const machineAddressRemove = machineAddress.command('remove <machine> <address>')
+    .description('移除一个已知地址，不删除机器或其他地址')
+    .requiredOption('--yes', '确认移除地址；不等待交互输入')
+  machineAddressRemove.action((machineId: string, addressId: string) => choose(machineAddressRemove, () => {
+    const result = remoteMachineService().removeAddress(machineId, addressId)
+    return {
+      value: result,
+      text: `已移除地址 ${addressId}；Machine ${machineId} 与其他地址未删除。\n${machineText(result)}`,
+    }
+  }))
+  const machineAssociate = machines.command('associate <workspace> <machine>')
+    .description('显式把机器关联到 Workspace；不创建连接，不改变机器生命周期')
+  machineAssociate.action((workspaceId: string, machineId: string) => choose(machineAssociate, () => {
+    const service = remoteMachineService()
+    const workspace = locus.workspaces.get(workspaceId)
+    if (!workspace.capabilities.some((entry) =>
+      entry.id === service.capability.id && entry.provider === service.capability.provider)) {
+      throw new Error(`Workspace ${workspace.name} (${workspaceId}) 尚未启用能力 ${service.capability.id}；请先配置提供方 ${service.capability.provider}。`)
+    }
+    const machine = service.get(machineId)
+    const relation = locus.workspaces.link(workspaceId, 'association', service.reference(machine.id), {
+      kind: 'manual',
+      detail: `Remote Machine ${machine.name} (${machine.id})`,
+    })
+    return { value: relation, text: relationText(relation) }
+  }))
+  const machineDissociate = machines.command('dissociate <workspace> <relation-id>')
+    .description('解除一条机器关联，不删除机器、地址或其他 Workspace 的关联')
+    .requiredOption('--yes', '确认解除关系；不等待交互输入')
+  machineDissociate.action((workspaceId: string, relationId: string) => choose(machineDissociate, () => {
+    const workspace = locus.workspaces.get(workspaceId)
+    const relation = workspace.relations.find((item) => item.id === relationId)
+    if (!relation) throw new Error(`找不到 Workspace ${workspaceId} 的关系：${relationId}`)
+    if (relation.target.namespace !== REMOTE_MACHINE_NAMESPACE) {
+      throw new Error(`关系 ${relationId} 不是 Remote Machine 关联，不能使用 machine dissociate`)
+    }
+    locus.workspaces.unlink(workspaceId, relationId)
+    return {
+      value: { workspaceId, removedRelationId: relationId },
+      text: `已解除机器关联 ${relationId}；机器、地址与其他 Workspace 关系未删除。`,
+    }
+  }))
+  const machineWorkspaces = machines.command('workspaces <machine>')
+    .description('从机器查看它的 Workspace 关联')
+  machineWorkspaces.action((machineId: string) => choose(machineWorkspaces, () => {
+    const machine = remoteMachineService().get(machineId)
+    const result = workspacesFor(machine.id)
+    return {
+      value: result,
+      text: result.map((item) =>
+        `${item.relationId}  ${item.workspaceName} (${item.workspaceId})`).join('\n')
+        || '该机器没有 Workspace 关联。',
+    }
+  }))
+  const machineObserve = machines.command('observe <machine> [address]')
+    .description('通过 OpenSSH 对一个 ssh 地址做只读观察；不代表机器全局在线')
+  machineObserve.action((machineId: string, addressId?: string) => choose(machineObserve, async () => {
+    const result = await remoteMachineService().observe(machineId, addressId)
+    return {
+      value: result,
+      text: machineObservationText(result),
+      exitCode: result.state === 'observed' ? 0 : 2,
+    }
   }))
 
   const sessionGroup = program.command('session')

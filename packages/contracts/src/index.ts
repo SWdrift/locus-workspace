@@ -179,3 +179,82 @@ export interface SessionService {
   reference(sessionId: string): ResourceReference
   open(reference: ResourceReference, signal?: AbortSignal): Promise<SessionOpen>
 }
+
+/** Remote Machine 的 Locus 管理身份命名空间；不是 hostname、IP 或 SSH 地址。 */
+export const REMOTE_MACHINE_NAMESPACE = 'locus.remote-machine'
+
+export type MachineAddressKind = 'ssh' | 'hostname' | 'ip' | 'other'
+
+/** 已知访问地址；同一机器可有多个，地址重合不证明机器身份重合。 */
+export interface MachineAddress {
+  readonly id: string
+  readonly kind: MachineAddressKind
+  readonly value: string
+  readonly port?: number
+  readonly label?: string
+  readonly createdAt: string
+}
+
+export interface MachineAddressInput {
+  readonly kind: MachineAddressKind
+  readonly value: string
+  readonly port?: number
+  readonly label?: string
+}
+
+export interface MachineAddressUpdate {
+  readonly kind?: MachineAddressKind
+  readonly value?: string
+  readonly port?: number
+  readonly label?: string
+}
+
+export interface RemoteMachine {
+  readonly id: string
+  readonly name: string
+  readonly description: string
+  readonly createdAt: string
+  readonly updatedAt: string
+  readonly addresses: readonly MachineAddress[]
+}
+
+export interface RemoteMachineUpdate {
+  readonly name?: string
+  readonly description?: string
+}
+
+/** 一次只读观察的入口；只代表该 SSH 地址当前可达，不代表机器全局在线。 */
+export interface MachineObservationSource {
+  readonly kind: 'ssh'
+  readonly addressId: string
+  readonly endpoint: string
+  readonly port?: number
+}
+
+export interface MachineObservation {
+  readonly machineId: string
+  readonly scope: 'single-address'
+  readonly source: MachineObservationSource
+  readonly state: 'observed' | 'unreachable' | 'denied' | 'unavailable' | 'error'
+  readonly observedAt: string
+  readonly host?: { readonly hostname: string }
+  readonly error?: string
+}
+
+/**
+ * 机器资料与本地管理身份；SSH 只用于按地址观察。
+ * Workspace 关联仍由 Core 的不透明引用保存，服务本身不修改 Core。
+ */
+export interface RemoteMachineService {
+  readonly capability: CapabilityDescriptor
+  availability(): Promise<{ readonly available: boolean; readonly error?: string }>
+  register(name: string, description?: string): RemoteMachine
+  list(): readonly RemoteMachine[]
+  get(machineId: string): RemoteMachine
+  update(machineId: string, changes: RemoteMachineUpdate): RemoteMachine
+  addAddress(machineId: string, address: MachineAddressInput): RemoteMachine
+  updateAddress(machineId: string, addressId: string, changes: MachineAddressUpdate): RemoteMachine
+  removeAddress(machineId: string, addressId: string): RemoteMachine
+  reference(machineId: string): ResourceReference
+  observe(machineId: string, addressId?: string, signal?: AbortSignal): Promise<MachineObservation>
+}
