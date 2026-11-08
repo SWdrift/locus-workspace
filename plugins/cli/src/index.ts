@@ -3,6 +3,7 @@ import { parseCmdline } from '@deepseek-ai/dsh-cmdline'
 import type { AppExit, AppReady } from '@deepseek-ai/dsh-cmdline'
 import type { FilesystemService, GitService, LocusService } from '@locus/contracts'
 import { createCommands } from './commands.ts'
+import { runShell } from './shell.ts'
 
 /** 稳定的 Cordis 插件名。 */
 export const name = 'locus-cli'
@@ -23,6 +24,26 @@ export function apply(ctx: Context): void {
         ctx.get('locusGit') as GitService | undefined,
       )
       parseCmdline(ctx, commands.program)
+      if (commands.shell()) {
+        const create = () => {
+          const locus = ctx.get('locus') as LocusService
+          const filesystem = ctx.get('locusFilesystem') as FilesystemService | undefined
+          const git = ctx.get('locusGit') as GitService | undefined
+          return {
+            commands: createCommands(locus, filesystem, git),
+            current: () => ctx.get('locus') === locus
+              && ctx.get('locusFilesystem') === filesystem
+              && ctx.get('locusGit') === git,
+          }
+        }
+        void runShell(create, exit, (dispose) => {
+          ctx.effect(() => dispose)
+        }).catch((error: unknown) => {
+          process.stderr.write(`Locus shell 启动失败：${error instanceof Error ? error.message : String(error)}\n`)
+          exit(2)
+        })
+        return
+      }
       const result = commands.execute()
       if (!result) return
       void result.then((output) => {

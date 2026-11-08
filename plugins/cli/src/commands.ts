@@ -19,6 +19,8 @@ export interface ParsedCommand {
   readonly program: Command
   execute(): Promise<CommandResult> | undefined
   json(): boolean
+  shell(): boolean
+  parse(argv: readonly string[]): void
 }
 
 function integer(value: string): number {
@@ -64,6 +66,7 @@ export function createCommands(
     .showHelpAfterError()
   let operation: (() => CommandResult | Promise<CommandResult>) | undefined
   let selected = program
+  let shellMode = false
   const choose = (command: Command, action: () => CommandResult | Promise<CommandResult>): void => {
     selected = command
     operation = action
@@ -91,6 +94,12 @@ export function createCommands(
   })
   const version = program.command('version').description('读取 Locus 产品版本（不是 DSH 版本）')
   version.action(() => choose(version, () => ({ value: locus.info, text: locus.info.version })))
+
+  const shell = program.command('shell').description('进入长驻交互式 shell，复用当前 DSH 进程中的命令树')
+  shell.action(() => {
+    shellMode = true
+    selected = shell
+  })
 
   const workspace = program.command('workspace').description('持久工作语境与显式关系，不依赖目录')
   const create = workspace.command('create <name>').description('创建具有新 UUID 的 Workspace，可无目录')
@@ -274,5 +283,12 @@ export function createCommands(
     program,
     execute: () => operation ? Promise.resolve().then(operation) : undefined,
     json: () => selected.optsWithGlobals<{ json?: boolean }>().json === true,
+    shell: () => shellMode,
+    parse: (argv) => {
+      operation = undefined
+      selected = program
+      shellMode = false
+      program.parse([...argv], { from: 'user' })
+    },
   }
 }
