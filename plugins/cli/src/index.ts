@@ -1,7 +1,7 @@
 import type { Context } from '@deepseek-ai/cordis'
 import { parseCmdline } from '@deepseek-ai/dsh-cmdline'
 import type { AppExit, AppReady } from '@deepseek-ai/dsh-cmdline'
-import type { FilesystemService, GitService, LocusService } from '@locus/contracts'
+import type { FilesystemService, GitService, LocusService, SessionService } from '@locus/contracts'
 import { createCommands } from './commands.ts'
 import { runShell } from './shell.ts'
 
@@ -22,6 +22,7 @@ export function apply(ctx: Context): void {
         ctx.get('locus') as LocusService,
         ctx.get('locusFilesystem') as FilesystemService | undefined,
         ctx.get('locusGit') as GitService | undefined,
+        ctx.get('locusSession') as SessionService | undefined,
       )
       parseCmdline(ctx, commands.program)
       if (commands.shell()) {
@@ -29,11 +30,13 @@ export function apply(ctx: Context): void {
           const locus = ctx.get('locus') as LocusService
           const filesystem = ctx.get('locusFilesystem') as FilesystemService | undefined
           const git = ctx.get('locusGit') as GitService | undefined
+          const session = ctx.get('locusSession') as SessionService | undefined
           return {
-            commands: createCommands(locus, filesystem, git),
+            commands: createCommands(locus, filesystem, git, session),
             current: () => ctx.get('locus') === locus
               && ctx.get('locusFilesystem') === filesystem
-              && ctx.get('locusGit') === git,
+              && ctx.get('locusGit') === git
+              && ctx.get('locusSession') === session,
           }
         }
         void runShell(create, exit, (dispose) => {

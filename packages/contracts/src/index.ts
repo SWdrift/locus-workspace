@@ -128,3 +128,54 @@ export interface GitService {
   availability(): Promise<{ readonly available: boolean; readonly error?: string }>
   inspect(workspaceId: string, locationId: string, relativePath?: string): Promise<GitObservation>
 }
+
+/** Session 关联的命名空间前缀；后半段是来源标识，避免不同 DSH 数据目录的 id 冲突。 */
+export const SESSION_NAMESPACE_PREFIX = 'dsh.session.'
+
+/** 当前 DSH 来源；id 是数据目录的稳定摘要，label 只用于人读。 */
+export interface SessionSource {
+  readonly id: string
+  readonly label: string
+}
+
+/**
+ * 一次 Session 发现或检查结果。
+ * live、persisted 与可访问性分开表达，不合并成一个布尔状态。
+ */
+export interface SessionSummary {
+  readonly reference: ResourceReference
+  readonly sessionId: string
+  readonly source: SessionSource
+  readonly state: 'live' | 'persisted' | 'unavailable'
+  readonly live: boolean
+  readonly persisted: boolean
+  readonly createdAt?: string
+  readonly cwd?: string
+  readonly parentSessionId?: string
+  readonly origin?: 'subagent'
+  readonly agentPreset?: string
+  readonly isSeeded?: boolean
+  readonly formatStatus?: 'current' | 'migration-required'
+  readonly title?: string
+  readonly error?: string
+}
+
+/** 返回原生 Session 的入口；只有当前宿主能可靠恢复时才给出可执行命令。 */
+export interface SessionOpen {
+  readonly mode: 'live' | 'native' | 'unavailable'
+  readonly command?: readonly string[]
+  readonly cwd?: string
+  readonly note: string
+}
+
+/** 发现、检查与原生返回入口；关联持久化仍由 Workspace 关系保存。 */
+export interface SessionService {
+  readonly capability: CapabilityDescriptor
+  readonly source: SessionSource
+  availability(): Promise<{ readonly available: boolean; readonly error?: string }>
+  discover(signal?: AbortSignal): Promise<readonly SessionSummary[]>
+  inspect(sessionId: string, signal?: AbortSignal): Promise<SessionSummary>
+  inspectReference(reference: ResourceReference, signal?: AbortSignal): Promise<SessionSummary>
+  reference(sessionId: string): ResourceReference
+  open(reference: ResourceReference, signal?: AbortSignal): Promise<SessionOpen>
+}

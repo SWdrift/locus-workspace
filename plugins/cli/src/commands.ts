@@ -5,9 +5,12 @@ import type {
   FilesystemService,
   GitService,
   LocusService,
+  SessionService,
+  SessionSummary,
   Workspace,
   WorkspaceRelation,
 } from '@locus/contracts'
+import { SESSION_NAMESPACE_PREFIX } from '@locus/contracts'
 
 export interface CommandResult {
   readonly value: unknown
@@ -52,11 +55,18 @@ function observationText(value: FilesystemObservation): string {
   return `${value.state}  ${value.kind}  ${value.path}${value.error ? `  (${value.error})` : ''}`
 }
 
+function sessionText(value: SessionSummary): string {
+  const title = value.title === undefined ? '' : `  ${value.title}`
+  const directory = value.cwd === undefined ? '（无 cwd）' : value.cwd
+  return `${value.state}  ${value.sessionId}  ${directory}${title}${value.error ? `  (${value.error})` : ''}`
+}
+
 /** 语法解析只选择用例，异步 I/O 留到 parseCmdline 完成后执行。 */
 export function createCommands(
   locus: LocusService,
   filesystem: FilesystemService | undefined,
   git: GitService | undefined,
+  session: SessionService | undefined,
 ): ParsedCommand {
   const program = new Command()
     .name('dsh --profile locus')
@@ -75,9 +85,14 @@ export function createCommands(
     if (!filesystem) throw new Error('Filesystem 能力不可用：profile 未加载 locusFilesystem；Workspace 与已保存关系不受影响。')
     return filesystem
   }
+  const sessionService = (): SessionService => {
+    if (!session) throw new Error('Session 能力不可用：profile 未加载 locusSession；Workspace 与已保存关系不受影响。')
+    return session
+  }
   const declared: CapabilityDescriptor[] = []
   if (filesystem) declared.push(filesystem.capability)
   if (git) declared.push(git.capability)
+  if (session) declared.push(session.capability)
   const descriptor = (input: string): CapabilityDescriptor => {
     const result = declared.find((item) => item.id === input || item.provider === input)
       ?? declared.find((item) => item.id === `locus.${input}`)
@@ -145,6 +160,7 @@ export function createCommands(
   status.action((id: string) => choose(status, async () => {
     const current = locus.workspaces.get(id)
     const gitAvailability = git ? await git.availability() : undefined
+    const sessionAvailability = session ? await session.availability() : undefined
     const loaded = new Map(declared.map((item) => [item.id, item]))
     const ids = new Set([...current.capabilities.map((item) => item.id), ...loaded.keys()])
     const result = [...ids].map((capabilityId) => {
@@ -153,13 +169,21 @@ export function createCommands(
       const declaredHere = provider !== undefined
       const sameProvider = configured === undefined || provider === undefined || configured.provider === provider.provider
       const loadedHere = declaredHere && sameProvider
-      const available = loadedHere && (capabilityId !== 'locus.git' || gitAvailability?.available === true)
+      const available = loadedHere && (
+        capabilityId === 'locus.git'
+          ? gitAvailability?.available === true
+          : capabilityId === 'locus.session'
+            ? sessionAvailability?.available === true
+            : true
+      )
       const reason = !declaredHere
         ? '所选提供方未加载；长期配置与关系保留。'
         : !sameProvider
           ? `已加载提供方 ${provider.provider} 与保存选择 ${configured?.provider} 不同；未自动替换。`
           : !available
-            ? gitAvailability?.error ?? '原生依赖不可用。'
+            ? capabilityId === 'locus.git'
+              ? gitAvailability?.error ?? '原生依赖不可用。'
+              : sessionAvailability?.error ?? 'Session 查询服务不可用。'
             : '服务已就绪；具体资源的访问状态由能力查询。'
       return {
         id: capabilityId,
@@ -277,6 +301,109 @@ export function createCommands(
       kind: 'discovery', detail: `Git 只读观察，Filesystem 位置 ${location}，仓库 ${result.root}`,
     })
     return { value: relation, text: relationText(relation) }
+  }))
+
+  const sessionGroup = program.command('session')
+    .description('DSH Session：只读发现、显式关联与原生返回；不复制消息历史')
+  const sessionList = sessionGroup.command('list')
+    .description('列出当前 DSH 来源可查询的 Session 元信息；不输出消息正文')
+  sessionList.action(() => choose(sessionList, async () => {
+    const result = await sessionService().discover()
+    return {
+      value: result,
+      text: result.map(sessionText).join('\n') || '没有可发现的 Session。',
+    }
+  }))
+  const sessionShow = sessionGroup.command('show <session>')
+    .description('查看当前 DSH 来源的一个 Session；区分 live、persisted 与不可访问')
+  sessionShow.action((id: string) => choose(sessionShow, async () => {
+    const result = await sessionService().inspect(id)
+    return { value: result, text: sessionText(result), exitCode: result.state === 'unavailable' ? 2 : 0 }
+  }))
+  const sessionAssociate = sessionGroup.command('associate <workspace> <session>')
+    .description('显式把已发现的 Session 关联到 Workspace；不改变 Session 生命周期')
+  sessionAssociate.action((workspaceId: string, sessionId: string) => choose(sessionAssociate, async () => {
+    const service = sessionService()
+    const workspace = locus.workspaces.get(workspaceId)
+    if (!workspace.capabilities.some((entry) =>
+      entry.id === service.capability.id && entry.provider === service.capability.provider)) {
+      throw new Error(`Workspace ${workspace.name} (${workspaceId}) 尚未启用能力 ${service.capability.id}；请先配置提供方 ${service.capability.provider}。`)
+    }
+    const inspected = await service.inspect(sessionId)
+    if (inspected.state === 'unavailable') {
+      throw new Error(`无法关联 Session ${sessionId}：${inspected.error ?? '当前不可访问'}`)
+    }
+    const relation = locus.workspaces.link(workspaceId, 'association', inspected.reference, {
+      kind: 'manual',
+      detail: `DSH Session ${inspected.sessionId}，来源 ${inspected.source.label} (${inspected.source.id})`,
+    })
+    return { value: relation, text: relationText(relation) }
+  }))
+  const sessionLinks = sessionGroup.command('links <workspace>')
+    .description('列举 Workspace 保存的 Session 关联；查询失败或插件停用仍保留关系')
+  sessionLinks.action((workspaceId: string) => choose(sessionLinks, async () => {
+    const workspace = locus.workspaces.get(workspaceId)
+    const relations = workspace.relations.filter((relation) =>
+      relation.target.namespace.startsWith(SESSION_NAMESPACE_PREFIX))
+    const result = await Promise.all(relations.map(async (relation) => {
+      if (!session) {
+        return {
+          relationId: relation.id,
+          relation,
+          summary: {
+            reference: relation.target,
+            sessionId: relation.target.id,
+            source: { id: relation.target.namespace.slice(SESSION_NAMESPACE_PREFIX.length), label: '未知' },
+            state: 'unavailable' as const,
+            live: false,
+            persisted: false,
+            error: 'Session 能力不可用：profile 未加载 locusSession；已保存关联保留。',
+          },
+        }
+      }
+      return {
+        relationId: relation.id,
+        relation,
+        summary: await session.inspectReference(relation.target),
+      }
+    }))
+    return {
+      value: result,
+      text: result.map((item) =>
+        `${item.relationId}  ${sessionText(item.summary)}  [${item.relation.source.detail}]`).join('\n')
+        || '没有已保存的 Session 关联。',
+    }
+  }))
+  const sessionDissociate = sessionGroup.command('dissociate <workspace> <relation-id>')
+    .description('解除一条 Session 关联，不删除原生 Session 或消息历史')
+    .requiredOption('--yes', '确认解除关系；不等待交互输入')
+  sessionDissociate.action((workspaceId: string, relationId: string) => choose(sessionDissociate, () => {
+    const workspace = locus.workspaces.get(workspaceId)
+    const relation = workspace.relations.find((item) => item.id === relationId)
+    if (!relation) throw new Error(`找不到 Workspace ${workspaceId} 的关系：${relationId}`)
+    if (!relation.target.namespace.startsWith(SESSION_NAMESPACE_PREFIX)) {
+      throw new Error(`关系 ${relationId} 不是 Session 关联，不能使用 session dissociate`)
+    }
+    locus.workspaces.unlink(workspaceId, relationId)
+    return {
+      value: { workspaceId, removedRelationId: relationId },
+      text: `已解除 Session 关联 ${relationId}；原生 Session 与消息历史未删除。`,
+    }
+  }))
+  const sessionOpen = sessionGroup.command('open <session>')
+    .description('返回 DSH 原生入口；不复制 transcript，也不冒充 Session 生命周期')
+  sessionOpen.action((sessionId: string) => choose(sessionOpen, async () => {
+    const service = sessionService()
+    const inspected = await service.inspect(sessionId)
+    const opened = await service.open(inspected.reference)
+    const text = opened.mode === 'native'
+      ? [
+        `工作目录: ${opened.cwd}`,
+        `命令: ${opened.command?.join(' ')} "<继续任务>"`,
+        opened.note,
+      ].join('\n')
+      : opened.note
+    return { value: opened, text, exitCode: opened.mode === 'unavailable' ? 2 : 0 }
   }))
 
   return {
