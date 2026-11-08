@@ -4,7 +4,7 @@
 
 本平面维护已交付的 `contracts` → `core` → `host-dsh` → `plugins/cli` 在项目内 DSH 上的构建、服务注入与退出链路，不承担 Workspace 产品模型或下一版本需求。
 
-下一产品切片与领域任务由 [Core Primitives CP](./cp-2026-11-06-core-primitives.md)控制；薄装配、宿主依赖与服务面由 [Host-DSH CP](./cp-2026-11-08-host-dsh.md)控制。本平面只在构建、profile 与既有 CLI 链路需要修正时更新。
+下一产品切片与领域任务由 [Workspace Capabilities CP](./cp-2026-11-09-workspace-capabilities.md)控制；Core 长期事实由 [Core Primitives CP](./cp-2026-11-06-core-primitives.md)控制；薄装配、宿主依赖与服务面由 [Host-DSH CP](./cp-2026-11-08-host-dsh.md)控制。本平面只在构建、profile 与既有 CLI 链路需要修正时更新。
 
 ## Meta Reference
 
@@ -17,7 +17,7 @@
 ## Scope
 
 - 现有 packages/实际 Plugin 的构建接线、根工具链与 `.dsh/` profile；领域用例归对应 CP。
-- 产品行为未在本平面实现；新增领域 Plugin 按 Core Primitives 的真实用例推进，不按候选清单建包。
+- 产品行为未在本平面实现；新增领域 Plugin 按 Workspace Capabilities 的真实用例推进，不按候选清单建包。
 - 不解决：领域模型、持久化选择、Web、发布版本策略和插件市场。
 
 ## Core Rules
@@ -40,7 +40,7 @@
 ### 验证
 
 - 既有链路变更实跑 `DSH_HOME=.dsh pnpm exec dsh --profile locus version`：stdout `0.0.0`，退出 0；无参数与未知命令为用法错误，退出 1。不得以构建或代码阅读代替。
-- host 生命周期或服务变化同时运行 Host-DSH 指定的独立 Context 冒烟；产品新增命令运行 Core Primitives 指定的场景。
+- host 生命周期或服务变化同时运行 Host-DSH 指定的独立 Context 冒烟；产品新增命令运行 Workspace Capabilities 指定的场景。
 - 文档变更执行 `pnpm docs:check`；检查器变化才加 `pnpm docs:test`。DSH 行为不符先核对安装版本与源码，不改文档迁就失败。
 
 ## Task Board

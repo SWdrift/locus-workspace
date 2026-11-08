@@ -69,6 +69,6 @@ flowchart TD
 
 ## 控制与演进
 
-[Core Primitives CP](../.cp/cp-2026-11-06-core-primitives.md)维护产品实施边界；[Host-DSH CP](../.cp/cp-2026-11-08-host-dsh.md)维护装配/服务面回归；[Bootstrap CP](../.cp/cp-2026-11-06-bootstrap.md)维护构建及运行时约束。控制面不代替源码或模块用法。
+[Workspace Capabilities CP](../.cp/cp-2026-11-09-workspace-capabilities.md)维护 Workspace 产品语义、能力组合与功能演进；[Core Primitives CP](../.cp/cp-2026-11-06-core-primitives.md)维护 Core 长期事实与持久化边界；[Host-DSH CP](../.cp/cp-2026-11-08-host-dsh.md)维护装配/服务面回归；[Bootstrap CP](../.cp/cp-2026-11-06-bootstrap.md)维护构建及运行时约束。控制面不代替源码或模块用法。
 
 只有实际交付且验证的行为进入 implemented；未交付方向遵循 [Agent Notes 生命周期](../.agents/notes/AGENTS.md#在生命周期之间移动)。防御集中于实际输入与故障边界，不为假想异常增加重复校验、静默回退或通用抽象。

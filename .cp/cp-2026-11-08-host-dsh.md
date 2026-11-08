@@ -4,7 +4,7 @@
 
 本平面控制项目内 DSH/Cordis 的薄装配、实际服务面、长驻入口与生命周期回归。当前 Core/Filesystem/Git/Session/CLI 已在 profile 贯通；CLI 提供复用同一命令树与服务的交互 shell，开发期 HMR 由 base bundle 的 `dsh-hmr` 开启模块监视。host 不承担领域能力集中注册、可替换宿主或通用适配。
 
-产品边界见 [Core Primitives CP](./cp-2026-11-06-core-primitives.md)，运行时与构建见 [Bootstrap CP](./cp-2026-11-06-bootstrap.md)；组件取舍以[已实施决定](../.agents/notes/implemented/architecture/2026-11-08-workspace-capability-composition.md)为准。
+产品边界见 [Workspace Capabilities CP](./cp-2026-11-09-workspace-capabilities.md)，Core 长期事实见 [Core Primitives CP](./cp-2026-11-06-core-primitives.md)，运行时与构建见 [Bootstrap CP](./cp-2026-11-06-bootstrap.md)；组件取舍以[已实施决定](../.agents/notes/implemented/architecture/2026-11-08-workspace-capability-composition.md)为准。
 
 ## Meta Reference
 
