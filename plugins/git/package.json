@@ -15,7 +15,8 @@
     "lib"
   ],
   "scripts": {
-    "build": "tsc -b tsconfig.json"
+    "build": "tsc -b tsconfig.json",
+    "test": "node --test test/*.test.mjs"
   },
   "dependencies": {
     "@locus/contracts": "workspace:*"

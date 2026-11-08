@@ -6,9 +6,9 @@ import { join } from 'node:path'
 import test from 'node:test'
 import { pathToFileURL } from 'node:url'
 import { promisify } from 'node:util'
-import { createLocusCore } from '../packages/core/lib/index.js'
-import { createFilesystemService } from '../plugins/filesystem/lib/index.js'
-import { capability, createGitService, inject, name } from '../plugins/git/lib/index.js'
+import { createLocusCore } from '../../../packages/core/lib/index.js'
+import { createFilesystemService } from '../../filesystem/lib/index.js'
+import { capability, createGitService, inject, name } from '../lib/index.js'
 
 const exec = promisify(execFile)
 

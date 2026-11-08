@@ -5,7 +5,7 @@ import { homedir, tmpdir } from 'node:os'
 import { isAbsolute, join } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import test from 'node:test'
-import { createLocusCore, LOCUS_VERSION } from '../packages/core/lib/index.js'
+import { createLocusCore, LOCUS_VERSION } from '../lib/index.js'
 
 const filesystemCapability = {
   id: 'locus.filesystem',

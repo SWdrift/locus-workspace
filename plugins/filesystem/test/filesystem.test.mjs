@@ -6,8 +6,8 @@ import { basename, join } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import test from 'node:test'
 import { pathToFileURL } from 'node:url'
-import { createLocusCore } from '../packages/core/lib/index.js'
-import { capability, createFilesystemService } from '../plugins/filesystem/lib/index.js'
+import { createLocusCore } from '../../../packages/core/lib/index.js'
+import { capability, createFilesystemService } from '../lib/index.js'
 
 async function fixture(t) {
   const root = await realpath(await mkdtemp(join(tmpdir(), 'locus-filesystem-')))
