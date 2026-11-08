@@ -56,6 +56,7 @@ CLI 增加 `session list/show/associate/links/dissociate/open`。关联要求 Wo
 - 跨包 CLI 测试覆盖显式关联、两个 Workspace 复用同一 Session、解除不删除原生 Session、插件停用与查询不可用保留关系。
 - `pnpm verify:full` 在临时 `DSH_HOME` 初始化真实 profile，用持久化 seam 创建三个真实 Session，并在同一进程中创建 live Session 验证 `live`；覆盖发现、关联、跨进程恢复、插件停用和 `session open`。
 - 真实 headless Session 另行验证了发现、标题读取和 `--session-id` 续接校验。
+- Session Plugin 没有自有状态，重载只替换 `locusSession` 服务；长驻 shell 每行从当前 Context 取服务。本地长驻 shell 中修改 Session 构建产物与 profile patch 未观察到 Session 模块热替换，因此不把 Session HMR 写成已验证行为；Filesystem/Git/Host 的既有 HMR 事实仍由对应记录维护。
 
 ## 备选方案
 

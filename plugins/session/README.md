@@ -28,7 +28,7 @@ Session 查询服务属于受信任的宿主内部服务，可能不做调用方
 
 ## 数据与生命周期
 
-Plugin 没有自有数据库或缓存；Session 标题和记录在每次用例中按需从 DSH 读取。卸载 Plugin 不删除 Session、消息历史或 Core 关系，重新加载后继续读取当前 `ctx.sessionQuery`。`dsh-session-query` 精确读取会在需要时回放完整日志，因此默认列表只取元信息，标题读取只发生在 `inspect`。
+Plugin 没有自有数据库或缓存；Session 标题和记录在每次用例中按需从 DSH 读取。卸载 Plugin 不删除 Session、消息历史或 Core 关系，重新加载后继续读取当前 `ctx.sessionQuery`；长驻 shell 每行重新读取当前 `locusSession`，不保存旧服务或 Session 快照。`dsh-session-query` 精确读取会在需要时回放完整日志，因此默认列表只取元信息，标题读取只发生在 `inspect`。
 
 ## 验证
 
