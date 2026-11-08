@@ -8,6 +8,7 @@
     { "path": "./plugins/filesystem" },
     { "path": "./plugins/git" },
     { "path": "./plugins/remote-machine" },
+    { "path": "./plugins/connectivity" },
     { "path": "./plugins/session" },
     { "path": "./plugins/cli" }
   ]

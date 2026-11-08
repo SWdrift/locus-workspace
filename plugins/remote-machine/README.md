@@ -16,7 +16,7 @@ Plugin 只拥有机器资料与地址，不拥有 SSH 配置、凭据、连接�
 
 - **Machine**：持久 UUID，改名、增删地址、不可达或 Plugin 重载都不改变。引用使用 `locus.remote-machine` 命名空间与 Machine ID。
 - **Address**：一台机器可保存多个 `ssh`、`hostname`、`ip` 或 `other` 地址；地址可变化，也可属于其他机器。地址相同不自动合并；当前不自动按 hostname/IP 去重。
-- **Connection**：v0 不建立独立连接实体或接管 SSH/FRP 生命周期。`machine observe` 把一次 SSH 通路作为本次 Observation 的 `source`；未来连接能力应引用 Machine Identity，而不是成为机器所有者。
+- **Connection**：Remote Machine 自身不建立独立连接实体或接管 SSH/FRP 生命周期。`machine observe` 把一次 SSH 通路作为本次 Observation 的 `source`；SSH/FRP 连接约定由独立的 [Connectivity](../connectivity/README.md) Profile 引用 Machine Identity。
 - **Observation**：每次查询生成，包含 `scope: single-address`、SSH 地址、时间、状态与可选 hostname；不保存为长期事实。SSH 地址可达只说明该通路当前可用，不证明机器全局在线。
 
 `machine observe` 只执行 OpenSSH `hostname` 命令，使用 `BatchMode=yes`、连接超时 5 秒、总时限 10 秒和 64 KiB 输出上限；不请求 TTY、不转发代理/X11、不执行本地命令。默认使用系统 OpenSSH 的主机密钥策略，不自动信任未知主机。结果区分 `observed`、`unreachable`、`denied`、`unavailable` 与 `error`，不回显可能含敏感信息的原生 stderr。

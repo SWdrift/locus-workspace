@@ -22,7 +22,7 @@ Remote Machine Plugin 独占 `locus.dataDirectory/remote-machine.sqlite`，保�
 ### Address、Connection 与 Observation
 
 - **Address** 是机器已知的访问地址，持久化多个 `ssh`、`hostname`、`ip` 或 `other` 条目；同一地址可以属于不同机器，登记时不自动按地址去重或合并。地址 ID 与机器 ID 分离，修改地址不改变机器身份。
-- **Connection** 在 v0 不建立独立持久实体。OpenSSH 是当前唯一观察通路，由本次 Observation 的 `source` 表示；Remote Machine 不读取、保存或修改 SSH 配置，也不拥有连接生命周期。未来 FRP/SSH 能力应引用 Machine Identity，而不是接管机器所有权。
+- **Connection** 在 Remote Machine v0 不建立独立持久实体。OpenSSH 是当前唯一观察通路，由本次 Observation 的 `source` 表示；Remote Machine 不读取、保存或修改 SSH 配置，也不拥有连接生命周期。SSH/FRP 连接约定已由独立的 [Connectivity Profile](./2026-11-09-connectivity.md) 引用 Machine Identity，而不是接管机器所有权。
 - **Observation** 每次按需生成，包含 `scope: single-address`、SSH 地址、时间、状态和可选 hostname；不写入数据库。SSH 地址可达只表示该通路当前可用，不提升为机器全局在线。失败区分 `unreachable`、`denied`、`unavailable` 与 `error`，一次失败不回写机器不存在或已下线。
 
 观察执行无 shell 的原生 `ssh`，最多 10 秒、64 KiB 输出，使用 `BatchMode=yes`、5 秒连接超时，不请求 TTY、不转发 Agent/X11、不执行本地命令；只运行 `hostname`。默认遵循 OpenSSH 主机密钥策略，不自动信任未知主机；不回显可能含敏感信息的原生 stderr。
@@ -66,7 +66,7 @@ Workspace 获得独立于目录和 Session 的外部机器语境：同一机器�
 
 ## 暂缓
 
-- 独立 FRP/SSH Connection Capability、连接配置与凭据管理；它们应引用 Machine Identity，不成为机器所有者。
+- Connectivity v0 已交付（[Connection Profile](./2026-11-09-connectivity.md)）；FRPP 配置下发、visitor 启停、Link 管理与 PTY 交接仍暂缓。
 - 机器删除、共享引用清理、地址历史与自动迁移；需要明确的破坏性确认和数据所有权规则。
 - 网络扫描、按 SSH 配置自动导入、hostname/IP 自动去重和身份确认。
 - 远端执行、部署、监控与操作系统/服务信息采集；当前只运行 `hostname`。

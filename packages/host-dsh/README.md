@@ -14,8 +14,8 @@ Cordis 薄装配插件：创建并持有 Core，把实际公开用例注册为 `
 
 同 scope 重复提供 `locus` 会失败，不静默替换。提供方卸载后服务被 Cordis 撤销，Core 关闭数据库，捕获的用例也拒绝继续调用；卸载只释放资源，不删除持久数据。
 
-领域 Plugin 直接提供 `locusFilesystem`、`locusGit`、`locusRemoteMachine`、`locusSession` 等实际服务，可以使用所需 DSH/Cordis 能力，不经过 host 转发。Session 直接消费 DSH `ctx.sessionQuery`，Remote Machine 直接调用原生 OpenSSH；host 不复制或代理这些服务。Core/contracts 暂保持无 DSH/Cordis 依赖；变更边界需另立决策。
+领域 Plugin 直接提供 `locusFilesystem`、`locusGit`、`locusRemoteMachine`、`locusConnectivity`、`locusSession` 等实际服务，可以使用所需 DSH/Cordis 能力，不经过 host 转发。Session 直接消费 DSH `ctx.sessionQuery`，Remote Machine/Connectivity 直接调用原生 OpenSSH；host 不复制或代理这些服务。Core/contracts 暂保持无 DSH/Cordis 依赖；变更边界需另立决策。
 
 ## 验证
 
-`pnpm test:all` 的真实 Cordis 生命周期场景验证 Plugin 卸载、重载后的身份/关系与位置恢复，以及重复提供失败。`pnpm verify:full` 使用真实 profile 验证版本、应用退出、Remote Machine 与 Session 关联及能力缺失时仍可打开 Workspace；验证入口见[开发与验证](../../docs/development.md#修改与验证)。
+`pnpm test:all` 的真实 Cordis 生命周期场景验证 Plugin 卸载、重载后的身份/关系与位置恢复，以及重复提供失败。`pnpm verify:full` 使用真实 profile 验证版本、应用退出、Remote Machine/Connectivity 与 Session 关联及能力缺失时仍可打开 Workspace；验证入口见[开发与验证](../../docs/development.md#修改与验证)。

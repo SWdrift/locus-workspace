@@ -1,6 +1,13 @@
 import { Command, InvalidArgumentError, Option } from 'commander'
 import type {
   CapabilityDescriptor,
+  ConnectionAttempt,
+  ConnectionInspection,
+  ConnectionOpen,
+  ConnectionProfile,
+  ConnectionProfileUpdate,
+  ConnectionTransport,
+  ConnectivityService,
   FilesystemObservation,
   FilesystemService,
   GitService,
@@ -106,6 +113,73 @@ function machineObservationText(value: MachineObservation): string {
   ].join('\n')
 }
 
+function redactProfile(value: ConnectionProfile): Record<string, unknown> {
+  return {
+    id: value.id,
+    machineId: value.machineId,
+    name: value.name,
+    transport: value.transport,
+    target: value.target,
+    ...(value.port === undefined ? {} : { port: value.port }),
+    ...(value.user === undefined ? {} : { user: value.user }),
+    ...(value.proxyJump === undefined ? {} : { proxyJump: value.proxyJump }),
+    ...(value.identityFile === undefined ? {} : { identityFile: '<configured>' }),
+    ...(value.knownHostsFile === undefined ? {} : { knownHostsFile: '<configured>' }),
+    ...(value.sshConfigFile === undefined ? {} : { sshConfigFile: '<configured>' }),
+    createdAt: value.createdAt,
+    updatedAt: value.updatedAt,
+  }
+}
+
+function profileText(value: ConnectionProfile, machineName?: string): string {
+  const target = `${value.target}${value.port === undefined ? '' : `:${value.port}`}`
+  return [
+    `Connection Profile: ${value.name}`,
+    `Identity: ${value.id}`,
+    ...(machineName === undefined ? [`Machine: ${value.machineId}`] : [`Machine: ${machineName} (${value.machineId})`]),
+    `Transport: ${value.transport}`,
+    `Target: ${target}${value.user === undefined ? '' : `  用户 ${value.user}`}`,
+    ...(value.proxyJump === undefined ? [] : [`ProxyJump: ${value.proxyJump}`]),
+    `配置引用: ${value.sshConfigFile === undefined ? '系统 OpenSSH 默认' : '已配置'}`,
+    `身份文件: ${value.identityFile === undefined ? 'OpenSSH 默认' : '已配置'}`,
+    `known_hosts: ${value.knownHostsFile === undefined ? 'OpenSSH 默认' : '已配置'}`,
+    `更新时间: ${value.updatedAt}`,
+  ].join('\n')
+}
+
+function inspectionText(value: ConnectionInspection): string {
+  return [
+    `${value.state}  ${value.transport}  ${value.target}  ${value.observedAt}`,
+    ...(value.resolved === undefined
+      ? []
+      : [`有效目标: ${value.resolved.hostname}:${value.resolved.port}  用户 ${value.resolved.user}`]),
+    ...(value.resolved?.proxyJump === undefined ? [] : [`ProxyJump: ${value.resolved.proxyJump}`]),
+    ...value.checks.map((check) => `  [${check.state}] ${check.code}: ${check.message}`),
+    ...(value.error === undefined ? [] : [value.error]),
+  ].join('\n')
+}
+
+function attemptText(value: ConnectionAttempt): string {
+  return [
+    `${value.state}  ${value.transport}  ${value.source.target}${value.source.port === undefined ? '' : `:${value.source.port}`}  ${value.durationMs}ms`,
+    ...(value.host === undefined ? [] : [`hostname: ${value.host.hostname}`]),
+    ...(value.error === undefined ? [] : [value.error]),
+    `开始: ${value.startedAt}  结束: ${value.finishedAt}`,
+  ].join('\n')
+}
+
+function shellArgument(value: string): string {
+  return /^[\w@%+=:,./\\-]+$/.test(value) ? value : `"${value.replaceAll('"', '\\"')}"`
+}
+
+function openText(value: ConnectionOpen): string {
+  return [
+    value.mode,
+    ...(value.command === undefined ? [] : [value.command.map(shellArgument).join(' ')]),
+    value.note,
+  ].join('\n')
+}
+
 /** 语法解析只选择用例，异步 I/O 留到 parseCmdline 完成后执行。 */
 export function createCommands(
   locus: LocusService,
@@ -113,6 +187,7 @@ export function createCommands(
   git: GitService | undefined,
   session: SessionService | undefined,
   remoteMachine: RemoteMachineService | undefined,
+  connectivity: ConnectivityService | undefined,
 ): ParsedCommand {
   const program = new Command()
     .name('dsh --profile locus')
@@ -139,6 +214,10 @@ export function createCommands(
     if (!remoteMachine) throw new Error('Remote Machine 能力不可用：profile 未加载 locusRemoteMachine；Workspace 与已保存关系不受影响。')
     return remoteMachine
   }
+  const connectivityService = (): ConnectivityService => {
+    if (!connectivity) throw new Error('Connectivity 能力不可用：profile 未加载 locusConnectivity；Connection Profile 不受影响。')
+    return connectivity
+  }
   const workspacesFor = (machineId: string): { workspaceId: string; workspaceName: string; relationId: string }[] =>
     locus.workspaces.list().flatMap((workspace) =>
       workspace.relations
@@ -153,6 +232,7 @@ export function createCommands(
   if (filesystem) declared.push(filesystem.capability)
   if (git) declared.push(git.capability)
   if (remoteMachine) declared.push(remoteMachine.capability)
+  if (connectivity) declared.push(connectivity.capability)
   if (session) declared.push(session.capability)
   const descriptor = (input: string): CapabilityDescriptor => {
     const result = declared.find((item) => item.id === input || item.provider === input)
@@ -222,6 +302,7 @@ export function createCommands(
     const current = locus.workspaces.get(id)
     const gitAvailability = git ? await git.availability() : undefined
     const remoteMachineAvailability = remoteMachine ? await remoteMachine.availability() : undefined
+    const connectivityAvailability = connectivity ? await connectivity.availability() : undefined
     const sessionAvailability = session ? await session.availability() : undefined
     const loaded = new Map(declared.map((item) => [item.id, item]))
     const ids = new Set([...current.capabilities.map((item) => item.id), ...loaded.keys()])
@@ -236,6 +317,8 @@ export function createCommands(
           ? gitAvailability?.available === true
           : capabilityId === 'locus.remote-machine'
             ? remoteMachineAvailability?.available === true
+          : capabilityId === 'locus.connectivity'
+            ? connectivityAvailability?.available === true
           : capabilityId === 'locus.session'
             ? sessionAvailability?.available === true
             : true
@@ -249,6 +332,8 @@ export function createCommands(
               ? gitAvailability?.error ?? '原生依赖不可用。'
               : capabilityId === 'locus.remote-machine'
                 ? remoteMachineAvailability?.error ?? 'OpenSSH 不可用；机器资料与关联仍可用。'
+              : capabilityId === 'locus.connectivity'
+                ? connectivityAvailability?.error ?? 'OpenSSH 不可用；Connection Profile 仍可保存。'
               : sessionAvailability?.error ?? 'Session 查询服务不可用。'
             : '服务已就绪；具体资源的访问状态由能力查询。'
       return {
@@ -552,6 +637,166 @@ export function createCommands(
       text: machineObservationText(result),
       exitCode: result.state === 'observed' ? 0 : 2,
     }
+  }))
+
+  const connection = program.command('connect')
+    .description('Connectivity：SSH Connection Profile、配置检查、真实连接验证与原生入口')
+  const connectionList = connection.command('list [workspace]')
+    .description('列出 Connection Profile；给出 Workspace 时只列其机器关联下的 Profile')
+  connectionList.action((workspaceId?: string) => choose(connectionList, () => {
+    const service = connectivityService()
+    const profiles = service.list()
+    if (workspaceId === undefined) {
+      return {
+        value: profiles.map(redactProfile),
+        text: profiles.map((profile) => profileText(profile)).join('\n') || '没有 Connection Profile。',
+      }
+    }
+    const workspace = locus.workspaces.get(workspaceId)
+    const machineIds = new Set(workspace.relations
+      .filter((relation) => relation.target.namespace === REMOTE_MACHINE_NAMESPACE)
+      .map((relation) => relation.target.id))
+    const selected = profiles.filter((profile) => machineIds.has(profile.machineId))
+    return {
+      value: selected.map(redactProfile),
+      text: selected.map((profile) => profileText(profile)).join('\n') || '该 Workspace 没有 Connection Profile。',
+    }
+  }))
+  const connectionProfile = connection.command('profile')
+    .description('机器级 Connection Profile；同一 Machine 可有多个入口')
+  const connectionProfileList = connectionProfile.command('list <machine>')
+    .description('列出某台 Machine 的 Connection Profile；不建立新的机器身份')
+  connectionProfileList.action((machineId: string) => choose(connectionProfileList, () => {
+    const machine = remoteMachineService().get(machineId)
+    const result = connectivityService().list(machine.id)
+    return {
+      value: result.map(redactProfile),
+      text: result.map((profile) => profileText(profile, machine.name)).join('\n')
+        || `Machine ${machine.name} 没有 Connection Profile。`,
+    }
+  }))
+  const connectionProfileShow = connectionProfile.command('show <profile>')
+    .description('查看 Profile 配置摘要；默认隐藏身份文件与 known_hosts 路径')
+  connectionProfileShow.action((profileId: string) => choose(connectionProfileShow, () => {
+    const profile = connectivityService().get(profileId)
+    const machine = remoteMachineService().get(profile.machineId)
+    return {
+      value: { profile: redactProfile(profile), machine: { id: machine.id, name: machine.name } },
+      text: profileText(profile, machine.name),
+    }
+  }))
+  const connectionProfileAdd = connectionProfile.command('add <machine> <name>')
+    .description('登记一套可复用 SSH 连接；只引用配置，不保存凭据')
+    .addOption(new Option('--transport <kind>', '连接方式').choices(['direct', 'proxy-jump', 'frp']).default('direct'))
+    .requiredOption('--target <target>', 'SSH alias 或 host，例如 host-alias、user@host')
+    .option('--port <port>', 'SSH/visitor 端口（1–65535）', port)
+    .option('--user <user>', 'SSH 登录用户')
+    .option('--proxy-jump <target>', 'OpenSSH ProxyJump 目标或 alias')
+    .option('--identity-file <path>', '引用现有私钥路径；不读取或复制内容')
+    .option('--known-hosts-file <path>', '引用现有 known_hosts 路径')
+    .option('--ssh-config-file <path>', '引用非默认 OpenSSH 配置文件')
+  connectionProfileAdd.action((machineId: string, name: string) => choose(connectionProfileAdd, () => {
+    const options = connectionProfileAdd.opts<{
+      transport: ConnectionTransport
+      target: string
+      port?: number
+      user?: string
+      proxyJump?: string
+      identityFile?: string
+      knownHostsFile?: string
+      sshConfigFile?: string
+    }>()
+    const machine = remoteMachineService().get(machineId)
+    const result = connectivityService().add(machine.id, {
+      name,
+      transport: options.transport,
+      target: options.target,
+      ...(options.port === undefined ? {} : { port: options.port }),
+      ...(options.user === undefined ? {} : { user: options.user }),
+      ...(options.proxyJump === undefined ? {} : { proxyJump: options.proxyJump }),
+      ...(options.identityFile === undefined ? {} : { identityFile: options.identityFile }),
+      ...(options.knownHostsFile === undefined ? {} : { knownHostsFile: options.knownHostsFile }),
+      ...(options.sshConfigFile === undefined ? {} : { sshConfigFile: options.sshConfigFile }),
+    })
+    return { value: redactProfile(result), text: profileText(result, machine.name) }
+  }))
+  const connectionProfileUpdate = connectionProfile.command('update <profile>')
+    .description('修改 Profile；Machine Identity 不变')
+    .option('--name <name>', '新的 Profile 名称')
+    .addOption(new Option('--transport <kind>', '连接方式').choices(['direct', 'proxy-jump', 'frp']))
+    .option('--target <target>', '新的 SSH alias 或 host')
+    .option('--port <port>', '新的 SSH/visitor 端口', port)
+    .option('--user <user>', '新的 SSH 用户')
+    .option('--proxy-jump <target>', '新的 ProxyJump 目标')
+    .option('--identity-file <path>', '新的身份文件路径引用')
+    .option('--known-hosts-file <path>', '新的 known_hosts 路径引用')
+    .option('--ssh-config-file <path>', '新的 OpenSSH 配置文件引用')
+  connectionProfileUpdate.action((profileId: string) => choose(connectionProfileUpdate, () => {
+    const options = connectionProfileUpdate.opts<{
+      name?: string
+      transport?: ConnectionTransport
+      target?: string
+      port?: number
+      user?: string
+      proxyJump?: string
+      identityFile?: string
+      knownHostsFile?: string
+      sshConfigFile?: string
+    }>()
+    if (Object.values(options).every((value) => value === undefined)) {
+      throw new Error('至少提供一个 Profile 修改选项')
+    }
+    const changes: ConnectionProfileUpdate = {
+      ...(options.name === undefined ? {} : { name: options.name }),
+      ...(options.transport === undefined ? {} : { transport: options.transport }),
+      ...(options.target === undefined ? {} : { target: options.target }),
+      ...(options.port === undefined ? {} : { port: options.port }),
+      ...(options.user === undefined ? {} : { user: options.user }),
+      ...(options.proxyJump === undefined ? {} : { proxyJump: options.proxyJump }),
+      ...(options.identityFile === undefined ? {} : { identityFile: options.identityFile }),
+      ...(options.knownHostsFile === undefined ? {} : { knownHostsFile: options.knownHostsFile }),
+      ...(options.sshConfigFile === undefined ? {} : { sshConfigFile: options.sshConfigFile }),
+    }
+    const result = connectivityService().update(profileId, changes)
+    const machine = remoteMachineService().get(result.machineId)
+    return { value: redactProfile(result), text: profileText(result, machine.name) }
+  }))
+  const connectionProfileRemove = connectionProfile.command('remove <profile>')
+    .description('删除连接配置，不删除 Machine、Workspace 关联或外部资源')
+    .requiredOption('--yes', '确认删除 Profile；不等待交互输入')
+  connectionProfileRemove.action((profileId: string) => choose(connectionProfileRemove, () => {
+    const profile = connectivityService().get(profileId)
+    connectivityService().remove(profileId)
+    return {
+      value: { removedProfileId: profileId, machineId: profile.machineId },
+      text: `已删除 Connection Profile ${profile.name}；Machine 与 Workspace 关系未删除。`,
+    }
+  }))
+  const connectionInspect = connection.command('inspect <profile>')
+    .description('只读检查 OpenSSH 有效配置、身份/known_hosts 前提与 FRP visitor 端口')
+  connectionInspect.action((profileId: string) => choose(connectionInspect, async () => {
+    const result = await connectivityService().inspect(profileId)
+    return {
+      value: result,
+      text: inspectionText(result),
+      exitCode: result.state === 'error' || result.state === 'unavailable' ? 2 : 0,
+    }
+  }))
+  const connectionVerify = connection.command('verify <profile>')
+    .description('通过 OpenSSH 执行一次只读 hostname 验证；不修改远端状态')
+  connectionVerify.action((profileId: string) => choose(connectionVerify, async () => {
+    const result = await connectivityService().verify(profileId)
+    return {
+      value: result,
+      text: attemptText(result),
+      exitCode: result.state === 'connected' ? 0 : 2,
+    }
+  }))
+  const connectionOpen = connection.command('open <profile>')
+    .description('返回可执行的原生 SSH 入口；当前 CLI 不接管 Agent/Web 终端')
+  connectionOpen.action((profileId: string) => choose(connectionOpen, () => {
+    const result = connectivityService().open(profileId)
+    return { value: result, text: openText(result), exitCode: result.mode === 'native' ? 0 : 2 }
   }))
 
   const sessionGroup = program.command('session')

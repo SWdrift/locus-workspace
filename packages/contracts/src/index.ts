@@ -258,3 +258,133 @@ export interface RemoteMachineService {
   reference(machineId: string): ResourceReference
   observe(machineId: string, addressId?: string, signal?: AbortSignal): Promise<MachineObservation>
 }
+
+/** Connection Profile 的访问方式；具体隧道生命周期不归 Connectivity Plugin。 */
+export type ConnectionTransport = 'direct' | 'proxy-jump' | 'frp'
+
+/**
+ * 一套可复用的 SSH 连接约定。只保存配置引用与参数，不保存私钥、密码或 FRP 秘密。
+ * machineId 是不透明关联，Profile 不拥有 Remote Machine 生命周期。
+ */
+export interface ConnectionProfile {
+  readonly id: string
+  readonly machineId: string
+  readonly name: string
+  readonly transport: ConnectionTransport
+  readonly target: string
+  readonly port?: number
+  readonly user?: string
+  readonly proxyJump?: string
+  readonly identityFile?: string
+  readonly knownHostsFile?: string
+  readonly sshConfigFile?: string
+  readonly createdAt: string
+  readonly updatedAt: string
+}
+
+export interface ConnectionProfileInput {
+  readonly name: string
+  readonly transport: ConnectionTransport
+  readonly target: string
+  readonly port?: number
+  readonly user?: string
+  readonly proxyJump?: string
+  readonly identityFile?: string
+  readonly knownHostsFile?: string
+  readonly sshConfigFile?: string
+}
+
+/** null 表示显式清除可选字段；缺省表示保留。 */
+export interface ConnectionProfileUpdate {
+  readonly name?: string
+  readonly transport?: ConnectionTransport
+  readonly target?: string
+  readonly port?: number | null
+  readonly user?: string | null
+  readonly proxyJump?: string | null
+  readonly identityFile?: string | null
+  readonly knownHostsFile?: string | null
+  readonly sshConfigFile?: string | null
+}
+
+export type ConnectionCheckState = 'ok' | 'warning' | 'error'
+
+export interface ConnectionCheck {
+  readonly code: string
+  readonly state: ConnectionCheckState
+  readonly message: string
+}
+
+/** 从 OpenSSH `-G` 得到的有效配置；不返回身份文件等敏感路径。 */
+export interface ConnectionResolved {
+  readonly hostname: string
+  readonly port: number
+  readonly user: string
+  readonly proxyJump?: string
+  readonly identityFileCount: number
+  readonly knownHostsFileCount: number
+  readonly strictHostKeyChecking: string
+}
+
+export interface ConnectionInspection {
+  readonly profileId: string
+  readonly machineId: string
+  readonly transport: ConnectionTransport
+  readonly target: string
+  readonly state: 'ready' | 'warning' | 'unavailable' | 'error'
+  readonly observedAt: string
+  readonly checks: readonly ConnectionCheck[]
+  readonly resolved?: ConnectionResolved
+  readonly error?: string
+}
+
+export interface ConnectionAttemptSource {
+  readonly kind: 'ssh'
+  readonly transport: ConnectionTransport
+  readonly target: string
+  readonly port?: number
+  readonly user?: string
+  readonly proxyJump?: string
+}
+
+export interface ConnectionAttempt {
+  readonly profileId: string
+  readonly machineId: string
+  readonly transport: ConnectionTransport
+  readonly state:
+    | 'connected'
+    | 'config-error'
+    | 'denied'
+    | 'host-key'
+    | 'unreachable'
+    | 'target-unavailable'
+    | 'unavailable'
+    | 'error'
+  readonly source: ConnectionAttemptSource
+  readonly startedAt: string
+  readonly finishedAt: string
+  readonly durationMs: number
+  readonly host?: { readonly hostname: string }
+  readonly error?: string
+}
+
+/** 当前宿主没有可移交给 CLI 的 Agent/Web 终端时，先给出可执行原生命令。 */
+export interface ConnectionOpen {
+  readonly mode: 'native' | 'unavailable'
+  readonly command?: readonly string[]
+  readonly note: string
+}
+
+/** 机器级连接配置；Workspace 关联仍经 Remote Machine，不在此复制成员模型。 */
+export interface ConnectivityService {
+  readonly capability: CapabilityDescriptor
+  availability(): Promise<{ readonly available: boolean; readonly error?: string }>
+  list(machineId?: string): readonly ConnectionProfile[]
+  get(profileId: string): ConnectionProfile
+  add(machineId: string, profile: ConnectionProfileInput): ConnectionProfile
+  update(profileId: string, changes: ConnectionProfileUpdate): ConnectionProfile
+  remove(profileId: string): void
+  inspect(profileId: string, signal?: AbortSignal): Promise<ConnectionInspection>
+  verify(profileId: string, signal?: AbortSignal): Promise<ConnectionAttempt>
+  open(profileId: string): ConnectionOpen
+}

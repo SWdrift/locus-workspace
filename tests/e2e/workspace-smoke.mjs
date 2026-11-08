@@ -26,6 +26,9 @@ writeFileSync(missingFilesystem, [
   '- id: locus-remote-machine',
   "  name: '@locus/remote-machine'",
   '  disabled: true',
+  '- id: locus-connectivity',
+  "  name: '@locus/connectivity'",
+  '  disabled: true',
   '',
 ].join('\n'))
 let invocations = 0
@@ -37,6 +40,7 @@ function prepareProfile() {
     join(resolve('.'), 'plugins/filesystem'),
     join(resolve('.'), 'plugins/git'),
     join(resolve('.'), 'plugins/remote-machine'),
+    join(resolve('.'), 'plugins/connectivity'),
     join(resolve('.'), 'plugins/session'),
     join(resolve('.'), 'plugins/cli'),
   ]
@@ -67,6 +71,8 @@ function prepareProfile() {
     "      name: '@locus/git'",
     "    - id: locus-remote-machine",
     "      name: '@locus/remote-machine'",
+    "    - id: locus-connectivity",
+    "      name: '@locus/connectivity'",
     "    - id: locus-session",
     "      name: '@locus/session'",
     "    - id: locus-cli",
@@ -258,6 +264,23 @@ try {
   assert.equal(run(['machine', 'list', secondWorkspace.id]).length, 0)
   assert.equal(run(['machine', 'show', machine.id]).machine.id, machine.id)
 
+  const connectionProfile = run([
+    'connect', 'profile', 'add', machine.id, 'loopback', '--target', '127.0.0.1', '--port', '1',
+  ])
+  assert.equal(connectionProfile.machineId, machine.id)
+  assert.equal(connectionProfile.target, '127.0.0.1')
+  assert.equal(run(['connect', 'list', workspace.id]).length, 1)
+  const connectionInspection = run(['connect', 'inspect', connectionProfile.id])
+  assert.equal(['ready', 'warning'].includes(connectionInspection.state), true)
+  assert.equal(JSON.stringify(connectionInspection).includes('identity-file'), true)
+  const connectionOpen = run(['connect', 'open', connectionProfile.id])
+  assert.equal(connectionOpen.mode, 'native')
+  assert.equal(connectionOpen.command[0], 'ssh')
+  assert.equal(connectionOpen.command.at(-1), '127.0.0.1')
+  const failedConnection = run(['connect', 'verify', connectionProfile.id], { code: 2 })
+  const connectionAttempt = JSON.parse(failedConnection.stdout)
+  assert.ok(['target-unavailable', 'unreachable', 'host-key', 'denied', 'config-error'].includes(connectionAttempt.state))
+
   const machineShell = runShell([
     `--json machine show ${machine.id}`,
     `--json machine list ${workspace.id}`,
@@ -273,6 +296,7 @@ try {
     `--json capability list ${workspace.id}`,
     `--json session links ${workspace.id}`,
     `--json machine list`,
+    `--json connect list`,
     `fs register ${workspace.id} ${shared}`,
   ], { patch: missingFilesystem, code: 2 })
   assert.match(offline.stdout, new RegExp(workspace.id))
@@ -282,11 +306,15 @@ try {
   assert.match(offline.stdout, /"removedRelationId"|dsh\.session\./)
   assert.match(offline.stderr, /Filesystem 能力不可用/)
   assert.match(offline.stderr, /Remote Machine 能力不可用/)
+  assert.match(offline.stderr, /Connectivity 能力不可用/)
   assert.equal(run(['workspace', 'show', workspace.id]).relations.some((relation) =>
     relation.target.namespace === 'locus.remote-machine' && relation.target.id === machine.id), true)
   run(['machine', 'dissociate', workspace.id, machineRelationA.id, '--yes'])
   assert.equal(run(['workspace', 'show', workspace.id]).relations.some((relation) =>
     relation.target.namespace === 'locus.remote-machine'), false)
+  assert.equal(run(['connect', 'profile', 'show', connectionProfile.id]).profile.id, connectionProfile.id)
+  run(['connect', 'profile', 'remove', connectionProfile.id, '--yes'])
+  assert.equal(run(['connect', 'list']).length, 0)
 
   console.log('PASS profile: launcher、退出码、跨进程恢复、插件停用与 shell 组合符合断言。')
   console.log(`Workspace profile smoke: PASS (${invocations} independent DSH processes)`)

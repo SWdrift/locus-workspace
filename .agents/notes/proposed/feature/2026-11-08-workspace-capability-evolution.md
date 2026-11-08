@@ -16,14 +16,13 @@ Status: proposed
 
 ### 后续候选能力
 
-Filesystem、最小只读 Git、Remote Machine 与 DSH Session 已交付；Session 与 Remote Machine 的决定和限制分别见[Session 集成](../../implemented/feature/2026-11-09-session-integration.md)及[Remote Machine](../../implemented/feature/2026-11-09-remote-machine.md)。以下其余候选不是已实现功能，也不按行创建包。
+Filesystem、最小只读 Git、Remote Machine、SSH/FRP Connectivity 与 DSH Session 已交付；Session、Remote Machine 与 Connectivity 的决定和限制分别见[Session 集成](../../implemented/feature/2026-11-09-session-integration.md)、[Remote Machine](../../implemented/feature/2026-11-09-remote-machine.md)及[Connectivity](../../implemented/feature/2026-11-09-connectivity.md)。以下其余候选不是已实现功能，也不按行创建包。
 
 | Capability | 初步 Tag | 原生前提与组合机会 |
 | --- | --- | --- |
 | Gitea | `development`、`collaboration` | 实例地址、API 与授权；Git Remote 可以建议关联，也可独立登记远端仓库；CI/CD 事实仍由 Gitea 拥有 |
 | Nginx | `environment` | 访问配置与运行信息；可组合 Filesystem 或远程访问，不固定传输 |
 | Database | `environment`、`development` | 驱动、端点与授权；可组合机器和连接能力，不要求目录 |
-| FRP / SSH | `connectivity` | 复用既有 FRP/OpenSSH 与授权；连接不拥有机器或数据库生命周期 |
 | Project Management | `collaboration` | 看板、排期、进度的领域来源；可关联 Workspace/Gitea/Session，但不把 Workspace 定义成 Project |
 | Project Template | `development` | 模板来源与可写目标；组合 Filesystem/Git；项目脚手架不等于 Workspace Blueprint |
 
@@ -36,13 +35,12 @@ Tag 可以多选，不用于依赖解析、权限或接口兼容性判断。新�
 | 次序 | Capability | 判断依据与主要风险 |
 | --- | --- | --- |
 | 1 | Gitea | 能验证外部系统授权、仓库与 CI 观察；价值高，但需要实例、令牌/凭据和网络条件。宜先做只读仓库/Actions 观察。 |
-| 2 | FRP / SSH | 依赖 Remote Machine 已有登记与连接目标；负责连接与隧道观察，不复制 OpenSSH/FRP 运行时。 |
-| 3 | Nginx | 可复用 Filesystem 或远程访问读取配置与运行状态，成本适中，但单独价值弱于前两项。 |
-| 4 | Database | 需要驱动、端点与凭据，误操作风险高；在前述能力提供连接与授权语境后再做只读观察更稳妥。 |
-| 5 | Project Management | 领域模型较厚、外部授权复杂，且容易把 Workspace 误建成 Project；需要明确真实工作流后再启动。 |
-| 6 | Project Template | 涉及写操作和项目脚手架，误改风险最高；应最后实现，并与只读能力、显式确认和回滚策略一起验证。 |
+| 2 | Nginx | 可复用 Filesystem 或远程访问读取配置与运行状态，成本适中，但单独价值弱于 Gitea。 |
+| 3 | Database | 需要驱动、端点与凭据，误操作风险高；在连接与授权语境明确后再做只读观察更稳妥。 |
+| 4 | Project Management | 领域模型较厚、外部授权复杂，且容易把 Workspace 误建成 Project；需要明确真实工作流后再启动。 |
+| 5 | Project Template | 涉及写操作和项目脚手架，误改风险最高；应最后实现，并与只读能力、显式确认和回滚策略一起验证。 |
 
-Remote Machine 已交付，为 FRP/SSH、Nginx 与 Database 提供机器引用基础；其连接、删除与外部观察限制见[Remote Machine 记录](../../implemented/feature/2026-11-09-remote-machine.md#暂缓)。Session 已交付，但其 OMP 来源映射、Web 授权与完整 transcript 浏览仍留在[Session 记录](../../implemented/feature/2026-11-09-session-integration.md#暂缓)。
+Remote Machine 与 SSH/FRP Connectivity 已交付，为 Nginx、Database 与后续远程执行提供机器与连接引用基础；连接生命周期、FRPP 管理与 PTY 交互限制见[Connectivity 记录](../../implemented/feature/2026-11-09-connectivity.md#暂缓)。Session 已交付，但其 OMP 来源映射、Web 授权与完整 transcript 浏览仍留在[Session 记录](../../implemented/feature/2026-11-09-session-integration.md#暂缓)。
 
 ### Blueprint 与多提供方
 

@@ -7,6 +7,7 @@ import test from 'node:test'
 import { createLocusCore } from '../packages/core/lib/index.js'
 import { createFilesystemService } from '../plugins/filesystem/lib/index.js'
 import { createGitService } from '../plugins/git/lib/index.js'
+import { createConnectivityService } from '../plugins/connectivity/lib/index.js'
 import { createRemoteMachineService } from '../plugins/remote-machine/lib/index.js'
 import { createSessionService } from '../plugins/session/lib/index.js'
 import { createCommands } from '../plugins/cli/lib/commands.js'
@@ -15,6 +16,7 @@ import { createCommands } from '../plugins/cli/lib/commands.js'
 async function invoke(services, argv) {
   const commands = createCommands(
     services.locus, services.filesystem, services.git, services.session, services.remoteMachine,
+    services.connectivity,
   )
   const silence = (program) => {
     program.exitOverride()
@@ -53,6 +55,23 @@ function fixture(t) {
       return { stdout: '', stderr: '', error: { code: 'UNKNOWN' } }
     },
   })
+  const sshConfigOutput = [
+    'hostname 198.51.100.10',
+    'port 22',
+    'user admin',
+    'proxyjump none',
+    'proxycommand none',
+    'stricthostkeychecking yes',
+    'identityfile C:\\Users\\test\\.ssh\\id_ed25519',
+    '',
+  ].join('\n')
+  let connectivity = createConnectivityService(core, remoteMachine, {
+    run: async (args) => {
+      if (args[0] === '-V') return { stdout: '', stderr: 'OpenSSH_9.5', error: null }
+      if (args.includes('-G')) return { stdout: sshConfigOutput, stderr: '', error: null }
+      return { stdout: 'remote-cli\n', stderr: '', error: null }
+    },
+  })
   const sessionRecords = []
   const sessionQuery = {
     async listSessions() {
@@ -81,6 +100,7 @@ function fixture(t) {
   })
   t.after(async () => {
     await git.dispose()
+    await connectivity.dispose()
     await remoteMachine.dispose()
     await filesystem.dispose()
     await core.dispose()
@@ -89,9 +109,10 @@ function fixture(t) {
   return {
     root, data, resources, parent, child, sibling,
     sessionRecords,
-    services: () => ({ locus: core, filesystem, git, session, remoteMachine }),
+    services: () => ({ locus: core, filesystem, git, session, remoteMachine, connectivity }),
     async restart() {
       await git.dispose()
+      await connectivity.dispose()
       await remoteMachine.dispose()
       await filesystem.dispose()
       await core.dispose()
@@ -103,6 +124,13 @@ function fixture(t) {
           if (args[0] === '-V') return { stdout: '', stderr: 'OpenSSH_9.5', error: null }
           if (args.at(-1) === 'hostname') return { stdout: 'remote-cli\n', stderr: '', error: null }
           return { stdout: '', stderr: '', error: { code: 'UNKNOWN' } }
+        },
+      })
+      connectivity = createConnectivityService(core, remoteMachine, {
+        run: async (args) => {
+          if (args[0] === '-V') return { stdout: '', stderr: 'OpenSSH_9.5', error: null }
+          if (args.includes('-G')) return { stdout: sshConfigOutput, stderr: '', error: null }
+          return { stdout: 'remote-cli\n', stderr: '', error: null }
         },
       })
       session = createSessionService({
@@ -460,4 +488,54 @@ test('Remote Machine 登记、共享关联、地址修改与只读观察不依�
   await invoke(withoutMachine, ['machine', 'dissociate', b.id, relationB.id, '--yes'])
   assert.equal((await invoke(withoutMachine, ['workspace', 'show', b.id])).value.relations.length, 0)
   await assert.rejects(invoke(withoutMachine, ['machine', 'list', b.id]), /Remote Machine 能力不可用/)
+})
+
+test('Connectivity Profile 保存、检查、验证与原生入口不改变 Machine Identity', async (t) => {
+  const f = fixture(t)
+  const workspace = await createWorkspace(f, 'Connectivity')
+  const machine = (await invoke(f.services(), ['machine', 'register', 'Connect Target'])).value
+  await invoke(f.services(), ['capability', 'configure', workspace.id, 'remote-machine'])
+  await invoke(f.services(), ['machine', 'associate', workspace.id, machine.id])
+
+  const profile = (await invoke(f.services(), [
+    'connect', 'profile', 'add', machine.id, 'alias', '--target', 'build-alias',
+  ])).value
+  assert.equal(profile.machineId, machine.id)
+  assert.equal(profile.transport, 'direct')
+  assert.equal(profile.target, 'build-alias')
+  assert.equal((await invoke(f.services(), ['connect', 'profile', 'list', machine.id])).value.length, 1)
+  assert.equal((await invoke(f.services(), ['connect', 'list', workspace.id])).value.length, 1)
+
+  const inspected = (await invoke(f.services(), ['connect', 'inspect', profile.id])).value
+  assert.equal(['ready', 'warning'].includes(inspected.state), true)
+  assert.equal(inspected.resolved.hostname, '198.51.100.10')
+  assert.equal(JSON.stringify(inspected).includes('C:\\Users\\test'), false)
+  assert.equal((await invoke(f.services(), ['connect', 'inspect', profile.id])).exitCode, 0)
+
+  const verified = (await invoke(f.services(), ['connect', 'verify', profile.id])).value
+  assert.equal(verified.state, 'connected')
+  assert.equal(verified.host.hostname, 'remote-cli')
+  const opened = (await invoke(f.services(), ['connect', 'open', profile.id])).value
+  assert.equal(opened.mode, 'native')
+  assert.equal(opened.command[0], 'ssh')
+  assert.equal(opened.command.at(-1), 'build-alias')
+
+  const updated = (await invoke(f.services(), [
+    'connect', 'profile', 'update', profile.id, '--target', 'build.internal',
+  ])).value
+  assert.equal(updated.id, profile.id)
+  assert.equal(updated.machineId, machine.id)
+  assert.equal(updated.target, 'build.internal')
+  const shown = (await invoke(f.services(), ['connect', 'profile', 'show', profile.id])).value
+  assert.equal(shown.machine.id, machine.id)
+  const withSecretPath = (await invoke(f.services(), [
+    'connect', 'profile', 'update', profile.id, '--identity-file', 'C:\\secret\\id_ed25519',
+  ])).value
+  assert.equal(withSecretPath.identityFile, '<configured>')
+  assert.equal(JSON.stringify(withSecretPath).includes('C:\\secret'), false)
+
+  const removed = (await invoke(f.services(), ['connect', 'profile', 'remove', profile.id, '--yes'])).value
+  assert.equal(removed.removedProfileId, profile.id)
+  assert.equal((await invoke(f.services(), ['connect', 'list'])).value.length, 0)
+  assert.equal((await invoke(f.services(), ['machine', 'show', machine.id])).value.machine.id, machine.id)
 })
