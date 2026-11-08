@@ -59,7 +59,7 @@ Core/contracts 暂无 DSH/Cordis 依赖；领域和应用 Plugin 直接使用所
 
 ## 验证
 
-[验收记录](../../../../docs/workspace-foundation-validation.md)包含真实数据库中断/并发/损坏、Filesystem 权限/链接、Git 原生只读、Cordis 卸载/重载及完整 profile 恢复。源码依赖不包含第二运行时或无实现候选包。
+真实数据库中断/并发/损坏、Filesystem 权限/链接、Git 原生只读、Cordis 卸载/重载及完整 profile 恢复由测试与 smoke 覆盖；验证入口见[开发与验证](../../../../docs/development.md#修改与验证)。源码依赖不包含第二运行时或无实现候选包。
 
 ## 后果
 

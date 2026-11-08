@@ -6,7 +6,7 @@
 
 ## 装配与使用
 
-按[开发与验证](../../docs/development.md#宿主运行)将本包链接到项目内 `locus` profile，并使用[配置示例](../../examples/locus.profile.yml)。Plugin 注入 `locus`，提供 `locusFilesystem`；其 Capability 标识为 `locus.filesystem`，提供方为 `@locus/filesystem`，Tag `environment` 仅用于分类。
+按[开发与验证](../../docs/development.md#宿主运行)将本包链接到项目内 `locus` profile 并合入插件行。Plugin 注入 `locus`，提供 `locusFilesystem`；其 Capability 标识为 `locus.filesystem`，提供方为 `@locus/filesystem`，Tag `environment` 仅用于分类。
 
 Workspace 必须先选择本提供方，才能登记或使用观察/发现/读取。取消能力选择后仍可列出和取消位置登记；卸载 Plugin 不删除配置或 Core 关系。CLI 语法由[命令手册](../../docs/commands.md#workspace-操作)维护，非终端调用使用 `createFilesystemService(locus)` 与 [contracts](../../packages/contracts/README.md) 中的实际局部协议。
 
@@ -34,4 +34,4 @@ fiber 卸载等待在途有界 I/O 并关闭数据库，不删除登记；释放
 
 ## 验证
 
-`pnpm test` 使用真实临时目录、文件、SQLite 和链接验证范围、状态、读取、配置恢复与生命周期；`pnpm smoke:workspace` 通过真实 DSH profile 验证完整产品操作。命令、结果与平台限制见[验收记录](../../docs/workspace-foundation-validation.md)。
+`pnpm test:all` 使用真实临时目录、文件、SQLite 和链接验证范围、状态、读取、配置恢复与生命周期；`pnpm verify:full` 通过真实 DSH profile 验证产品操作。平台与路径限制见本文，验证入口见[开发与验证](../../docs/development.md#修改与验证)。

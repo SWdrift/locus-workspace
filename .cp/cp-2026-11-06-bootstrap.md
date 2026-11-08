@@ -52,4 +52,4 @@
 - [ ] 出现实际新环境搭建需求时，评估 profile 初始化脚本；现阶段沿用[开发与验证](../docs/development.md#宿主运行)的 link 与 patch 步骤。
 - 包名、对外发布与 Bundle 分发范围另行决策，不阻塞本地下一版本切片。
 
-既有切片的事实由[已实施 Note](../.agents/notes/implemented/architecture/2026-11-06-bootstrap-host-plugin.md)与模块 README 负责；扩展后的实际运行证据见[验收记录](../docs/workspace-foundation-validation.md)。不在此保存重复已完成表或旧产品假说。
+既有切片的事实由[已实施 Note](../.agents/notes/implemented/architecture/2026-11-06-bootstrap-host-plugin.md)与模块 README 负责；扩展后的验证入口见[开发与验证](../docs/development.md#修改与验证)。不在此保存重复已完成表或旧产品假说。

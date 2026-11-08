@@ -1,6 +1,6 @@
 # 项目架构
 
-改动 `packages/` 下内容前先读本文。本文维护当前组件、依赖与扩展边界；决定理由在 Agent Notes，用法在模块 README，实际运行证据在[验收记录](workspace-foundation-validation.md)。
+改动 `packages/` 下内容前先读本文。本文维护当前组件、依赖与扩展边界；决定理由在 Agent Notes，用法在模块 README，验证入口在[开发与验证](development.md#修改与验证)。
 
 ## 当前交付与方向
 
@@ -44,6 +44,7 @@ flowchart TD
 ## 宿主与扩展边界
 
 - 当前只支持项目内 DSH/Cordis，不预建 Host 抽象、专用 Host、独立 HTTP/启动器、中央插件总线或第二运行时。
+- CLI 的 `shell` 只是同一 CLI 插件内的长驻命令循环，复用现有命令树、领域服务和持久化；开发期 HMR 仍由 DSH/Cordis 管模块与 fiber，不新增运行时或插件管理器。
 - Core/contracts 暂无 DSH/Cordis 依赖；功能与应用 Plugin 可直接使用 DSH 服务，host 不提供服务镜像或通用注册器。
 - `locus` 由 host 唯一提供；领域 Plugin 直接提供当前需要的服务，随 fiber 撤销，不占用无关 DSH 顶层名字。后续服务面只随真实调用双方扩展。
 - Capability 与 Plugin 不一一对应；当前声明与保存的提供方选择分开，Tag 只分类。多提供方自动仲裁未实施。

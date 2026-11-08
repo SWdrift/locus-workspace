@@ -1,6 +1,6 @@
 # CPM Bootstrap
 
-`cp-2026-11-06-bootstrap.md` 的可复用记忆。只记录本项目的选择与实测补充；DSH 插件开发的通用形态、生命周期、坑点与失败现象由[DSH 插件开发](../docs/references/dsh-plugin-development.md)唯一维护，不在此复述。
+`cp-2026-11-06-bootstrap.md` 的记忆文件，只保存该控制面后续仍需的已核实选择与约束；不保存一次性进度或项目级通用经验。DSH 插件开发的通用形态、生命周期、坑点与失败现象由[DSH 插件开发](../docs/references/dsh-plugin-development.md)唯一维护，不在此复述。
 
 ## 项目内运行时选择
 

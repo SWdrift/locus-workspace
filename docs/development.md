@@ -12,9 +12,23 @@ Locus 作为项目内 DSH profile Plugin 运行。先将 `DSH_HOME` 设置为仓
 pnpm exec dsh plugin --profile locus add link:"$PWD/packages/host-dsh" link:"$PWD/plugins/filesystem" link:"$PWD/plugins/git" link:"$PWD/plugins/cli"
 ```
 
-将[配置示例](../examples/locus.profile.yml)中的插件行合入 `.dsh/profiles/locus/cordis.patch.yml`，已有其他配置时只合并相应 ID，不覆盖其他行。也可通过 DSH 的 `--patch` 选择示例；加载与覆盖语义见 [DSH 插件开发](references/dsh-plugin-development.md)。没有 `dsh.bundle` 的提示是普通链接依赖的预期行为。
+将以下插件行合入 `.dsh/profiles/locus/cordis.patch.yml`，已有其他配置时只合并相应 ID，不覆盖其他行；加载与覆盖语义见 [DSH 插件开发](references/dsh-plugin-development.md)。没有 `dsh.bundle` 的提示是普通链接依赖的预期行为。
+
+```yaml
+- insert:
+    - id: locus-host
+      name: '@locus/host-dsh'
+    - id: locus-filesystem
+      name: '@locus/filesystem'
+    - id: locus-git
+      name: '@locus/git'
+    - id: locus-cli
+      name: '@locus/cli'
+```
 
 运行 `pnpm exec dsh --profile locus version`，应输出 `0.0.0` 并退出 0。不要调用 PATH 上的全局 `dsh`。Workspace 与领域调用的完整参数见[命令手册](commands.md#workspace-操作)。
+
+需要连续操作时使用 `pnpm exec dsh --profile locus shell`。它保持同一 DSH 进程，逐行执行现有命令；不会建立第二个 Core，也不保存隐式当前 Workspace。`exit`、`quit` 或 stdin EOF 结束，退出码取最后一条命令。
 
 领域 Plugin 可按需不装载：仅 host 与 CLI 也能管理长期 Workspace；Filesystem/Git 命令在缺少提供方时明确失败。完整验收使用上述全部 Plugin。
 
@@ -24,13 +38,16 @@ pnpm exec dsh plugin --profile locus add link:"$PWD/packages/host-dsh" link:"$PW
 
 ## 修改与验证
 
-- `pnpm build`：编译所有真实消费者。
-- `pnpm test`：内置 Node 测试，使用隔离临时资源，覆盖持久化、范围、能力、生命周期及进程内 CLI 命令矩阵。CLI 测试直接复用应用命令树与真实领域服务，不复制另一套业务规则。
-- `pnpm smoke:workspace`：真实 profile 的装配、退出码、跨进程恢复、插件停用与 Git 组合检查；自动使用临时绝对数据目录和文件/Git 资源，最终清理自身夹具。每个剩余命令仍启动新 DSH，以验证 launcher 与退出语义；完整个案矩阵不在此重复，也不创建独立 Host 或操作用户项目目录。
-- `pnpm docs:check`：文档结构、链接与生命周期。只有修改 `scripts/docs.mjs` 才同时运行 `pnpm docs:test`。
+验证入口、快速/完整门禁与成本见[实用命令](commands.md#验证门禁)。快速层覆盖领域与进程内 CLI/shell；真实 profile 冒烟只在装配、launcher、生命周期变化或里程碑验收时运行。验证以实际输出为准，文档检查不替代业务验证。新增行为先跑真实用例，再更新所属模块 README 与 Agent Note。
 
-验收操作、结果与未验证平台见[Workspace Foundation 验收](workspace-foundation-validation.md)。业务验证不能由文档检查替代；新增行为先跑真实用例再更新所属模块 README 和 Agent Note。
+包内测试位于各包 `test/`，根 `tests/` 只放跨包 CLI/Host 与 e2e；对应包可直接运行 `pnpm --dir <包> test`。
 
 ## 宿主插件开发
 
 DSH/Cordis 服务、生命周期、配置、安装、peer 依赖与失败语义见 [DSH 插件开发](references/dsh-plugin-development.md)。Core/contracts 暂不 import DSH/Cordis，功能与应用 Plugin 可以直接使用宿主服务，不复制已有运行时。
+
+## 长驻与热更新
+
+长驻 shell 与一次性 CLI 共用命令树和领域服务；单条失败不终止会话。开发期 HMR 使用 base bundle 自带的 `dsh-hmr`，配置见[DSH 插件开发](references/dsh-plugin-development.md#长驻入口与热更新)。
+
+修改源码后仍需先构建，HMR 监视的是构建产物。Filesystem/Git 重载时 shell 保持；Core/host 或 CLI 重载会重建 shell 实例，但同一进程和 Workspace 身份保持。HMR 不编译 TypeScript，也不会热替换持久化 schema。不使用自制模块加载器或第二运行时。

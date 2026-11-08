@@ -50,7 +50,7 @@ Tag 可以多选，不用于依赖解析、权限或接口兼容性判断。新�
 
 ### Blueprint 与多提供方
 
-Workspace Blueprint 是可选初始配置方案，不是 Workspace 的运行时类型或永久依赖。[命令配方示例](../../../../examples/README.md#可选的初始配置配方)可用于复用已经支持的配置动作；没有 Blueprint 解析器、模板引擎或自动升级机制。
+Workspace Blueprint 是可选初始配置方案，不是 Workspace 的运行时类型或永久依赖。[命令配方](../../../../docs/commands.md#初始配置配方)可用于复用已经支持的配置动作；没有 Blueprint 解析器、模板引擎或自动升级机制。
 
 只有出现需要多次应用的真实配置需求，才实现执行器；执行后应形成普通、可独立维护的 Workspace 与 Plugin 配置。删除或升级 Blueprint 不应使已有 Workspace 无法打开，也不隐式重写其后续修改。
 

@@ -6,7 +6,7 @@ Cordis 薄装配插件：创建并持有 Core，把实际公开用例注册为 `
 
 ## 装配
 
-使用项目内 DSH `0.2.1-rc.5`，先 `pnpm build`，再按[开发与验证](../../docs/development.md#宿主运行)以 `link:` 安装进 `locus` profile。可用的插件行见[配置示例](../../examples/locus.profile.yml)；包本身没有 `dsh.bundle` 或配置 schema。
+使用项目内 DSH `0.2.1-rc.5`，先 `pnpm build`，再按[开发与验证](../../docs/development.md#宿主运行)以 `link:` 安装并合入插件行。包本身没有 `dsh.bundle` 或配置 schema。
 
 ## 服务与生命周期
 
@@ -18,4 +18,4 @@ Cordis 薄装配插件：创建并持有 Core，把实际公开用例注册为 `
 
 ## 验证
 
-`pnpm test` 的真实 Cordis 生命周期场景验证 Plugin 卸载、重载后的身份/关系与位置恢复，以及重复提供失败。`pnpm smoke:workspace` 使用真实 profile 验证版本、应用退出和能力缺失时仍可打开 Workspace；结果见[验收记录](../../docs/workspace-foundation-validation.md)。
+`pnpm test:all` 的真实 Cordis 生命周期场景验证 Plugin 卸载、重载后的身份/关系与位置恢复，以及重复提供失败。`pnpm verify:full` 使用真实 profile 验证版本、应用退出和能力缺失时仍可打开 Workspace；验证入口见[开发与验证](../../docs/development.md#修改与验证)。

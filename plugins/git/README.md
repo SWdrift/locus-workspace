@@ -6,7 +6,7 @@
 
 ## 装配与前提
 
-项目内 DSH profile 装配本包与 Filesystem，见[宿主运行](../../docs/development.md#宿主运行)及[配置示例](../../examples/locus.profile.yml)。Plugin 注入 `locus`、`locusFilesystem`，提供 `locusGit`；Capability 为 `locus.git`，提供方 `@locus/git`，Tag `development` 仅分类。
+项目内 DSH profile 装配本包与 Filesystem，见[宿主运行](../../docs/development.md#宿主运行)。Plugin 注入 `locus`、`locusFilesystem`，提供 `locusGit`；Capability 为 `locus.git`，提供方 `@locus/git`，Tag `development` 仅分类。
 
 Workspace 需分别选择 Git 与 Filesystem，且使用已登记的 Filesystem 位置。`availability()` 实际运行 `git --version`，区别服务已加载与原生 Git 可用；具体仓库观察仍可能失败。非 CLI 调用使用 `createGitService(locus, filesystem)`。
 
@@ -31,4 +31,4 @@ Remote 观察移除 URL userinfo 并隐藏全部 query/hash；SCP 风格非秘�
 
 卸载拒绝新操作并等待已接收的有界查询完成，不释放 Filesystem/Core、不删除 Workspace 或持久关联。没有 Git 配置数据库或第二套 Plugin 运行时。
 
-`pnpm test` 使用真实 Git 仓库验证提交、dirty、unborn/detached、非仓库、缺失 Git、错误分类、凭据脱敏、index/config 不变与生命周期；`pnpm smoke:workspace` 验证真实 DSH 下的组合、显式关联及 Plugin 缺失。证据与未验证范围见[验收记录](../../docs/workspace-foundation-validation.md)。
+`pnpm test:all` 使用真实 Git 仓库验证提交、dirty、unborn/detached、非仓库、缺失 Git、错误分类、凭据脱敏、index/config 不变与生命周期；`pnpm verify:full` 验证真实 DSH 下的组合与显式关联。未验证范围见本文，验证入口见[开发与验证](../../docs/development.md#修改与验证)。

@@ -30,4 +30,4 @@ function workspaceNames(locus: LocusService): readonly string[] {
 
 修改契约必须同步实际实现与所有消费者，不预留无调用方的接口。当前契约属于项目内实验 API，不承诺独立 SDK 兼容；持久数据的版本与恢复要求不能因此省略。
 
-执行 `pnpm build` 检查所有生产者和消费者；真实行为通过 `pnpm test` 与 `pnpm smoke:workspace` 验证，不能用类型通过代替运行证据。验收见[记录](../../docs/workspace-foundation-validation.md)。
+执行 `pnpm build` 检查所有生产者和消费者；真实行为通过 `pnpm test:all` 与 `pnpm verify:full` 验证，不能用类型通过代替运行证据。验证入口见[开发与验证](../../docs/development.md#修改与验证)。

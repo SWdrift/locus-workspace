@@ -10,7 +10,7 @@
 
 - [cp-meta.md](./cp-meta.md)、[同 scope CPM](./cpm-2026-11-06-core-primitives.md)：维护与记忆归属。
 - 读取顺序：根 `AGENTS.md` → 本平面/记忆 → [架构](../docs/architecture.md)与相关 Note → 命中的相邻 CP → 模块 README/源码。
-- 验证入口：[开发与验证](../docs/development.md)、[防御性模式](../docs/defensive-patterns/README.md)、[真实验收记录](../docs/workspace-foundation-validation.md)。
+- 验证入口：[开发与验证](../docs/development.md)、[防御性模式](../docs/defensive-patterns/README.md)。
 - 扩展/收尾使用 `create-control-plane` / `compact-control-plane`；文档遵循 Agent Notes 生命周期。
 
 ## Scope
@@ -41,6 +41,6 @@
 
 ### 回归门槛
 
-后续改变用例仍运行 `pnpm build`、`pnpm test`、`pnpm smoke:workspace` 与 `pnpm docs:check`。smoke 的实际命令与当前观察归属[验收记录](../docs/workspace-foundation-validation.md)，不在 CP 重抄测试清单。新增真实依赖/平台时扩展相应场景并分别报告未运行路径。
+后续改变用例默认运行 `pnpm verify`（构建 + 快速测试 + 文档检查）；修改 Filesystem/Git 时先构建再运行 `pnpm test:all`；只有 launcher/profile/装配/插件生命周期变化或里程碑验收才运行 `pnpm verify:full`。验证门禁归[实用命令](../docs/commands.md#验证门禁)，不在 CP 重抄测试清单。新增真实依赖/平台时扩展相应场景并分别报告未运行路径。
 
 旧“只物化方案”和“完整六域 DevOps 才算下一版本”约束已失效；旧提案保持 rejected。已交付两份 Note 转 implemented，Blueprint、多提供方、跨设备与剩余候选单独留 proposed；不能继续引用迁移前路径。

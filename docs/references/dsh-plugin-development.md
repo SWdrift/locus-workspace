@@ -139,6 +139,25 @@ export function apply(ctx: Context, config: Config) {
 
 `parseCmdline` 使用同步解析；异步业务可由 action 先选择待执行用例，在 `appReady` 就绪后执行并于完成时请求退出。这样不会让命令解析或可选服务的加载顺序决定业务可见性；本项目实际入口见 [CLI](../../plugins/cli/README.md#能力与生命周期)。
 
+### 长驻入口与热更新
+
+`parseCmdline` 是一次性入口：帮助、语法错误或动作完成都会通过 `appExit` 结束进程。需要连续执行时，应在初始解析中选择应用自己的 shell 动作，然后由应用读线循环逐行重新解析命令树；不要每行调用 `parseCmdline`。`appReady` 只表示整棵树启动完成，循环应在其后开始；用户退出或 stdin EOF 才调用 `appExit`，让 launcher 释放 fiber。插件被 HMR 卸载时关闭读线但不要请求退出，否则重载的新实例无法接管。
+
+base bundle 已装配 `dsh-hmr`，默认 `config.root: []`，只监听 profile 配置。要监视模块，在 profile patch 覆盖 `hmr` 行：
+
+```yaml
+- id: hmr
+  config:
+    base: '../../..'   # 相对于 profile 目录，指向仓库根
+    root:
+      - packages
+      - plugins
+```
+
+`base` 用于把监视根变成不含 `..` 的相对路径；若直接把跨目录 `..` 作为 root，默认 ignore 的 `**/.*` 可能把 `..` 段当作点文件路径并丢弃事件。HMR 监视构建产物，TypeScript 源码仍需先构建再重载。HMR 监听 profile 的 `cordis.patch.yml`、`$DSH_HOME/cordis.patch.yml` 和 profile manifest，不监听命令行 `--patch` overlay；临时 overlay 改动应重启或合入 profile patch。
+
+HMR 重载插件时依赖其服务的插件会按 Cordis 依赖关系卸载/重建；持久数据由所属服务重新打开。模块替换受 Node 加载器、动态 import、Worker/TSX loader 和 packed worker 限制，见 `@deepseek-ai/dsh-hmr` 包说明；不要自制模块加载器绕过。项目运行方式见[开发与验证](../development.md#长驻与热更新)。
+
 ## 本地开发与调试
 
 创建插件文件与补丁文件，后者用 `insert` 增加一行，`name` 指向插件模块：
