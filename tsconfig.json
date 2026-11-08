@@ -5,6 +5,8 @@
     { "path": "./packages/contracts" },
     { "path": "./packages/core" },
     { "path": "./packages/host-dsh" },
+    { "path": "./plugins/filesystem" },
+    { "path": "./plugins/git" },
     { "path": "./plugins/cli" }
   ]
 }

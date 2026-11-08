@@ -18,9 +18,15 @@
     "build": "tsc -b tsconfig.json"
   },
   "dependencies": {
-    "@locus/contracts": "workspace:*"
+    "@locus/contracts": "workspace:*",
+    "commander": "^15.0.0"
   },
   "devDependencies": {
-    "@deepseek-ai/cordis": "~4.0.5"
+    "@deepseek-ai/cordis": "~4.0.5",
+    "@deepseek-ai/dsh-cmdline": "0.2.1-rc.5"
+  },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "~4.0.5",
+    "@deepseek-ai/dsh-cmdline": "0.2.1-rc.5"
   }
 }

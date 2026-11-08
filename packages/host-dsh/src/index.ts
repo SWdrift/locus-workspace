@@ -11,7 +11,11 @@ export const name = 'locus-host'
  */
 export function apply(ctx: Context): void {
   const core = createLocusCore()
-  const service: LocusService = { info: core.info }
+  const service: LocusService = {
+    info: core.info,
+    dataDirectory: core.dataDirectory,
+    workspaces: core.workspaces,
+  }
 
   ctx.provide('locus', service)
   ctx.effect(() => () => core.dispose())
