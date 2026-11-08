@@ -2,40 +2,20 @@
 
 ## 简述与职责
 
-Cordis 插件，把 Locus core 装配进 DSH profile：创建 core、注册 `locus` 服务，并在插件 fiber 释放时释放 core。它只做宿主适配，不承载业务规则或界面。
+Cordis 薄装配插件：创建并持有 Core，把实际公开用例注册为 `locus`，随 fiber 释放。没有领域 I/O、终端渲染、Plugin 注册总线或可替换宿主抽象。
 
-## 使用前提
+## 装配
 
-- DSH `0.2.1-rc.5` 的 profile，且已执行 `pnpm build`。
-- 包以 `link:` 安装进项目内 profile；运行时的 `@locus/core` 由 workspace 链接解析。
+使用项目内 DSH `0.2.1-rc.5`，先 `pnpm build`，再按[开发与验证](../../docs/development.md#宿主运行)以 `link:` 安装进 `locus` profile。可用的插件行见[配置示例](../../examples/locus.profile.yml)；包本身没有 `dsh.bundle` 或配置 schema。
 
-## 使用
+## 服务与生命周期
 
-在 profile 的 `cordis.patch.yml` 插入插件行：
+`locus` 公开产品版本、数据目录位置和 Workspace 用例；不暴露 Core 句柄或 `dispose()`。数据目录由 [Core 配置](../core/README.md#使用)确定，不归 DSH Session 或 profile 所有。
 
-```yaml
-- insert:
-    - id: locus-host
-      name: '@locus/host-dsh'
-```
+同 scope 重复提供 `locus` 会失败，不静默替换。提供方卸载后服务被 Cordis 撤销，Core 关闭数据库，捕获的用例也拒绝继续调用；卸载只释放资源，不删除持久数据。
 
-启动后其他插件可通过 `ctx.get('locus')` 读取服务。成功判据：`--dump-config` 中出现该行，启动时该行不处于未激活状态。
+领域 Plugin 直接提供 `locusFilesystem`、`locusGit` 等实际服务，可以使用所需 DSH/Cordis 能力，不经过 host 转发。Core/contracts 暂保持无 DSH/Cordis 依赖；变更边界需另立决策。
 
-## 配置与契约
+## 验证
 
-- 导出 `name = 'locus-host'` 与 `apply(ctx)`；没有配置项。
-- 注册的服务名是 `locus`，形状为 `LocusService`，只暴露只读 `info`。
-- 服务与 core 的生命周期跟随插件 fiber，卸载时自动移除并调用 `core.dispose()`。
-
-## 失败与限制
-
-服务名已被其他插件占用时，提供会失败并使该行无法激活。服务只暴露公开契约，调用方不能借它访问 core 内部对象。
-
-## 扩展与实现边界
-
-DSH/Cordis 依赖只出现在本包。新增宿主能力应扩展 `LocusService` 契约与 core 实现，而不是把 Cordis Context 或 core 内部类型传给插件。
-
-## 验证依据
-
-- 项目内 profile 实跑 `pnpm exec dsh --profile locus version` 输出 `0.0.0`、退出码 0（2026-11-06）。
-- 独立 Cordis `Context` 加载本插件后读取 `ctx.get('locus').info.version` 得到 `0.0.0`，`ctx.fiber.dispose()` 正常完成（2026-11-06 实跑）。
+`pnpm test` 的真实 Cordis 生命周期场景验证 Plugin 卸载、重载后的身份/关系与位置恢复，以及重复提供失败。`pnpm smoke:workspace` 使用真实 profile 验证版本、应用退出和能力缺失时仍可打开 Workspace；结果见[验收记录](../../docs/workspace-foundation-validation.md)。

@@ -2,33 +2,32 @@
 
 ## 简述与职责
 
-Locus 插件与宿主共享的公开类型契约。它只声明服务形状与只读数据，不包含可执行逻辑、版本值或生命周期，避免 core、宿主和插件互相引用实现。
-
-## 使用前提
-
-- TypeScript 项目，通过 workspace 依赖引用。
-- 包从构建产物 `lib/` 提供类型与空的 ESM 入口；运行时不需要导入它。
+Core、领域 Plugin、Host 与应用之间实际使用的 TypeScript 类型，不含运行逻辑、版本值或 DSH/Cordis 依赖。没有通用资源协议、Plugin SDK 或运行时注册器；契约只随真实生产者和消费者演进。
 
 ## 使用
+
+通过 workspace 依赖与 `import type` 引用，构建后从 `lib/` 提供声明与空 ESM 入口。调用方不用运行时导入本包；类型本身不执行输入校验。
 
 ```ts
 import type { LocusService } from '@locus/contracts'
 
-function readVersion(locus: LocusService): string {
-  return locus.info.version
+function workspaceNames(locus: LocusService): readonly string[] {
+  return locus.workspaces.list().map((workspace) => workspace.name)
 }
 ```
 
-成功判据：TypeScript 能解析 `LocusService`；编译后的代码不保留该导入。
+## 契约边界
 
-## 配置与契约
+| 交互 | 生产者与消费者 | 语义所有者 |
+| --- | --- | --- |
+| `LocusService` / Workspace 用例 | Core → host 的 `locus` → Plugin、CLI | [Core](../core/README.md) |
+| Filesystem 位置与观察 | Filesystem → CLI、Git | [Filesystem](../../plugins/filesystem/README.md) |
+| Git 只读观察 | Git → CLI | [Git](../../plugins/git/README.md) |
 
-`LocusInfo` 暴露只读的 `version`；`LocusService` 暴露只读的 `info`。没有默认值、环境变量或配置项。
+具体字段与方法由[源码](src/index.ts)维护，不在 README 重抄类型清单。Core 的领域引用对其自身是不透明的；Plugin 返回当前观察，应用显式确认后才调用长期关系用例。提供方声明、保存的选择、加载与可用性不是同一事实，Tag 不能解释为依赖或授权。
 
-## 失败与限制
+## 修改与验证
 
-修改接口属于破坏性契约变更，必须同步实现与消费方。本包不做运行时校验，形状不符只会在消费方使用字段时暴露。
+修改契约必须同步实际实现与所有消费者，不预留无调用方的接口。当前契约属于项目内实验 API，不承诺独立 SDK 兼容；持久数据的版本与恢复要求不能因此省略。
 
-## 验证依据
-
-`pnpm build` 生成 `packages/contracts/lib/index.d.ts` 与 `lib/index.js`，退出码 0（2026-11-06 实跑）。没有独立运行时行为可测。
+执行 `pnpm build` 检查所有生产者和消费者；真实行为通过 `pnpm test` 与 `pnpm smoke:workspace` 验证，不能用类型通过代替运行证据。验收见[记录](../../docs/workspace-foundation-validation.md)。

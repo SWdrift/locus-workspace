@@ -39,6 +39,8 @@ export function apply(ctx: Context) {
 
 通过 `ctx` 注册的内容在插件卸载时自动撤销，包括 `ctx.on`、`ctx.tools.register`、`ctx.llm.registerAdapter` 和 `ctx.effect` 返回的清理函数。非托管资源用 `ctx.effect(() => disposer)` 交给框架清理；多个异步 disposer 并发执行，顺序相关的清理应放在同一个 `ctx.effect` 中串行完成。
 
+`ctx.plugin(plugin)` 返回可等待的 Fiber，而不是插件 Context；可直接 `await ctx.plugin(plugin)` 等待加载，以返回值的 `dispose()` 释放该实例。`ctx.fiber` 指当前 Context 的所属实例，不要把两者混用。
+
 启用 `@deepseek-ai/dsh-hmr` 时，配置或源文件改动会卸载旧实例再加载新代码；未启用时重启进程生效。
 
 ## 常用扩展点
@@ -134,6 +136,8 @@ export function apply(ctx: Context, config: Config) {
 ### 命令行与退出
 
 启动器向所有 profile 提供 `ctx.cmdlineArgs`（本次调用的只读参数快照）与 `ctx.appExit(code)`（整棵树关闭后的退出请求）；应用型插件据此读取参数、打印结果并结束进程。`@deepseek-ai/dsh-cmdline` 的 `parseCmdline` 把 commander 的解析、帮助、版本与错误路径接到这两个值上。`--version` 与 `-V` 属于启动器，应用自己的版本命令应使用位置参数或独立 flag，否则会被启动器截获。
+
+`parseCmdline` 使用同步解析；异步业务可由 action 先选择待执行用例，在 `appReady` 就绪后执行并于完成时请求退出。这样不会让命令解析或可选服务的加载顺序决定业务可见性；本项目实际入口见 [CLI](../../plugins/cli/README.md#能力与生命周期)。
 
 ## 本地开发与调试
 

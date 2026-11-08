@@ -1,0 +1,9 @@
+- insert:
+    - id: locus-host
+      name: '@locus/host-dsh'
+    - id: locus-filesystem
+      name: '@locus/filesystem'
+    - id: locus-git
+      name: '@locus/git'
+    - id: locus-cli
+      name: '@locus/cli'
