@@ -11,7 +11,8 @@
 
 ## 记忆
 
-- 能力选择保存用户意图，Plugin 注入解决当前运行依赖，原生观察解释当前状态；三者不能折叠成同一开关。后续 Gitea/Session 可沿现有局部服务交互复用，不必扩中央注册器。
+- 能力选择保存用户意图，Plugin 注入解决当前运行依赖，原生观察解释当前状态；三者不能折叠成同一开关。后续 Gitea/Remote Machine 可沿现有局部服务交互复用，不必扩中央注册器。
+- Session 已复用 DSH `ctx.sessionQuery`，Core 无新表：关联是 `dsh.session.<source-hash>` + 原生 ID，cwd 不是身份。`live`/`persisted`/`unavailable` 分开；标题只在 `show` 读取，列表不取正文。DSH headless 只接受同 DSH_HOME、同 cwd、非 fork/subagent 的持久 Session；真实续接已到模型请求阶段。
 - Windows `access(R_OK)` 不能证明 ACL 允许读取；实际故障探针已证明需要打开/枚举。另一方面，Core 已保证的数据目录无需在内部 Plugin 再验证；防御集中在真实边界。
 - 本机 file URL 是地址，不是全局对象 Identity；Windows realpath 字符串不保证归一化大小写。不能把同名路径、Tag 或 Remote 当作跨设备等价证据。
 - 本项目的异步应用接线以 [CLI](../plugins/cli/README.md#能力与生命周期)为准；DSH 同步解析、就绪和 Fiber 事实统一链接[参考](../docs/references/dsh-plugin-development.md#命令行与退出)，不在 memory 复制框架契约。

@@ -16,13 +16,12 @@ Status: proposed
 
 ### 后续候选能力
 
-Filesystem 和最小只读 Git 属于基础切片；以下不是已实现功能，也不按行创建包。
+Filesystem、最小只读 Git 与 DSH Session 已交付；Session 的决定与限制见[Session 集成](../../implemented/feature/2026-11-09-session-integration.md)。以下其余候选不是已实现功能，也不按行创建包。
 
 | Capability | 初步 Tag | 原生前提与组合机会 |
 | --- | --- | --- |
 | Gitea | `development`、`collaboration` | 实例地址、API 与授权；Git Remote 可以建议关联，也可独立登记远端仓库；CI/CD 事实仍由 Gitea 拥有 |
 | Nginx | `environment` | 访问配置与运行信息；可组合 Filesystem 或远程访问，不固定传输 |
-| Session | `collaboration` | OMP、DSH Session 的实际入口；关联会话而非让 Workspace 依附于会话生命周期 |
 | Database | `environment`、`development` | 驱动、端点与授权；可组合机器和连接能力，不要求目录 |
 | Remote Machine | `environment` | 机器标识与登记；机器存在不等于 SSH 可达 |
 | FRP / SSH | `connectivity` | 复用既有 FRP/OpenSSH 与授权；连接不拥有机器或数据库生命周期 |
@@ -37,16 +36,15 @@ Tag 可以多选，不用于依赖解析、权限或接口兼容性判断。新�
 
 | 次序 | Capability | 判断依据与主要风险 |
 | --- | --- | --- |
-| 1 | Session | 项目内 `locus` profile 已含 `dsh-session`、JSONL 持久化和 `dsh-session-query-sqlite`，无需新外部服务即可用真实会话验证。它把 Workspace 与 Agent 工作连接起来，价值高；成本主要是区分“当前存活会话”和“持久会话记录”，以及避免让 Workspace 依赖会话生命周期。 |
-| 2 | Remote Machine | 直接支持零目录、跨设备 Workspace，模型简单，并能作为 FRP/SSH 的组合基础。需要真实可达设备与凭据策略；只登记机器和可达性，不拥有远端生命周期。 |
-| 3 | Gitea | 能验证外部系统授权、仓库与 CI 观察；价值高，但需要实例、令牌/凭据和网络条件，秘密处理成本高于前两项。宜先做只读仓库/Actions 观察。 |
-| 4 | FRP / SSH | 依赖 Remote Machine 已有登记与连接目标；负责连接与隧道观察，不复制 OpenSSH/FRP 运行时。 |
-| 5 | Nginx | 可复用 Filesystem 或远程访问读取配置与运行状态，成本适中，但单独价值弱于前四项。 |
-| 6 | Database | 需要驱动、端点与凭据，误操作风险高；在前述能力提供连接与授权语境后再做只读观察更稳妥。 |
-| 7 | Project Management | 领域模型较厚、外部授权复杂，且容易把 Workspace 误建成 Project；需要明确真实工作流后再启动。 |
-| 8 | Project Template | 涉及写操作和项目脚手架，误改风险最高；应最后实现，并与只读能力、显式确认和回滚策略一起验证。 |
+| 1 | Remote Machine | 直接支持零目录、跨设备 Workspace，模型简单，并能作为 FRP/SSH 的组合基础。需要真实可达设备与凭据策略；只登记机器和可达性，不拥有远端生命周期。 |
+| 2 | Gitea | 能验证外部系统授权、仓库与 CI 观察；价值高，但需要实例、令牌/凭据和网络条件，秘密处理成本高于 Remote Machine。宜先做只读仓库/Actions 观察。 |
+| 3 | FRP / SSH | 依赖 Remote Machine 已有登记与连接目标；负责连接与隧道观察，不复制 OpenSSH/FRP 运行时。 |
+| 4 | Nginx | 可复用 Filesystem 或远程访问读取配置与运行状态，成本适中，但单独价值弱于前三项。 |
+| 5 | Database | 需要驱动、端点与凭据，误操作风险高；在前述能力提供连接与授权语境后再做只读观察更稳妥。 |
+| 6 | Project Management | 领域模型较厚、外部授权复杂，且容易把 Workspace 误建成 Project；需要明确真实工作流后再启动。 |
+| 7 | Project Template | 涉及写操作和项目脚手架，误改风险最高；应最后实现，并与只读能力、显式确认和回滚策略一起验证。 |
 
-下一项默认候选是 **Session**：它复用已安装依赖、可在本机真实会话上验证，并能检验 Plugin 直接使用 DSH 服务而不复制会话生命周期。开始前仍需确认会话标识的长期可解析性、隐私边界和用户显式确认方式。
+下一项默认候选是 **Remote Machine**：它直接扩展零目录 Workspace 的跨设备语义。Session 已交付，但其 OMP 来源映射、Web 授权与完整 transcript 浏览仍留在[Session 记录](../../implemented/feature/2026-11-09-session-integration.md#暂缓)。
 
 ### Blueprint 与多提供方
 

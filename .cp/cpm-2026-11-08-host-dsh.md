@@ -11,3 +11,6 @@
 - base bundle 已装载 `dsh-hmr`，默认 `root: []` 仅监听 profile 配置。模块监视的 `base` 必须使监视根相对路径不含 `..`：默认 ignore 的 `**/.*` 会把跨目录的 `..` 段当点文件路径，导致构建产物事件被丢弃。项目内用 `base: '../../..'`、`root: [packages, plugins]`。
 - HMR 监视的是构建产物；`src` 变更本身不会改变运行代码，先执行 `pnpm build`。实测增量构建约 1.5–1.6 秒，构建完成后 HMR 在 debounce 100ms 级别内重载。
 - Contracts 目前主要是类型与常量，纯类型变化不会形成运行时依赖；但取消/重命名运行时导出、改变 schema 或持久化兼容性时，应重启而不是把 HMR 当成迁移机制。
+- base profile 已装配 `@deepseek-ai/dsh-session`、`dsh-session-persistence-jsonl`（root `dshHomePath('sessions')`）与 `dsh-session-query-sqlite`；`locusSession` 直接消费 `ctx.sessionQuery`，不另建服务镜像。查询缺失时 Plugin 仍加载，`discover` 失败、`inspect` 返回 unavailable。
+- `SessionStore.create` 本身不会把 Session 写入 JSONL 后端；E2E 的真实持久 Session 由 `ctx.sessionPersistence.create/append/flush/close` 生产。`ctx.sessions.flush` 只保证已注册 listener 的屏障，不能替代 persistence seam 的创建。
+- Session profile E2E 使用临时 `DSH_HOME`：先 `dsh plugin --profile locus add link:...` 初始化，再写入插件行；fixture overlay 禁用 CLI/title-LLM 并直接经持久化 seam 创建 Session。这样 profile 与 Session 数据不污染本地 `.dsh`。

@@ -18,7 +18,7 @@ DSH/Cordis 已有服务、装配和生命周期。额外建立宿主可替换适
 
 Core/contracts 暂无 DSH/Cordis 依赖；领域和应用 Plugin 直接使用所需宿主服务。host 仅创建 Core、提供 `locus` 公开用例、随 fiber 释放，没有领域 I/O、存储规则或能力集中注册。DSH 是当前唯一宿主，不预建 Host 抽象、专用 Host、独立启动器、中央插件总线或第二运行时。
 
-契约只包含当前真实调用需要的 Workspace/关系/能力选择、Filesystem 位置与观察、Git 观察。Core 不依赖具体 Plugin；Filesystem 通过公开 Workspace 用例校验归属/选择，Git 直接消费 Filesystem 的当前路径与来源；CLI 只编排并显式确认，不直接扫描、执行 Git 或写数据库。服务名随这条真实调用链形成，不冻结未来所有能力的全局树。
+契约只包含当前真实调用需要的 Workspace/关系/能力选择、Filesystem 位置与观察、Git 观察、Session 发现与返回。Core 不依赖具体 Plugin；Filesystem 通过公开 Workspace 用例校验归属/选择，Git 直接消费 Filesystem 的当前路径与来源，Session 直接消费 DSH 的 `sessionQuery`；CLI 只编排并显式确认，不直接扫描、执行 Git、读取 Session 日志或写数据库。服务名随这条真实调用链形成，不冻结未来所有能力的全局树。
 
 当前仍保留既有 `locus.info` 与 profile 的 `link:` + patch 装配。领域服务随 Cordis fiber 加载/释放，能力缺失不阻止打开 Workspace；不存在把所有服务反向包装进 host 的镜像层。
 
@@ -30,6 +30,7 @@ Core/contracts 暂无 DSH/Cordis 依赖；领域和应用 Plugin 直接使用所
 | 主机限定的位置、路径和领域引用配置 | Filesystem | 独立 `filesystem.sqlite` |
 | 文件、仓库、提交、Remote 等原生事实 | 原生文件系统 / Git | 保持原生位置，Locus 不成为权威 |
 | 当前观察 | 对应领域 Plugin | 按需重读，不持久化缓存 |
+| Session 原生日志、执行状态与标题 | DSH | 保持 DSH 位置；Locus 只保存 Workspace 关联 |
 
 数据库属于同一个明确数据目录，但所有权与物理位置独立：Core 不读写 Plugin 内部模型，领域 Plugin 不写 Core 的表。Core 保存不透明引用，不解释路径等价或 Git 结构；取消关系不拥有外部资源删除权。
 

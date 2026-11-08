@@ -8,11 +8,11 @@
 | --- | --- |
 | `pnpm install` | 安装 workspace 依赖并链接本地包 |
 | `pnpm build` | 编译实际库和 Plugin，退出 0 |
-| `pnpm test` | 快速测试：Core 包测试 + 跨包 Host/CLI/shell；约 2 秒，不含 Filesystem/Git 独立集成与 profile e2e |
+| `pnpm test` | 快速测试：Core/Session 包测试 + 跨包 Host/CLI/shell；约 2–3 秒，不含 Filesystem/Git 独立集成与 profile e2e |
 | `pnpm test:all` | 全部非 profile 测试：各包 test/ + 跨包 CLI/Host；约 7–12 秒 |
 | `pnpm test:file <文件>` | 直接运行单个测试文件；可附加 `--test-name-pattern <模式>` 过滤用例 |
 | `pnpm verify` | 快速门禁：`build` + `test` + `docs:check`；约 4–5 秒 |
-| `pnpm verify:full` | 完整门禁：`build` + `test:all` + `docs:check` + profile e2e；约 40–60 秒 |
+| `pnpm verify:full` | 完整门禁：`build` + `test:all` + `docs:check` + profile e2e；约 55–70 秒 |
 | `pnpm docs:check` | Markdown 结构、链接与 Agent Notes 生命周期检查通过 |
 | `pnpm docs:test` | 文档检查器测试通过；仅修改检查器时要求执行 |
 | `pnpm docs:check --root <目录>` | 在指定真实目录执行相同文档检查 |
@@ -22,7 +22,7 @@
 
 ### 验证门禁
 
-`pnpm test` 是默认快速层，覆盖 Core、Host、CLI 与 shell。`pnpm test:all` 才运行 Filesystem/Git 原生集成；`pnpm verify:full` 再追加真实 profile e2e（8 次独立 DSH，约 30–60 秒）。e2e 只保留 launcher、退出码、跨进程恢复、插件停用与 shell 组合，不重复快速层矩阵。
+`pnpm test` 是默认快速层，覆盖 Core/Session、Host、CLI 与 shell。`pnpm test:all` 才运行 Filesystem/Git 原生集成；`pnpm verify:full` 再追加真实 profile e2e（约 15 次独立 DSH，约 55–70 秒）。e2e 只保留 launcher、退出码、跨进程恢复、插件停用与 shell 组合，不重复快速层矩阵。
 
 日常使用 `pnpm verify`。只有修改 Filesystem/Git 才需要 `pnpm test:all`；只有完整验收才使用 `pnpm verify:full`。分层减少运行次数，不删除断言或缩小覆盖范围。
 
@@ -51,8 +51,14 @@
 | `fs confirm <workspace> <location> [relative] [--kind member\|association]` | 显式确认当前可访问资源，默认 member，记录发现来源 |
 | `git inspect <workspace> <location> [relative]` | 从 Filesystem 线索读取本地工作树仓库、状态与脱敏 Remote；非 Git 目录正常返回 not-repository |
 | `git confirm <workspace> <location> [relative]` | 显式关联观察到的仓库，Remote 不自动确认 |
+| `session list` | 列出当前 DSH 来源可查询的 Session 元信息；不返回消息正文、工具参数或密钥 |
+| `session show <session>` | 查看 Session 的 live/persisted/unavailable、cwd、创建时间与标题；不可访问时以 2 退出 |
+| `session associate <workspace> <session>` | 显式把当前可访问的 Session 关联到 Workspace；不改变 Session 生命周期 |
+| `session links <workspace>` | 列举已保存的 Session 关联；查询服务或插件缺失时仍显示关系并标记 unavailable |
+| `session dissociate <workspace> <relation-id> --yes` | 仅解除该关联，不删除原生 Session、消息历史或其他 Workspace 的关联 |
+| `session open <session>` | 返回原生 DSH 入口；持久 Session 给出 headless 继续命令，fork/subagent/无 cwd 明确不可用 |
 
-`relative` 必须在登记范围内，链接不遍历。`fs` 或 `git` 操作提示“尚未启用能力”时，先运行 `capability configure <workspace> filesystem`（Git 同样替换能力名），不必区分能力标识与具体提供方包。Filesystem 详细失败和范围语义见 [Plugin](../plugins/filesystem/README.md#读取与失败语义)；Git 支持与限制见 [Plugin](../plugins/git/README.md#观察语义)。
+`relative` 必须在登记范围内，链接不遍历。`fs`、`git` 或 `session associate` 提示“尚未启用能力”时，先运行 `capability configure <workspace> filesystem`（Git/Session 同样替换能力名），不必区分能力标识与具体提供方包。Session 的 `discover`/`show` 是只读查询，不要求能力选择；`associate` 才要求 Workspace 已选择提供方。Filesystem 详细失败和范围语义见 [Plugin](../plugins/filesystem/README.md#读取与失败语义)；Git 支持与限制见 [Plugin](../plugins/git/README.md#观察语义)；Session 来源与返回限制见 [Plugin](../plugins/session/README.md#状态与返回)。
 
 ### 初始配置配方
 

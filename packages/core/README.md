@@ -26,7 +26,7 @@ try {
 
 创建产生 UUID，与目录、名称和会话无关。Workspace 可以没有目录；列出、按 Identity 打开、改名均不依赖 Filesystem 或 Git。打开只是读取长期对象，不建立隐藏的“当前项目根目录”。
 
-长期关系分 `member` 与 `association`；目标是由领域提供方解释的 `namespace` / `id`，并保存确认来源及时间。同 Workspace、同关系种类和同目标重复确认保留首次关系与来源；成员和关联可以并存。解除一处关系不删除目标、其他 Workspace 的归属或外部文件。
+长期关系分 `member` 与 `association`；目标是由领域提供方解释的 `namespace` / `id`，并保存确认来源及时间。同 Workspace、同关系种类和同目标重复确认保留首次关系与来源；成员和关联可以并存。解除一处关系不删除目标、其他 Workspace 的归属或外部文件。Session 关联使用 `dsh.session.<source-id>` 命名空间与原生 Session ID；Core 不解释 source-id、标题或 cwd。
 
 `locus.workspace` 引用可表达 Workspace 间的嵌套或关联，目标必须存在；不递归展开，不传播能力、成员、权限或删除。其他命名空间保持不透明，不检查外部对象当前是否存在。
 
