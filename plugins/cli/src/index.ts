@@ -4,6 +4,7 @@ import type { AppExit, AppReady } from '@deepseek-ai/dsh-cmdline'
 import type {
   ConnectivityService,
   FilesystemService,
+  GiteaService,
   GitService,
   LocusService,
   RemoteMachineService,
@@ -32,6 +33,7 @@ export function apply(ctx: Context): void {
         ctx.get('locusSession') as SessionService | undefined,
         ctx.get('locusRemoteMachine') as RemoteMachineService | undefined,
         ctx.get('locusConnectivity') as ConnectivityService | undefined,
+        ctx.get('locusGitea') as GiteaService | undefined,
       )
       parseCmdline(ctx, commands.program)
       if (commands.shell()) {
@@ -42,14 +44,16 @@ export function apply(ctx: Context): void {
           const session = ctx.get('locusSession') as SessionService | undefined
           const remoteMachine = ctx.get('locusRemoteMachine') as RemoteMachineService | undefined
           const connectivity = ctx.get('locusConnectivity') as ConnectivityService | undefined
+          const gitea = ctx.get('locusGitea') as GiteaService | undefined
           return {
-            commands: createCommands(locus, filesystem, git, session, remoteMachine, connectivity),
+            commands: createCommands(locus, filesystem, git, session, remoteMachine, connectivity, gitea),
             current: () => ctx.get('locus') === locus
               && ctx.get('locusFilesystem') === filesystem
               && ctx.get('locusGit') === git
               && ctx.get('locusSession') === session
               && ctx.get('locusRemoteMachine') === remoteMachine
-              && ctx.get('locusConnectivity') === connectivity,
+              && ctx.get('locusConnectivity') === connectivity
+              && ctx.get('locusGitea') === gitea,
           }
         }
         void runShell(create, exit, (dispose) => {

@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { spawnSync } from 'node:child_process'
+import { spawn, spawnSync } from 'node:child_process'
 import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
@@ -29,9 +29,35 @@ writeFileSync(missingFilesystem, [
   '- id: locus-connectivity',
   "  name: '@locus/connectivity'",
   '  disabled: true',
+  '- id: locus-gitea',
+  "  name: '@locus/gitea'",
+  '  disabled: true',
   '',
 ].join('\n'))
 let invocations = 0
+const giteaProcess = spawn(process.execPath, [resolve('tests/e2e/fixtures/gitea-server.mjs')], {
+  cwd: resolve('.'),
+  env: { ...process.env, LOCUS_E2E_GITEA_TOKEN: 'e2e-gitea-token' },
+  stdio: ['ignore', 'pipe', 'pipe'],
+  windowsHide: true,
+})
+const giteaBase = await new Promise((resolveBase, reject) => {
+  const timeout = setTimeout(() => reject(new Error('Gitea fixture server 启动超时')), 10000)
+  giteaProcess.stdout.setEncoding('utf8')
+  giteaProcess.stdout.once('data', (chunk) => {
+    clearTimeout(timeout)
+    const match = /READY (\d+)/.exec(chunk)
+    if (!match) {
+      reject(new Error(`Gitea fixture server 输出无效：${chunk}`))
+      return
+    }
+    resolveBase(`http://127.0.0.1:${match[1]}`)
+  })
+  giteaProcess.once('error', (error) => {
+    clearTimeout(timeout)
+    reject(error)
+  })
+})
 
 function prepareProfile() {
   mkdirSync(dshHome, { recursive: true })
@@ -41,6 +67,7 @@ function prepareProfile() {
     join(resolve('.'), 'plugins/git'),
     join(resolve('.'), 'plugins/remote-machine'),
     join(resolve('.'), 'plugins/connectivity'),
+    join(resolve('.'), 'plugins/gitea'),
     join(resolve('.'), 'plugins/session'),
     join(resolve('.'), 'plugins/cli'),
   ]
@@ -73,6 +100,8 @@ function prepareProfile() {
     "      name: '@locus/remote-machine'",
     "    - id: locus-connectivity",
     "      name: '@locus/connectivity'",
+    "    - id: locus-gitea",
+    "      name: '@locus/gitea'",
     "    - id: locus-session",
     "      name: '@locus/session'",
     "    - id: locus-cli",
@@ -130,7 +159,12 @@ function run(args, { directory = data, patch, json = true, code = 0 } = {}) {
   if (json) command.push('--json')
   const result = spawnSync(process.execPath, [pnpm, ...command], {
     cwd: resolve('.'),
-    env: { ...process.env, DSH_HOME: dshHome, LOCUS_HOME: directory },
+    env: {
+      ...process.env,
+      DSH_HOME: dshHome,
+      LOCUS_HOME: directory,
+      LOCUS_E2E_GITEA_TOKEN: 'e2e-gitea-token',
+    },
     encoding: 'utf8',
     timeout: 30000,
     maxBuffer: 2 * 1024 * 1024,
@@ -154,7 +188,12 @@ function runShell(lines, { directory = data, patch, code = 0 } = {}) {
   command.push('shell')
   const result = spawnSync(process.execPath, [pnpm, ...command], {
     cwd: resolve('.'),
-    env: { ...process.env, DSH_HOME: dshHome, LOCUS_HOME: directory },
+    env: {
+      ...process.env,
+      DSH_HOME: dshHome,
+      LOCUS_HOME: directory,
+      LOCUS_E2E_GITEA_TOKEN: 'e2e-gitea-token',
+    },
     input: `${lines.join('\n')}\nexit\n`,
     encoding: 'utf8',
     timeout: 30000,
@@ -188,6 +227,7 @@ try {
   native(['add', 'repository.txt'])
   native(['-c', 'user.name=Locus Smoke', '-c', 'user.email=locus@example.invalid', '-c', 'commit.gpgsign=false', 'commit', '-m', 'initial'])
   native(['remote', 'add', 'origin', 'https://smoke-user:smoke-secret@example.invalid/team/repo.git?token=secret-query'])
+  native(['remote', 'add', 'gitea', `${giteaBase}/acme/repo.git`])
   const head = native(['rev-parse', 'HEAD'])
   const index = readFileSync(join(shared, '.git', 'index'))
 
@@ -231,9 +271,59 @@ try {
   const noCwd = run(['session', 'open', 'e2e-session-no-cwd'], { code: 2 })
   assert.equal(JSON.parse(noCwd.stdout).mode, 'unavailable')
 
+  run(['capability', 'configure', workspace.id, 'gitea'])
+  run(['capability', 'configure', secondWorkspace.id, 'gitea'])
+  const giteaInstance = run([
+    'gitea', 'instance', 'add', 'E2E', '--base-url', giteaBase,
+    '--credential-ref', 'LOCUS_E2E_GITEA_TOKEN',
+  ])
+  const giteaVerification = run(['gitea', 'instance', 'verify', giteaInstance.id])
+  assert.equal(giteaVerification.state, 'ok')
+  assert.equal(giteaVerification.login, 'acme')
+  assert.equal(JSON.stringify(giteaVerification).includes('e2e-gitea-token'), false)
+  const giteaSuggestions = run(['gitea', 'repo', 'suggest', workspace.id, location.id])
+  assert.deepEqual(giteaSuggestions.map((item) => item.fullName), ['acme/repo'])
+  assert.equal(run(['gitea', 'repos', workspace.id]).length, 0)
+  const giteaRelation = run([
+    'gitea', 'repo', 'link', workspace.id, giteaInstance.id, 'acme/repo',
+  ])
+  const sharedGiteaRelation = run([
+    'gitea', 'repo', 'link', secondWorkspace.id, giteaInstance.id, 'acme/repo',
+  ])
+  assert.equal(giteaRelation.target.namespace, 'locus.gitea.repository')
+  assert.equal(giteaRelation.target.id, `${giteaInstance.id}:7`)
+  assert.deepEqual(sharedGiteaRelation.target, giteaRelation.target)
+  assert.notEqual(sharedGiteaRelation.id, giteaRelation.id)
+  assert.equal(run(['gitea', 'repos', workspace.id])[0].observation.repository.fullName, 'acme/repo')
+  const giteaStatus = run(['gitea', 'status', workspace.id])
+  assert.equal(giteaStatus[0].latestRun.outcome, 'success')
+  const giteaRuns = run(['gitea', 'runs', workspace.id, '--limit', '1'])
+  assert.equal(giteaRuns[0].observation.runs.length, 1)
+  const giteaRun = run(['gitea', 'run', 'show', workspace.id, giteaRelation.id, '101'])
+  assert.equal(giteaRun.run.outcome, 'success')
+  assert.equal(giteaRun.run.startedAt, '2026-07-16T15:15:45+08:00')
+  const giteaCi = run(['gitea', 'ci', workspace.id, location.id, '--limit', '1'])
+  assert.equal(giteaCi[0].state, 'available')
+  assert.equal(giteaCi[0].commit, head)
+  assert.equal(giteaCi[0].runs[0].headSha, head)
+  const giteaShell = runShell([
+    `--json gitea repos ${workspace.id}`,
+    `--json gitea status ${workspace.id}`,
+    `--json gitea runs ${workspace.id} --limit 1`,
+    `--json gitea run show ${workspace.id} ${giteaRelation.id} 101`,
+    `--json gitea ci ${workspace.id} ${location.id} --limit 1`,
+  ])
+  const giteaOutputs = giteaShell.stdout.trim().split(/\r?\n/).map((line) => JSON.parse(line))
+  assert.equal(giteaOutputs[0].length, 1)
+  assert.equal(giteaOutputs[1][0].latestRun.outcome, 'success')
+  assert.equal(giteaOutputs[2][0].observation.runs.length, 1)
+  assert.equal(giteaOutputs[3].run.outcome, 'success')
+  assert.equal(giteaOutputs[4][0].state, 'available')
+
   const dissociated = run(['session', 'dissociate', secondWorkspace.id, outputs[10].id, '--yes'])
   assert.equal(dissociated.removedRelationId, outputs[10].id)
-  assert.equal(run(['workspace', 'show', secondWorkspace.id]).relations.length, 0)
+  assert.equal(run(['workspace', 'show', secondWorkspace.id]).relations.some((relation) =>
+    relation.target.namespace.startsWith('dsh.session.')), false)
   assert.equal(run(['session', 'list']).length, 3)
 
   const machine = run(['machine', 'register', 'Smoke Host', '--description', 'profile smoke'])
@@ -297,6 +387,7 @@ try {
     `--json session links ${workspace.id}`,
     `--json machine list`,
     `--json connect list`,
+    `--json gitea repos ${workspace.id}`,
     `fs register ${workspace.id} ${shared}`,
   ], { patch: missingFilesystem, code: 2 })
   assert.match(offline.stdout, new RegExp(workspace.id))
@@ -307,6 +398,7 @@ try {
   assert.match(offline.stderr, /Filesystem 能力不可用/)
   assert.match(offline.stderr, /Remote Machine 能力不可用/)
   assert.match(offline.stderr, /Connectivity 能力不可用/)
+  assert.match(offline.stdout, /"state":"unavailable"/)
   assert.equal(run(['workspace', 'show', workspace.id]).relations.some((relation) =>
     relation.target.namespace === 'locus.remote-machine' && relation.target.id === machine.id), true)
   run(['machine', 'dissociate', workspace.id, machineRelationA.id, '--yes'])
@@ -315,9 +407,12 @@ try {
   assert.equal(run(['connect', 'profile', 'show', connectionProfile.id]).profile.id, connectionProfile.id)
   run(['connect', 'profile', 'remove', connectionProfile.id, '--yes'])
   assert.equal(run(['connect', 'list']).length, 0)
+  assert.equal(run(['workspace', 'show', workspace.id]).relations.some((relation) =>
+    relation.target.namespace === 'locus.gitea.repository' && relation.target.id === `${giteaInstance.id}:7`), true)
 
   console.log('PASS profile: launcher、退出码、跨进程恢复、插件停用与 shell 组合符合断言。')
   console.log(`Workspace profile smoke: PASS (${invocations} independent DSH processes)`)
 } finally {
+  giteaProcess.kill('SIGTERM')
   rmSync(root, { recursive: true, force: true })
 }

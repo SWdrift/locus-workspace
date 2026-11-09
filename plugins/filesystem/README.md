@@ -34,4 +34,4 @@ fiber 卸载等待在途有界 I/O 并关闭数据库，不删除登记；释放
 
 ## 验证
 
-`pnpm test:all` 使用真实临时目录、文件、SQLite 和链接验证范围、状态、读取、配置恢复与生命周期；`pnpm verify:full` 通过真实 DSH profile 验证产品操作。平台与路径限制见本文，验证入口见[开发与验证](../../docs/development.md#修改与验证)。
+`pnpm test:all` 使用真实临时目录、文件、SQLite 和链接验证范围、状态、读取、配置恢复与生命周期；`pnpm verify:full` 通过真实 DSH profile 验证产品操作。平台与路径限制见本文，验证入口见[测试系统](../../docs/testing.md#分层与入口)。

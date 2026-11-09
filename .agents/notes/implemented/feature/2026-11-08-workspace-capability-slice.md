@@ -28,7 +28,7 @@ CLI 是当前可执行入口，业务用例可直接调用，不经过终端参�
 
 ### 交付边界
 
-当前为本机 Workspace Foundation。跨设备同步、远程文件发现、完整 DevOps、Gitea/CI/SSH/Agent、Web、Blueprint 执行器、多提供方自动选择均未交付。Workspace 的显式删除也未交付：当前只能解除关系/位置和取消能力选择；跨 Core 与 Plugin 数据的删除/清理边界尚未设计，不能把“解除关系”当成删除 Workspace。候选能力及未实施语义统一保留在[后续能力提案](../../proposed/feature/2026-11-08-workspace-capability-evolution.md)，不把候选清单转成空包。
+当前为本机 Workspace Foundation。跨设备同步、远程文件发现、完整 DevOps、自动部署、Agent、Web、Blueprint 执行器、多提供方自动选择均未交付；Filesystem、Git、Remote Machine、Connectivity、Gitea 与 Session 的已交付范围分别由对应决定维护。Workspace 的显式删除也未交付：当前只能解除关系/位置和取消能力选择；跨 Core 与 Plugin 数据的删除/清理边界尚未设计，不能把“解除关系”当成删除 Workspace。候选能力及未实施语义统一保留在[后续能力提案](../../proposed/feature/2026-11-08-workspace-capability-evolution.md)，不把候选清单转成空包。
 
 ## 备选方案
 
@@ -42,7 +42,7 @@ CLI 是当前可执行入口，业务用例可直接调用，不经过终端参�
 
 ## 验证
 
-测试与真实 profile 覆盖原 A1–A9 和 G1：A/B 共享与跨层级目录、零目录 C、发现/确认分离、重启与备份、能力缺失、目录消失及 Git 只读组合；验证入口见[开发与验证](../../../../docs/development.md#修改与验证)。不是因方案定稿或文档检查而迁入 implemented。
+测试与真实 profile 覆盖原 A1–A9 和 G1：A/B 共享与跨层级目录、零目录 C、发现/确认分离、重启与备份、能力缺失、目录消失及 Git 只读组合；验证入口见[开发与验证](../../../../docs/testing.md#分层与入口)。不是因方案定稿或文档检查而迁入 implemented。
 
 ## 后果
 

@@ -8,6 +8,7 @@ import { createLocusCore } from '../packages/core/lib/index.js'
 import { createFilesystemService } from '../plugins/filesystem/lib/index.js'
 import { createGitService } from '../plugins/git/lib/index.js'
 import { createConnectivityService } from '../plugins/connectivity/lib/index.js'
+import { createGiteaService } from '../plugins/gitea/lib/index.js'
 import { createRemoteMachineService } from '../plugins/remote-machine/lib/index.js'
 import { createSessionService } from '../plugins/session/lib/index.js'
 import { createCommands } from '../plugins/cli/lib/commands.js'
@@ -16,7 +17,7 @@ import { createCommands } from '../plugins/cli/lib/commands.js'
 async function invoke(services, argv) {
   const commands = createCommands(
     services.locus, services.filesystem, services.git, services.session, services.remoteMachine,
-    services.connectivity,
+    services.connectivity, services.gitea,
   )
   const silence = (program) => {
     program.exitOverride()
@@ -72,6 +73,63 @@ function fixture(t) {
       return { stdout: 'remote-cli\n', stderr: '', error: null }
     },
   })
+  const giteaSha = 'a'.repeat(40)
+  const giteaRepository = {
+    id: 7,
+    full_name: 'acme/repo',
+    default_branch: 'main',
+    private: true,
+    archived: false,
+    has_actions: true,
+    html_url: 'http://gitea.example/acme/repo',
+  }
+  const giteaFetch = async (input) => {
+    const url = new URL(String(input))
+    const json = (body, status = 200) => new Response(JSON.stringify(body), {
+      status,
+      headers: { 'content-type': 'application/json; charset=utf-8' },
+    })
+    if (url.pathname.endsWith('/api/v1/version')) return json({ version: '1.25.5' })
+    if (url.pathname.endsWith('/api/v1/user')) return json({ login: 'acme' })
+    if (url.pathname === '/api/v1/repos/acme/repo') return json(giteaRepository)
+    if (url.pathname === '/api/v1/repositories/7') return json(giteaRepository)
+    if (url.pathname === '/api/v1/repos/acme/repo/actions/runs') {
+      const sha = url.searchParams.get('head_sha') ?? giteaSha
+      return json({
+        total_count: 1,
+        workflow_runs: [{
+          id: 101,
+          run_number: 12,
+          display_title: 'CLI CI',
+          event: 'push',
+          status: 'completed',
+          conclusion: 'success',
+          head_sha: sha,
+          head_branch: 'main',
+        }],
+      })
+    }
+    if (url.pathname === '/api/v1/repos/acme/repo/actions/runs/101') {
+      return json({
+        id: 101,
+        run_number: 12,
+        display_title: 'CLI CI',
+        event: 'push',
+        status: 'completed',
+        conclusion: 'success',
+        head_sha: giteaSha,
+        head_branch: 'main',
+        path: 'ci.yaml@refs/heads/main',
+        started_at: '2026-07-16T15:15:45+08:00',
+        completed_at: '2026-07-16T15:16:19+08:00',
+      })
+    }
+    return json({ message: 'not found' }, 404)
+  }
+  let gitea = createGiteaService(core, {
+    fetch: giteaFetch,
+    env: { GITEA_TOKEN: 'cli-token' },
+  })
   const sessionRecords = []
   const sessionQuery = {
     async listSessions() {
@@ -101,6 +159,7 @@ function fixture(t) {
   t.after(async () => {
     await git.dispose()
     await connectivity.dispose()
+    await gitea.dispose()
     await remoteMachine.dispose()
     await filesystem.dispose()
     await core.dispose()
@@ -109,10 +168,11 @@ function fixture(t) {
   return {
     root, data, resources, parent, child, sibling,
     sessionRecords,
-    services: () => ({ locus: core, filesystem, git, session, remoteMachine, connectivity }),
+    services: () => ({ locus: core, filesystem, git, session, remoteMachine, connectivity, gitea }),
     async restart() {
       await git.dispose()
       await connectivity.dispose()
+      await gitea.dispose()
       await remoteMachine.dispose()
       await filesystem.dispose()
       await core.dispose()
@@ -132,6 +192,10 @@ function fixture(t) {
           if (args.includes('-G')) return { stdout: sshConfigOutput, stderr: '', error: null }
           return { stdout: 'remote-cli\n', stderr: '', error: null }
         },
+      })
+      gitea = createGiteaService(core, {
+        fetch: giteaFetch,
+        env: { GITEA_TOKEN: 'cli-token' },
       })
       session = createSessionService({
         source: { home: 'C:/tmp/locus-cli-dsh', label: 'locus' },
@@ -303,6 +367,86 @@ test('Git 从 Filesystem 线索读取真实仓库，非仓库正常且 Remote �
   const relation = (await invoke(f.services(), ['git', 'confirm', workspace.id, repoLocation.id])).value
   assert.deepEqual(relation.target, observed.reference)
   assert.equal((await invoke(f.services(), ['workspace', 'show', workspace.id])).value.relations.length, 1)
+})
+
+test('Gitea 仓库显式关联、Remote 候选、CI 查询与插件停用', async (t) => {
+  const f = fixture(t)
+  const workspace = await createWorkspace(f, 'Gitea')
+  const other = await createWorkspace(f, 'GiteaShared')
+  await invoke(f.services(), ['capability', 'configure', workspace.id, 'filesystem'])
+  await invoke(f.services(), ['capability', 'configure', workspace.id, 'gitea'])
+  await invoke(f.services(), ['capability', 'configure', workspace.id, 'git'])
+  await invoke(f.services(), ['capability', 'configure', other.id, 'gitea'])
+
+  const instance = (await invoke(f.services(), [
+    'gitea', 'instance', 'add', 'Local', '--base-url', 'http://gitea.example',
+    '--credential-ref', 'GITEA_TOKEN',
+  ])).value
+  assert.equal(instance.baseUrl, 'http://gitea.example')
+  assert.equal(instance.credentialRef, 'GITEA_TOKEN')
+  const verified = (await invoke(f.services(), ['gitea', 'instance', 'verify', instance.id])).value
+  assert.equal(verified.state, 'ok')
+  assert.equal(verified.login, 'acme')
+
+  const inspected = (await invoke(f.services(), ['gitea', 'repo', 'inspect', instance.id, 'acme/repo'])).value
+  assert.equal(inspected.state, 'available')
+  assert.equal(inspected.repository.fullName, 'acme/repo')
+
+  const repo = join(f.resources, 'gitea-repo')
+  mkdirSync(repo)
+  const native = (args) => {
+    const result = spawnSync('git', ['-C', repo, ...args], { encoding: 'utf8', timeout: 10000 })
+    assert.equal(result.status, 0, result.stderr)
+    return result.stdout.trim()
+  }
+  native(['init', '--initial-branch=main'])
+  writeFileSync(join(repo, 'file.txt'), 'gitea\n')
+  native(['add', 'file.txt'])
+  native(['-c', 'user.name=CLI Test', '-c', 'user.email=cli@example.invalid', '-c', 'commit.gpgsign=false', 'commit', '-m', 'initial'])
+  native(['remote', 'add', 'origin', 'http://gitea.example/acme/repo.git'])
+  const location = (await invoke(f.services(), ['fs', 'register', workspace.id, repo])).value
+  const suggestions = (await invoke(f.services(), ['gitea', 'repo', 'suggest', workspace.id, location.id])).value
+  assert.equal(suggestions.length, 1)
+  assert.equal(suggestions[0].fullName, 'acme/repo')
+  assert.equal((await invoke(f.services(), ['gitea', 'repos', workspace.id])).value.length, 0)
+
+  const relation = (await invoke(f.services(), [
+    'gitea', 'repo', 'link', workspace.id, instance.id, 'acme/repo',
+  ])).value
+  assert.equal(relation.target.namespace, 'locus.gitea.repository')
+  assert.equal(relation.target.id, `${instance.id}:7`)
+  const sharedRelation = (await invoke(f.services(), [
+    'gitea', 'repo', 'link', other.id, instance.id, 'acme/repo',
+  ])).value
+  assert.deepEqual(sharedRelation.target, relation.target)
+  assert.notEqual(sharedRelation.id, relation.id)
+
+  const repos = (await invoke(f.services(), ['gitea', 'repos', workspace.id])).value
+  assert.equal(repos.length, 1)
+  assert.equal(repos[0].observation.repository.fullName, 'acme/repo')
+  const status = (await invoke(f.services(), ['gitea', 'status', workspace.id])).value
+  assert.equal(status[0].latestRun.outcome, 'success')
+  const runs = (await invoke(f.services(), ['gitea', 'runs', workspace.id])).value
+  assert.equal(runs[0].observation.runs[0].runNumber, 12)
+  const run = (await invoke(f.services(), ['gitea', 'run', 'show', workspace.id, relation.id, '101'])).value
+  assert.equal(run.run.outcome, 'success')
+  assert.equal(run.run.workflowPath, 'ci.yaml@refs/heads/main')
+  assert.equal(run.run.startedAt, '2026-07-16T15:15:45+08:00')
+
+  const ci = (await invoke(f.services(), ['gitea', 'ci', workspace.id, location.id])).value
+  assert.equal(ci[0].state, 'available')
+  assert.equal(ci[0].runs[0].headSha, native(['rev-parse', 'HEAD']).toLowerCase())
+
+  await invoke(f.services(), ['gitea', 'repo', 'unlink', workspace.id, relation.id, '--yes'])
+  assert.equal((await invoke(f.services(), ['gitea', 'repos', other.id])).value.length, 1)
+
+  const withoutGitea = {
+    ...f.services(),
+    gitea: undefined,
+  }
+  const retained = (await invoke(withoutGitea, ['gitea', 'repos', other.id])).value
+  assert.equal(retained[0].state, 'unavailable')
+  assert.equal((await invoke(withoutGitea, ['workspace', 'show', other.id])).value.relations.length, 1)
 })
 
 test('Session 发现、显式关联、跨 Workspace 复用与解除不删除原生 Session', async (t) => {

@@ -18,4 +18,4 @@ Cordis 薄装配插件：创建并持有 Core，把实际公开用例注册为 `
 
 ## 验证
 
-`pnpm test:all` 的真实 Cordis 生命周期场景验证 Plugin 卸载、重载后的身份/关系与位置恢复，以及重复提供失败。`pnpm verify:full` 使用真实 profile 验证版本、应用退出、Remote Machine/Connectivity 与 Session 关联及能力缺失时仍可打开 Workspace；验证入口见[开发与验证](../../docs/development.md#修改与验证)。
+`pnpm test:all` 的真实 Cordis 生命周期场景验证 Plugin 卸载、重载后的身份/关系与位置恢复，以及重复提供失败。`pnpm verify:full` 使用真实 profile 验证版本、应用退出、Remote Machine/Connectivity 与 Session 关联及能力缺失时仍可打开 Workspace；验证入口见[测试系统](../../docs/testing.md#分层与入口)。

@@ -70,4 +70,4 @@ Workspace 获得独立于目录和 Session 的外部机器语境：同一机器�
 - 机器删除、共享引用清理、地址历史与自动迁移；需要明确的破坏性确认和数据所有权规则。
 - 网络扫描、按 SSH 配置自动导入、hostname/IP 自动去重和身份确认。
 - 远端执行、部署、监控与操作系统/服务信息采集；当前只运行 `hostname`。
-- Gitea、Nginx、Database 等组合能力；需要各自真实实例与授权条件。
+- Nginx、Database 等组合能力；需要各自真实实例与授权条件。Gitea 已由独立 Gitea Capability 交付。

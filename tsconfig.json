@@ -9,6 +9,7 @@
     { "path": "./plugins/git" },
     { "path": "./plugins/remote-machine" },
     { "path": "./plugins/connectivity" },
+    { "path": "./plugins/gitea" },
     { "path": "./plugins/session" },
     { "path": "./plugins/cli" }
   ]

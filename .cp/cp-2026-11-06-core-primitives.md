@@ -40,6 +40,6 @@ Workspace 产品定义、Capability 组合与候选功能演进归 [Workspace Ca
 
 ### 回归门槛
 
-后续改变 Core 用例默认运行 `pnpm verify`；修改持久化结构、关系语义或公开用例时同时运行 `pnpm test:all`；只有 launcher/profile/装配/插件生命周期变化或里程碑验收才运行 `pnpm verify:full`。验证门禁归[实用命令](../docs/commands.md#验证门禁)，不在 CP 重抄测试清单。
+后续改变 Core 用例默认运行 `pnpm verify`；修改持久化结构、关系语义或公开用例时同时运行 `pnpm test:all`；只有 launcher/profile/装配/插件生命周期变化或里程碑验收才运行 `pnpm verify:full`。验证门禁归[实用命令](../docs/testing.md#分层与入口)，不在 CP 重抄测试清单。
 
 旧“只物化方案”和“完整六域 DevOps 才算下一版本”约束已失效；旧提案保持 rejected。Workspace 与 Session 的已交付决定转 implemented，Blueprint、多提供方、跨设备与剩余候选单独留 proposed；不能继续引用迁移前路径。

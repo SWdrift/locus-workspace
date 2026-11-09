@@ -10,6 +10,14 @@ import type {
   ConnectivityService,
   FilesystemObservation,
   FilesystemService,
+  GiteaInstance,
+  GiteaInstanceObservation,
+  GiteaRepositoryObservation,
+  GiteaRepositorySuggestion,
+  GiteaRun,
+  GiteaRunListObservation,
+  GiteaRunObservation,
+  GiteaService,
   GitService,
   LocusService,
   MachineAddress,
@@ -22,7 +30,11 @@ import type {
   Workspace,
   WorkspaceRelation,
 } from '@locus/contracts'
-import { REMOTE_MACHINE_NAMESPACE, SESSION_NAMESPACE_PREFIX } from '@locus/contracts'
+import {
+  GITEA_REPOSITORY_NAMESPACE,
+  REMOTE_MACHINE_NAMESPACE,
+  SESSION_NAMESPACE_PREFIX,
+} from '@locus/contracts'
 
 export interface CommandResult {
   readonly value: unknown
@@ -180,6 +192,70 @@ function openText(value: ConnectionOpen): string {
   ].join('\n')
 }
 
+function giteaInstanceText(value: GiteaInstance): string {
+  return [
+    `Gitea 实例: ${value.name}`,
+    `Identity: ${value.id}`,
+    `地址: ${value.baseUrl}`,
+    `凭据引用: ${value.credentialRef ?? '无'}`,
+    `创建时间: ${value.createdAt}`,
+    `更新时间: ${value.updatedAt}`,
+  ].join('\n')
+}
+
+function giteaInstanceObservationText(value: GiteaInstanceObservation): string {
+  return [
+    `${value.state}  ${value.observedAt}`,
+    ...(value.version === undefined ? [] : [`版本: ${value.version}`]),
+    `认证: ${value.authenticated ? `是${value.login === undefined ? '' : ` (${value.login})`}` : '否'}`,
+    ...(value.error === undefined ? [] : [value.error]),
+  ].join('\n')
+}
+
+function giteaRepositoryText(value: GiteaRepositoryObservation): string {
+  if (value.state !== 'available' || value.repository === undefined) {
+    return `${value.state}  ${value.instanceId}${value.error === undefined ? '' : `  (${value.error})`}`
+  }
+  const repository = value.repository
+  return [
+    `仓库: ${repository.fullName}  (#${repository.id})`,
+    `默认分支: ${repository.defaultBranch}`,
+    `可见性: ${repository.private ? '私有' : '公开'}${repository.archived ? '，已归档' : ''}`,
+    `Actions: ${repository.hasActions ? '已启用' : '未启用'}`,
+    ...(repository.htmlUrl === undefined ? [] : [`网页: ${repository.htmlUrl}`]),
+  ].join('\n')
+}
+
+function giteaRunText(value: GiteaRun, detailed = false): string {
+  return [
+    `#${value.runNumber}  ${value.outcome}  ${value.status}/${value.conclusion ?? '-'}  ${value.headSha.slice(0, 12)}  ${value.headBranch ?? '-'}  ${value.title}`,
+    ...(detailed && value.workflowPath !== undefined ? [`工作流: ${value.workflowPath}`] : []),
+    ...(detailed && value.startedAt !== undefined ? [`开始: ${value.startedAt}`] : []),
+    ...(detailed && value.completedAt !== undefined ? [`结束: ${value.completedAt}`] : []),
+    ...(detailed && value.htmlUrl !== undefined ? [`网页: ${value.htmlUrl}`] : []),
+  ].join('\n')
+}
+
+function giteaRunListText(value: GiteaRunListObservation): string {
+  const repository = value.repository?.fullName ?? `#${value.repositoryId}`
+  return [
+    `${value.state}  ${repository}  ${value.observedAt}`,
+    ...value.runs.map((run) => giteaRunText(run)),
+    ...(value.error === undefined ? [] : [value.error]),
+  ].join('\n')
+}
+
+function giteaRunObservationText(value: GiteaRunObservation): string {
+  if (value.state !== 'available' || value.run === undefined) {
+    return `${value.state}  ${value.instanceId}:${value.repositoryId}${value.error === undefined ? '' : `  (${value.error})`}`
+  }
+  return giteaRunText(value.run, true)
+}
+
+function giteaSuggestionText(value: GiteaRepositorySuggestion): string {
+  return `${value.remoteName}  ${value.remoteUrl}  ->  ${value.instanceName}  ${value.fullName}  [${value.matchedBy}]`
+}
+
 /** 语法解析只选择用例，异步 I/O 留到 parseCmdline 完成后执行。 */
 export function createCommands(
   locus: LocusService,
@@ -188,6 +264,7 @@ export function createCommands(
   session: SessionService | undefined,
   remoteMachine: RemoteMachineService | undefined,
   connectivity: ConnectivityService | undefined,
+  gitea: GiteaService | undefined,
 ): ParsedCommand {
   const program = new Command()
     .name('dsh --profile locus')
@@ -218,6 +295,10 @@ export function createCommands(
     if (!connectivity) throw new Error('Connectivity 能力不可用：profile 未加载 locusConnectivity；Connection Profile 不受影响。')
     return connectivity
   }
+  const giteaService = (): GiteaService => {
+    if (!gitea) throw new Error('Gitea 能力不可用：profile 未加载 locusGitea；Gitea 实例配置与 Workspace 关系不受影响。')
+    return gitea
+  }
   const workspacesFor = (machineId: string): { workspaceId: string; workspaceName: string; relationId: string }[] =>
     locus.workspaces.list().flatMap((workspace) =>
       workspace.relations
@@ -228,11 +309,15 @@ export function createCommands(
           workspaceName: workspace.name,
           relationId: relation.id,
         })))
+  const giteaRelations = (workspaceId: string): WorkspaceRelation[] =>
+    locus.workspaces.get(workspaceId).relations
+      .filter((relation) => relation.target.namespace === GITEA_REPOSITORY_NAMESPACE)
   const declared: CapabilityDescriptor[] = []
   if (filesystem) declared.push(filesystem.capability)
   if (git) declared.push(git.capability)
   if (remoteMachine) declared.push(remoteMachine.capability)
   if (connectivity) declared.push(connectivity.capability)
+  if (gitea) declared.push(gitea.capability)
   if (session) declared.push(session.capability)
   const descriptor = (input: string): CapabilityDescriptor => {
     const result = declared.find((item) => item.id === input || item.provider === input)
@@ -303,6 +388,7 @@ export function createCommands(
     const gitAvailability = git ? await git.availability() : undefined
     const remoteMachineAvailability = remoteMachine ? await remoteMachine.availability() : undefined
     const connectivityAvailability = connectivity ? await connectivity.availability() : undefined
+    const giteaAvailability = gitea ? await gitea.availability() : undefined
     const sessionAvailability = session ? await session.availability() : undefined
     const loaded = new Map(declared.map((item) => [item.id, item]))
     const ids = new Set([...current.capabilities.map((item) => item.id), ...loaded.keys()])
@@ -319,6 +405,8 @@ export function createCommands(
             ? remoteMachineAvailability?.available === true
           : capabilityId === 'locus.connectivity'
             ? connectivityAvailability?.available === true
+          : capabilityId === 'locus.gitea'
+            ? giteaAvailability?.available === true
           : capabilityId === 'locus.session'
             ? sessionAvailability?.available === true
             : true
@@ -334,6 +422,8 @@ export function createCommands(
                 ? remoteMachineAvailability?.error ?? 'OpenSSH 不可用；机器资料与关联仍可用。'
               : capabilityId === 'locus.connectivity'
                 ? connectivityAvailability?.error ?? 'OpenSSH 不可用；Connection Profile 仍可保存。'
+              : capabilityId === 'locus.gitea'
+                ? giteaAvailability?.error ?? 'Gitea HTTP 传输不可用；实例配置与关系仍可保留。'
               : sessionAvailability?.error ?? 'Session 查询服务不可用。'
             : '服务已就绪；具体资源的访问状态由能力查询。'
       return {
@@ -797,6 +887,347 @@ export function createCommands(
   connectionOpen.action((profileId: string) => choose(connectionOpen, () => {
     const result = connectivityService().open(profileId)
     return { value: result, text: openText(result), exitCode: result.mode === 'native' ? 0 : 2 }
+  }))
+
+  const giteaGroup = program.command('gitea')
+    .description('Gitea：只读实例、仓库、Actions Run 与 Workspace 关联；不触发或修改 CI')
+  const giteaInstance = giteaGroup.command('instance')
+    .description('Gitea 实例配置；地址只用于定位，凭据只保存环境变量引用')
+  const giteaInstanceAdd = giteaInstance.command('add <name>')
+    .description('登记一个 Gitea 实例；不验证网络，也不保存 Token')
+    .requiredOption('--base-url <url>', 'Gitea HTTP(S) 根地址，例如 http://localhost:9700')
+    .option('--credential-ref <ref>', '只读凭据名称，例如 GITEA_TOKEN；优先经 DSH credentials 解析；也可不配置')
+  giteaInstanceAdd.action((name: string) => choose(giteaInstanceAdd, () => {
+    const options = giteaInstanceAdd.opts<{ baseUrl: string; credentialRef?: string }>()
+    const result = giteaService().addInstance({
+      name,
+      baseUrl: options.baseUrl,
+      ...(options.credentialRef === undefined ? {} : { credentialRef: options.credentialRef }),
+    })
+    return { value: result, text: giteaInstanceText(result) }
+  }))
+  const giteaInstanceList = giteaInstance.command('list')
+    .description('列出已登记的 Gitea 实例；不发起网络请求')
+  giteaInstanceList.action(() => choose(giteaInstanceList, () => {
+    const result = giteaService().listInstances()
+    return {
+      value: result,
+      text: result.map(giteaInstanceText).join('\n') || '没有已登记的 Gitea 实例。',
+    }
+  }))
+  const giteaInstanceShow = giteaInstance.command('show <instance>')
+    .description('查看实例配置；不验证实例是否可达')
+  giteaInstanceShow.action((instanceId: string) => choose(giteaInstanceShow, () => {
+    const result = giteaService().getInstance(instanceId)
+    return { value: result, text: giteaInstanceText(result) }
+  }))
+  const giteaInstanceUpdate = giteaInstance.command('update <instance>')
+    .description('修改实例地址或环境变量引用；不改变 Instance Identity')
+    .option('--name <name>', '新的实例名称')
+    .option('--base-url <url>', '新的 Gitea HTTP(S) 根地址')
+    .option('--credential-ref <ref>', '新的凭据名称；none 表示清除')
+  giteaInstanceUpdate.action((instanceId: string) => choose(giteaInstanceUpdate, () => {
+    const options = giteaInstanceUpdate.opts<{
+      name?: string
+      baseUrl?: string
+      credentialRef?: string
+    }>()
+    if (options.name === undefined && options.baseUrl === undefined && options.credentialRef === undefined) {
+      throw new Error('至少提供 --name、--base-url 或 --credential-ref')
+    }
+    const result = giteaService().updateInstance(instanceId, {
+      ...(options.name === undefined ? {} : { name: options.name }),
+      ...(options.baseUrl === undefined ? {} : { baseUrl: options.baseUrl }),
+      ...(options.credentialRef === undefined
+        ? {}
+        : { credentialRef: options.credentialRef === 'none' ? null : options.credentialRef }),
+    })
+    return { value: result, text: giteaInstanceText(result) }
+  }))
+  const giteaInstanceVerify = giteaInstance.command('verify <instance>')
+    .description('只读验证实例版本与凭据；不读取仓库或触发 Actions')
+  giteaInstanceVerify.action((instanceId: string) => choose(giteaInstanceVerify, async () => {
+    const result = await giteaService().verifyInstance(instanceId)
+    return {
+      value: result,
+      text: giteaInstanceObservationText(result),
+      exitCode: result.state === 'ok' ? 0 : 2,
+    }
+  }))
+  const giteaInstanceRemove = giteaInstance.command('remove <instance>')
+    .description('删除实例配置，不删除 Workspace 关系或外部仓库')
+    .requiredOption('--yes', '确认删除实例配置；不等待交互输入')
+  giteaInstanceRemove.action((instanceId: string) => choose(giteaInstanceRemove, () => {
+    const instance = giteaService().getInstance(instanceId)
+    giteaService().removeInstance(instanceId)
+    return {
+      value: { removedInstanceId: instanceId, name: instance.name },
+      text: `已删除 Gitea 实例 ${instance.name}；Workspace 关系与外部仓库未删除。`,
+    }
+  }))
+
+  const giteaRepo = giteaGroup.command('repo')
+    .description('Gitea 仓库观察、候选与显式关联')
+  const giteaRepoInspect = giteaRepo.command('inspect <instance> <repository>')
+    .description('按 owner/repo 只读查询仓库、默认分支与 Actions 状态')
+  giteaRepoInspect.action((instanceId: string, repository: string) => choose(giteaRepoInspect, async () => {
+    const result = await giteaService().inspectRepository(instanceId, repository)
+    return {
+      value: result,
+      text: giteaRepositoryText(result),
+      exitCode: result.state === 'available' ? 0 : 2,
+    }
+  }))
+  const giteaRepoSuggest = giteaRepo.command('suggest <workspace> <location> [relative]')
+    .description('从本地 Git Remote 生成 Gitea 候选；不自动写入长期关系')
+  giteaRepoSuggest.action((workspaceId: string, locationId: string, relative?: string) => choose(giteaRepoSuggest, async () => {
+    if (!git) throw new Error('Git 能力不可用：profile 未提供 locusGit；Gitea 候选需要本地 Remote。')
+    const inspected = await git.inspect(workspaceId, locationId, relative)
+    if (inspected.state !== 'repository') {
+      throw new Error(`没有可用的本地 Git 仓库：${inspected.state}${inspected.error === undefined ? '' : ` (${inspected.error})`}`)
+    }
+    const result = giteaService().suggest(inspected.remotes ?? [])
+    return {
+      value: result,
+      text: result.map(giteaSuggestionText).join('\n')
+        || '没有 Remote 匹配已登记的 Gitea 实例；可在确认后手工 link。',
+    }
+  }))
+  const giteaRepoLink = giteaRepo.command('link <workspace> <instance> <repository>')
+    .description('显式关联已观察到的 Gitea 仓库；不自动创建部署关系')
+  giteaRepoLink.action((workspaceId: string, instanceId: string, repositoryName: string) => choose(giteaRepoLink, async () => {
+    const service = giteaService()
+    const workspace = locus.workspaces.get(workspaceId)
+    if (!workspace.capabilities.some((entry) =>
+      entry.id === service.capability.id && entry.provider === service.capability.provider)) {
+      throw new Error(`Workspace ${workspace.name} (${workspaceId}) 尚未启用能力 ${service.capability.id}；请先配置提供方 ${service.capability.provider}。`)
+    }
+    const instance = service.getInstance(instanceId)
+    const observed = await service.inspectRepository(instance.id, repositoryName)
+    if (observed.state !== 'available' || observed.repository === undefined) {
+      throw new Error(`无法关联 Gitea 仓库 ${repositoryName}：${observed.state}${observed.error === undefined ? '' : ` (${observed.error})`}`)
+    }
+    const relation = locus.workspaces.link(
+      workspaceId,
+      'association',
+      service.reference(instance.id, observed.repository.id),
+      {
+        kind: 'manual',
+        detail: `Gitea ${instance.name} ${observed.repository.fullName} (#${observed.repository.id})`,
+      },
+    )
+    return { value: relation, text: relationText(relation) }
+  }))
+  const giteaRepoUnlink = giteaRepo.command('unlink <workspace> <relation-id>')
+    .description('解除一条 Gitea 仓库关联，不删除实例或外部仓库')
+    .requiredOption('--yes', '确认解除关系；不等待交互输入')
+  giteaRepoUnlink.action((workspaceId: string, relationId: string) => choose(giteaRepoUnlink, () => {
+    const relation = locus.workspaces.get(workspaceId).relations.find((item) => item.id === relationId)
+    if (!relation) throw new Error(`找不到 Workspace ${workspaceId} 的关系：${relationId}`)
+    if (relation.target.namespace !== GITEA_REPOSITORY_NAMESPACE) {
+      throw new Error(`关系 ${relationId} 不是 Gitea 仓库关联，不能使用 gitea repo unlink`)
+    }
+    locus.workspaces.unlink(workspaceId, relationId)
+    return {
+      value: { workspaceId, removedRelationId: relationId },
+      text: `已解除 Gitea 仓库关联 ${relationId}；实例与外部仓库未删除。`,
+    }
+  }))
+
+  const giteaRepos = giteaGroup.command('repos <workspace>')
+    .description('列出 Workspace 的 Gitea 仓库关系；插件停用时仍显示长期关系')
+  giteaRepos.action((workspaceId: string) => choose(giteaRepos, async () => {
+    const relations = giteaRelations(workspaceId)
+    if (!gitea) {
+      const result = relations.map((relation) => ({
+        relationId: relation.id,
+        reference: relation.target,
+        state: 'unavailable' as const,
+        error: 'Gitea 能力不可用：profile 未加载 locusGitea；已保存关系保留。',
+      }))
+      return {
+        value: result,
+        text: result.map((item) => `${item.relationId}  ${item.reference.id}  unavailable  ${item.error}`).join('\n')
+          || '该 Workspace 没有 Gitea 仓库关联。',
+      }
+    }
+    const result = await Promise.all(relations.map(async (relation) => {
+      try {
+        return {
+          relationId: relation.id,
+          reference: relation.target,
+          observation: await gitea.inspectReference(relation.target),
+        }
+      } catch (error) {
+        return {
+          relationId: relation.id,
+          reference: relation.target,
+          observation: {
+            instanceId: '',
+            state: 'error' as const,
+            observedAt: new Date().toISOString(),
+            error: error instanceof Error ? error.message : String(error),
+          },
+        }
+      }
+    }))
+    return {
+      value: result,
+      text: result.map((item) => {
+        const repository = 'repository' in item.observation && item.observation.repository !== undefined
+          ? item.observation.repository.fullName
+          : item.reference.id
+        return `${item.relationId}  ${item.observation.state}  ${repository}${item.observation.error === undefined ? '' : `  (${item.observation.error})`}`
+      }).join('\n') || '该 Workspace 没有 Gitea 仓库关联。',
+    }
+  }))
+
+  const giteaStatus = giteaGroup.command('status <workspace>')
+    .description('聚合展示关联仓库与最近一次 CI 状态；不查询部署或服务健康')
+  giteaStatus.action((workspaceId: string) => choose(giteaStatus, async () => {
+    const relations = giteaRelations(workspaceId)
+    if (!gitea) {
+      return {
+        value: relations.map((relation) => ({
+          relationId: relation.id,
+          reference: relation.target,
+          state: 'unavailable',
+          error: 'Gitea 能力不可用：profile 未加载 locusGitea；已保存关系保留。',
+        })),
+        text: relations.length === 0 ? '该 Workspace 没有 Gitea 仓库关联。' : 'Gitea 能力不可用；关系保留。',
+      }
+    }
+    const result = await Promise.all(relations.map(async (relation) => {
+      const repository = await gitea.inspectReference(relation.target)
+      if (repository.state !== 'available' || repository.repository === undefined) {
+        return { relationId: relation.id, repository, state: repository.state }
+      }
+      const runs = await gitea.runs(relation.target, { limit: 1 })
+      return {
+        relationId: relation.id,
+        repository,
+        state: runs.state,
+        latestRun: runs.runs[0],
+      }
+    }))
+    return {
+      value: result,
+      text: result.map((item) => {
+        const name = item.repository.repository?.fullName ?? item.relationId
+        const latest = 'latestRun' in item && item.latestRun !== undefined
+          ? `  ${item.latestRun.outcome}  #${item.latestRun.runNumber}`
+          : ''
+        const error = item.repository.error === undefined ? '' : `  (${item.repository.error})`
+        return `${item.relationId}  ${name}  ${item.state}${latest}${error}`
+      }).join('\n') || '该 Workspace 没有 Gitea 仓库关联。',
+    }
+  }))
+
+  const giteaRuns = giteaGroup.command('runs <workspace> [relation]')
+    .description('查询 Workspace 关联仓库的近期 Run；默认每个仓库最近 10 条')
+    .option('--limit <count>', '每个仓库最多返回的 Run 数（1–100）', integer, 10)
+  giteaRuns.action((workspaceId: string, relationId?: string) => choose(giteaRuns, async () => {
+    const service = giteaService()
+    const relations = giteaRelations(workspaceId)
+    const selected = relationId === undefined
+      ? relations
+      : relations.filter((relation) => relation.id === relationId)
+    if (relationId !== undefined && selected.length === 0) {
+      throw new Error(`Workspace ${workspaceId} 没有 Gitea 仓库关系：${relationId}`)
+    }
+    const result = await Promise.all(selected.map(async (relation) => ({
+      relationId: relation.id,
+      observation: await service.runs(relation.target, { limit: Number(giteaRuns.opts().limit) }),
+    })))
+    return {
+      value: result,
+      text: result.map((item) => `${item.relationId}\n${giteaRunListText(item.observation)}`).join('\n\n')
+        || '该 Workspace 没有 Gitea 仓库关联。',
+    }
+  }))
+
+  const giteaRun = giteaGroup.command('run')
+    .description('单个 Gitea Actions Run 的只读详情')
+  const giteaRunShow = giteaRun.command('show <workspace> <relation-id> <run-id>')
+    .description('查看状态、结论、提交、工作流与时间；不读取日志或 Artifact')
+  giteaRunShow.action((workspaceId: string, relationId: string, runId: string) => choose(giteaRunShow, async () => {
+    const relation = giteaRelations(workspaceId).find((item) => item.id === relationId)
+    if (!relation) throw new Error(`Workspace ${workspaceId} 没有 Gitea 仓库关系：${relationId}`)
+    const result = await giteaService().run(relation.target, Number(runId))
+    return {
+      value: result,
+      text: giteaRunObservationText(result),
+      exitCode: result.state === 'available' ? 0 : 2,
+    }
+  }))
+
+  const giteaCi = giteaGroup.command('ci <workspace> <location> [relative]')
+    .description('按本地 Git HEAD 查询关联仓库的 CI；无法确定对应关系时明确报告')
+    .option('--limit <count>', '每个仓库最多返回的 Run 数（1–100）', integer, 10)
+  giteaCi.action((workspaceId: string, locationId: string, relative?: string) => choose(giteaCi, async () => {
+    if (!git) throw new Error('Git 能力不可用：profile 未提供 locusGit；无法读取本地 HEAD。')
+    const service = giteaService()
+    const inspected = await git.inspect(workspaceId, locationId, relative)
+    if (inspected.state !== 'repository') {
+      throw new Error(`没有可用的本地 Git 仓库：${inspected.state}${inspected.error === undefined ? '' : ` (${inspected.error})`}`)
+    }
+    const relations = giteaRelations(workspaceId)
+    if (inspected.commit === null || inspected.commit === undefined) {
+      return {
+        value: relations.map((relation) => ({
+          relationId: relation.id,
+          state: 'no-commit',
+          error: '本地仓库尚无提交；无法关联远端 CI。',
+        })),
+        text: '本地仓库尚无提交；无法关联远端 CI。',
+      }
+    }
+    const commit = inspected.commit
+    const suggestions = service.suggest(inspected.remotes ?? [])
+    const result = await Promise.all(relations.map(async (relation) => {
+      const repository = await service.inspectReference(relation.target)
+      if (repository.state !== 'available' || repository.repository === undefined) {
+        return { relationId: relation.id, state: repository.state, repository, error: repository.error }
+      }
+      const currentRepo = repository.repository
+      const matched = suggestions.find((item) =>
+        item.instanceId === currentRepo.instanceId &&
+        item.fullName === currentRepo.fullName)
+      if (matched === undefined) {
+        return {
+          relationId: relation.id,
+          state: 'unmatched',
+          repository,
+          commit,
+          error: '本地 Git Remote 与当前仓库完整名称不一致；没有查询远端 CI。',
+        }
+      }
+      const runs = await service.runs(relation.target, {
+        headSha: commit,
+        limit: Number(giteaCi.opts().limit),
+      })
+      return {
+        relationId: relation.id,
+        state: runs.state,
+        repository,
+        commit,
+        remote: matched,
+        runs: runs.runs,
+        ...(runs.error === undefined ? {} : { error: runs.error }),
+      }
+    }))
+    return {
+      value: result,
+      text: result.map((item) => {
+        const name = 'repository' in item && item.repository?.repository !== undefined
+          ? item.repository.repository.fullName
+          : item.relationId
+        const runs = 'runs' in item && item.runs !== undefined
+          ? item.runs.map((run) => `  ${giteaRunText(run)}`).join('\n')
+          : ''
+        return `${item.relationId}  ${name}  ${item.state}${runs === '' ? '' : `\n${runs}`}${item.error === undefined ? '' : `  (${item.error})`}`
+      }).join('\n') || '该 Workspace 没有 Gitea 仓库关联。',
+    }
   }))
 
   const sessionGroup = program.command('session')

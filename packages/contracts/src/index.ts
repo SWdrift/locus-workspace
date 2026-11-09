@@ -388,3 +388,161 @@ export interface ConnectivityService {
   verify(profileId: string, signal?: AbortSignal): Promise<ConnectionAttempt>
   open(profileId: string): ConnectionOpen
 }
+
+/** Gitea Repository 的来源限定命名空间；id 由 Instance UUID 与仓库数字 ID 组成。 */
+export const GITEA_REPOSITORY_NAMESPACE = 'locus.gitea.repository'
+
+/** 外部 Gitea 实例的访问配置；地址只用于定位，不是永久全局身份。 */
+export interface GiteaInstance {
+  readonly id: string
+  readonly name: string
+  readonly baseUrl: string
+  /** 只保存 POSIX 凭据/环境变量名称，不保存 Token 值。 */
+  readonly credentialRef?: string
+  readonly createdAt: string
+  readonly updatedAt: string
+}
+
+export interface GiteaInstanceInput {
+  readonly name: string
+  readonly baseUrl: string
+  readonly credentialRef?: string
+}
+
+/** null 表示清除凭据引用；缺省表示保留。 */
+export interface GiteaInstanceUpdate {
+  readonly name?: string
+  readonly baseUrl?: string
+  readonly credentialRef?: string | null
+}
+
+export type GiteaFailureState =
+  | 'instance-missing'
+  | 'credential-missing'
+  | 'unauthorized'
+  | 'forbidden'
+  | 'not-found'
+  | 'rate-limited'
+  | 'unsupported'
+  | 'unreachable'
+  | 'timeout'
+  | 'redirect'
+  | 'invalid-response'
+  | 'error'
+
+/** 一次实例访问检查；不修改实例或凭据。 */
+export interface GiteaInstanceObservation {
+  readonly instanceId: string
+  readonly state: 'ok' | Exclude<GiteaFailureState, 'not-found'>
+  readonly observedAt: string
+  readonly version?: string
+  readonly authenticated: boolean
+  readonly login?: string
+  readonly error?: string
+}
+
+/** Gitea API 的仓库元信息；不包含 Clone URL 或权限细节。 */
+export interface GiteaRepository {
+  readonly instanceId: string
+  readonly id: number
+  readonly fullName: string
+  readonly defaultBranch: string
+  readonly private: boolean
+  readonly archived: boolean
+  readonly hasActions: boolean
+  readonly htmlUrl?: string
+}
+
+export interface GiteaRepositoryObservation {
+  readonly instanceId: string
+  readonly state: 'available' | GiteaFailureState
+  readonly observedAt: string
+  readonly repository?: GiteaRepository
+  readonly error?: string
+}
+
+/** 运行结论是 Gitea 原始字段，outcome 是稳定的产品解释。 */
+export type GiteaRunOutcome =
+  | 'success'
+  | 'failure'
+  | 'running'
+  | 'pending'
+  | 'cancelled'
+  | 'other'
+  | 'unknown'
+
+export interface GiteaRun {
+  readonly id: number
+  readonly runNumber: number
+  readonly title: string
+  readonly event: string
+  readonly status: string
+  readonly conclusion: string | null
+  readonly outcome: GiteaRunOutcome
+  readonly headSha: string
+  readonly headBranch?: string
+  readonly workflowId?: string
+  readonly workflowPath?: string
+  readonly htmlUrl?: string
+  /** 列表端点可能不返回时间；详情端点通常返回。 */
+  readonly startedAt?: string
+  readonly completedAt?: string
+}
+
+export interface GiteaRunQuery {
+  readonly limit?: number
+  readonly branch?: string
+  readonly headSha?: string
+}
+
+export interface GiteaRunListObservation {
+  readonly instanceId: string
+  readonly repositoryId: number
+  readonly state: 'available' | 'empty' | 'actions-disabled' | GiteaFailureState
+  readonly observedAt: string
+  readonly repository?: GiteaRepository
+  readonly totalCount?: number
+  readonly runs: readonly GiteaRun[]
+  readonly error?: string
+}
+
+export interface GiteaRunObservation {
+  readonly instanceId: string
+  readonly repositoryId: number
+  readonly state: 'available' | GiteaFailureState
+  readonly observedAt: string
+  readonly repository?: GiteaRepository
+  readonly run?: GiteaRun
+  readonly error?: string
+}
+
+/** Git Remote 只产生候选；必须由用户显式确认后才写入 Workspace 长期关系。 */
+export interface GiteaRepositorySuggestion {
+  readonly remoteName: string
+  readonly remoteUrl: string
+  readonly instanceId: string
+  readonly instanceName: string
+  readonly fullName: string
+  readonly matchedBy: 'http' | 'ssh'
+}
+
+/**
+ * Gitea 实例、仓库与 Actions 观察。
+ * 服务不保存 Workflow/Run 历史；Workspace 关系仍由 Core 保存。
+ */
+export interface GiteaService {
+  readonly capability: CapabilityDescriptor
+  availability(): Promise<{ readonly available: boolean; readonly error?: string }>
+  listInstances(): readonly GiteaInstance[]
+  getInstance(instanceId: string): GiteaInstance
+  addInstance(input: GiteaInstanceInput): GiteaInstance
+  updateInstance(instanceId: string, changes: GiteaInstanceUpdate): GiteaInstance
+  removeInstance(instanceId: string): void
+  verifyInstance(instanceId: string, signal?: AbortSignal): Promise<GiteaInstanceObservation>
+  inspectRepository(instanceId: string, fullName: string, signal?: AbortSignal): Promise<GiteaRepositoryObservation>
+  inspectReference(reference: ResourceReference, signal?: AbortSignal): Promise<GiteaRepositoryObservation>
+  reference(instanceId: string, repositoryId: number): ResourceReference
+  runs(reference: ResourceReference, query?: GiteaRunQuery, signal?: AbortSignal): Promise<GiteaRunListObservation>
+  run(reference: ResourceReference, runId: number, signal?: AbortSignal): Promise<GiteaRunObservation>
+  suggest(remotes: readonly { readonly name: string; readonly url: string }[]): readonly GiteaRepositorySuggestion[]
+}

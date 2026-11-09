@@ -1,6 +1,6 @@
 # 实用命令
 
-本页登记当前命令语法与成功判据。环境和 profile 准备见[开发与验证](development.md)，实现语义链接模块 README，不用命令参数反推领域模型。
+本页登记当前命令语法与成功判据。环境和 profile 准备见[开发与验证](development.md)，测试分层、夹具与编写约束见[测试系统](testing.md)，实现语义链接模块 README，不用命令参数反推领域模型。
 
 ## 工程命令
 
@@ -8,23 +8,17 @@
 | --- | --- |
 | `pnpm install` | 安装 workspace 依赖并链接本地包 |
 | `pnpm build` | 编译实际库和 Plugin，退出 0 |
-| `pnpm test` | 快速测试：Core/Session/Remote Machine/Connectivity 包测试 + 跨包 Host/CLI/shell；约 2–3 秒，不含 Filesystem/Git 独立集成与 profile e2e |
-| `pnpm test:all` | 全部非 profile 测试：各包 test/ + 跨包 CLI/Host；约 7–12 秒 |
+| `pnpm test` | 快速层测试，退出 0；范围见[测试系统](testing.md#分层与入口) |
+| `pnpm test:all` | 全量进程内测试，退出 0；范围见[测试系统](testing.md#分层与入口) |
 | `pnpm test:file <文件>` | 直接运行单个测试文件；可附加 `--test-name-pattern <模式>` 过滤用例 |
-| `pnpm verify` | 快速门禁：`build` + `test` + `docs:check`；约 4–5 秒 |
-| `pnpm verify:full` | 完整门禁：`build` + `test:all` + `docs:check` + profile e2e；约 2.5 分钟 |
+| `pnpm verify` | 快速门禁：`build` + `test` + `docs:check` |
+| `pnpm verify:full` | 完整门禁：`build` + `test:all` + `docs:check` + profile e2e；e2e 受节流约束，跳过时不算完整通过 |
 | `pnpm docs:check` | Markdown 结构、链接与 Agent Notes 生命周期检查通过 |
 | `pnpm docs:test` | 文档检查器测试通过；仅修改检查器时要求执行 |
 | `pnpm docs:check --root <目录>` | 在指定真实目录执行相同文档检查 |
 | `dsh --profile locus shell` | 进入长驻交互 shell；连续命令复用同一 DSH 进程，不新增启动 |
 
-包内测试位于 `packages/*/test/` 与 `plugins/*/test/`，对应包可直接运行 `pnpm --dir <包> test`。根 `tests/` 只保留跨包 CLI/Host 集成与 `tests/e2e/`。
-
-### 验证门禁
-
-`pnpm test` 是默认快速层，覆盖 Core/Session/Remote Machine/Connectivity、Host、CLI 与 shell。`pnpm test:all` 才运行 Filesystem/Git 原生集成；`pnpm verify:full` 再追加真实 profile e2e（当前 42 次独立 DSH，约 2.5 分钟）。e2e 只保留 launcher、退出码、跨进程恢复、插件停用与 shell 组合，不重复快速层矩阵。
-
-日常使用 `pnpm verify`。只有修改 Filesystem/Git 才需要 `pnpm test:all`；只有完整验收才使用 `pnpm verify:full`。分层减少运行次数，不删除断言或缩小覆盖范围。
+测试目录、覆盖范围、运行成本与选择规则见[测试系统](testing.md#分层与入口)；本表只登记命令入口，不复制测试矩阵。
 
 ## Workspace 操作
 
@@ -40,7 +34,7 @@
 | `workspace link <id> <namespace> <reference> [--kind member\|association] [--source <说明>]` | 显式保存外部引用；默认 association；引用 Workspace 使用 namespace `locus.workspace` |
 | `workspace unlink <id> <relation-id> --yes` | 仅解除该关系，不删除目标或其他归属 |
 | `capability list <id>` | 分别显示“声明”（当前已加载提供方）、保存的选择、加载、可用性及授权检查方式；保存的选择不算声明 |
-| `capability configure <id> <capability>` | 选择已加载提供方；接受 `filesystem` / `git` / `remote-machine`、完整能力标识或提供方包名（如 `@locus/filesystem`） |
+| `capability configure <id> <capability>` | 选择已加载提供方；接受 `filesystem` / `git` / `remote-machine` / `connectivity` / `gitea` / `session`、完整能力标识或提供方包名（如 `@locus/filesystem`） |
 | `capability remove <id> <capability> --yes` | 按能力标识或提供方包名取消能力选择，保留成员与 Plugin 配置 |
 | `fs register <workspace> <path>` | 登记一个发现位置；不是确认成员；要求已选择 Filesystem |
 | `fs locations <workspace>` | 列出已登记位置，包含后续调用使用的 location ID |
@@ -71,6 +65,21 @@
 | `connect inspect <profile>` | 用 `ssh -G` 只读检查有效配置、身份/known_hosts 前提、ProxyJump 与 FRP visitor 端口；不连接远端 |
 | `connect verify <profile>` | 执行一次 `ssh hostname` 验证；强制主机密钥校验，区分配置、认证、主机密钥、网络与目标状态；非 connected 以 2 退出 |
 | `connect open <profile>` | 输出现有 OpenSSH 的原生命令入口；当前 CLI 不接管 Agent/Web 终端 |
+| `gitea instance add <name> --base-url <url> [--credential-ref <name>]` | 登记 Gitea 实例；只保存地址与凭据名称，不验证网络、不保存 Token |
+| `gitea instance list` | 列出实例配置；不发起网络请求 |
+| `gitea instance show <instance>` | 查看实例配置；不验证可达性 |
+| `gitea instance update <instance> [--name] [--base-url] [--credential-ref <name>\|none]` | 修改实例配置；Instance Identity 不变，`none` 清除凭据引用 |
+| `gitea instance verify <instance>` | 只读校验实例版本与凭据；不读取仓库或触发 Actions；失败以 2 退出 |
+| `gitea instance remove <instance> --yes` | 删除实例配置，不删除 Workspace 关系或外部仓库 |
+| `gitea repo inspect <instance> <owner/repo>` | 按 owner/repo 查询仓库、默认分支与 Actions 状态；不可访问以 2 退出 |
+| `gitea repo suggest <workspace> <location> [relative]` | 从本地 Git Remote 生成候选；只建议，不写关系 |
+| `gitea repo link <workspace> <instance> <owner/repo>` | 显式关联已观察仓库；要求 Workspace 已选择 Gitea 提供方 |
+| `gitea repo unlink <workspace> <relation-id> --yes` | 解除仓库关联，不删除实例或外部仓库 |
+| `gitea repos <workspace>` | 列出 Workspace 的 Gitea 仓库关系；插件停用时仍显示长期关系并标记 unavailable |
+| `gitea status <workspace>` | 聚合关联仓库与最近一次 Run 的 outcome；不表示部署成功 |
+| `gitea runs <workspace> [relation-id] [--limit <count>]` | 查询近期 Run，默认每个仓库 10 条、上限 100；Gitea 列表超额时客户端截断 |
+| `gitea run show <workspace> <relation-id> <run-id>` | 查看单条 Run 的状态、结论、提交、工作流与时间；不读取日志或 Artifact |
+| `gitea ci <workspace> <location> [relative] [--limit <count>]` | 按本地 Git HEAD 查询关联仓库 CI；区分 empty、unmatched 与访问失败 |
 | `session list` | 列出当前 DSH 来源可查询的 Session 元信息；不返回消息正文、工具参数或密钥 |
 | `session show <session>` | 查看 Session 的 live/persisted/unavailable、cwd、创建时间与标题；不可访问时以 2 退出 |
 | `session associate <workspace> <session>` | 显式把当前可访问的 Session 关联到 Workspace；不改变 Session 生命周期 |
@@ -78,7 +87,9 @@
 | `session dissociate <workspace> <relation-id> --yes` | 仅解除该关联，不删除原生 Session、消息历史或其他 Workspace 的关联 |
 | `session open <session>` | 返回原生 DSH 入口；持久 Session 给出 headless 继续命令，fork/subagent/无 cwd 明确不可用 |
 
-`relative` 必须在登记范围内，链接不遍历。`fs`、`git`、`machine associate` 或 `session associate` 提示“尚未启用能力”时，先运行 `capability configure <workspace> filesystem`（Git/Remote Machine/Connectivity/Session 同样替换能力名），不必区分能力标识与具体提供方包。Session 的 `discover`/`show` 是只读查询，不要求能力选择；`associate` 才要求 Workspace 已选择提供方。Remote Machine 的登记、列表、资料与地址修改是领域操作，不要求 Workspace 选择；`associate` 才要求 Workspace 已选择提供方。Connectivity 的 Profile 增删改与检查不要求 Workspace 选择；它是 Machine 级配置，Workspace 通过 Machine 关系发现 Profile。Filesystem 详细失败和范围语义见 [Plugin](../plugins/filesystem/README.md#读取与失败语义)；Git 支持与限制见 [Plugin](../plugins/git/README.md#观察语义)；Session 来源与返回限制见 [Plugin](../plugins/session/README.md#状态与返回)；Remote Machine 身份、地址与观察边界见 [Plugin](../plugins/remote-machine/README.md#身份地址与观察)；Connectivity 配置、检查、验证与 FRP 边界见 [Plugin](../plugins/connectivity/README.md#检查验证与入口)。
+`relative` 必须在登记范围内，链接不遍历。`fs`、`git`、`machine associate`、`session associate` 或 `gitea repo link` 提示“尚未启用能力”时，先运行 `capability configure <workspace> filesystem`（Git/Remote Machine/Connectivity/Session/Gitea 同样替换能力名），不必区分能力标识与具体提供方包。Session 的 `discover`/`show` 是只读查询，不要求能力选择；`associate` 才要求 Workspace 已选择提供方。Remote Machine 的登记、列表、资料与地址修改是领域操作，不要求 Workspace 选择；`associate` 才要求 Workspace 已选择提供方。Connectivity 的 Profile 增删改与检查不要求 Workspace 选择；它是 Machine 级配置，Workspace 通过 Machine 关系发现 Profile。Gitea 实例与仓库查询不要求 Workspace，`gitea repo link` 才要求能力选择；`gitea repos/status/runs` 只读取已保存关系。Filesystem 详细失败和范围语义见 [Plugin](../plugins/filesystem/README.md#读取与失败语义)；Git 支持与限制见 [Plugin](../plugins/git/README.md#观察语义)；Session 来源与返回限制见 [Plugin](../plugins/session/README.md#状态与返回)；Remote Machine 身份、地址与观察边界见 [Plugin](../plugins/remote-machine/README.md#身份地址与观察)；Connectivity 配置、检查、验证与 FRP 边界见 [Plugin](../plugins/connectivity/README.md#检查验证与入口)；Gitea 实例、仓库身份与 Actions 边界见 [Plugin](../plugins/gitea/README.md#仓库与-actions)。
+
+Gitea 的 `--credential-ref` 只接受 POSIX 名称（例如 `GITEA_TOKEN`），不接收 Token 本身。DSH `credentials` 服务存在时优先解析；缺失值再回退到启动环境。`gitea status` 与 Run 查询只表示 Gitea Actions 事实，不建立 CI 与 Machine 的部署关系。
 
 ### 初始配置配方
 
@@ -109,4 +120,4 @@
 
 在 `shell` 中，上述退出码是单行结果；单行失败不会终止会话，最终进程退出码取最后一条命令。
 
-未知子命令明确报告“未知命令”；无参数提示查看帮助，二者都退出 1。JSON stdout 不混入诊断；诊断写 stderr。能力提供方缺失不阻止 `workspace` 命令，保存的选择和引用保留。验证入口与分层见[开发与验证](development.md#修改与验证)。
+未知子命令明确报告“未知命令”；无参数提示查看帮助，二者都退出 1。JSON stdout 不混入诊断；诊断写 stderr。能力提供方缺失不阻止 `workspace` 命令，保存的选择和引用保留。验证入口与分层见[测试系统](testing.md#分层与入口)。

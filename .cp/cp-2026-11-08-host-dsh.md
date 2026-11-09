@@ -32,7 +32,7 @@
 - 服务/生命周期变化至少运行构建、真实 profile、独立 Context 的加载/重复提供/卸载恢复。升级 DSH 或变更顶层服务、宿主边界、Bundle/公开兼容前先明确决策。
 - 长驻 shell 必须复用现有命令树和当前 Context 的领域服务，不另建 Host、Core、RPC 或插件生命周期管理器。每行独立解析，不保存隐式当前 Workspace；单条失败继续，`exit`/`quit`/stdin EOF 才请求 `appExit`。插件卸载时关闭读线但不得请求进程退出，交给 HMR 后的新实例接管。
 - HMR 用 DSH/Cordis 自带能力，不自制模块加载器。base bundle 的 `dsh-hmr` 默认 `root: []`，模块监视需在 profile patch 覆盖 `base`/`root`；`base` 应指向仓库根，root 用 `packages`/`plugins`，避免以 `..` 相对路径触发默认 `**/.*` 忽略。TypeScript 修改仍先 `pnpm build`，HMR 监视构建产物；Contracts 纯类型变化无运行时模块，schema/兼容变化按需重启。
-- 验证长驻入口至少覆盖：同一进程连续命令、单条失败继续、最后一条退出码、退出释放、插件卸载不误退、含空格参数；验证 HMR 至少覆盖 Filesystem/Git/Remote Machine/Connectivity 局部重载、Core/host 重载后 CLI 重建与数据恢复、CLI 自身重载。验证入口归[开发与验证](../docs/development.md#修改与验证)。
+- 验证长驻入口至少覆盖：同一进程连续命令、单条失败继续、最后一条退出码、退出释放、插件卸载不误退、含空格参数；验证 HMR 至少覆盖 Filesystem/Git/Remote Machine/Connectivity 局部重载、Core/host 重载后 CLI 重建与数据恢复、CLI 自身重载。验证入口归[开发与验证](../docs/testing.md#分层与入口)。
 - 普通代码改动默认 `pnpm verify`；Filesystem/Git/Session 原生查询变化先构建再运行 `pnpm test:all`；host/profile/assembly/lifecycle 变化才运行 `pnpm verify:full`，不把 profile e2e 塞回每次编辑循环。
 
 ## Task Board

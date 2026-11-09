@@ -42,4 +42,4 @@ Core 唯一拥有 `dataDirectory/core.sqlite`，实验格式版本为 SQLite `us
 
 ## 验证与入口
 
-`pnpm test:all` 覆盖身份/关系重开、共享与嵌套、幂等确认、备份恢复、锁定、未知版本/损坏和释放边界；实际 DSH 链路运行 `pnpm verify:full`。验证入口见[开发与验证](../../docs/development.md#修改与验证)。公共类型见 [contracts](../contracts/README.md)，宿主装配见 [host-dsh](../host-dsh/README.md)。
+`pnpm test:all` 覆盖身份/关系重开、共享与嵌套、幂等确认、备份恢复、锁定、未知版本/损坏和释放边界；实际 DSH 链路运行 `pnpm verify:full`。验证入口见[测试系统](../../docs/testing.md#分层与入口)。公共类型见 [contracts](../contracts/README.md)，宿主装配见 [host-dsh](../host-dsh/README.md)。

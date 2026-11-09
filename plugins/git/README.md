@@ -31,4 +31,4 @@ Remote 观察移除 URL userinfo 并隐藏全部 query/hash；SCP 风格非秘�
 
 卸载拒绝新操作并等待已接收的有界查询完成，不释放 Filesystem/Core、不删除 Workspace 或持久关联。没有 Git 配置数据库或第二套 Plugin 运行时。
 
-`pnpm test:all` 使用真实 Git 仓库验证提交、dirty、unborn/detached、非仓库、缺失 Git、错误分类、凭据脱敏、index/config 不变与生命周期；`pnpm verify:full` 验证真实 DSH 下的组合与显式关联。未验证范围见本文，验证入口见[开发与验证](../../docs/development.md#修改与验证)。
+`pnpm test:all` 使用真实 Git 仓库验证提交、dirty、unborn/detached、非仓库、缺失 Git、错误分类、凭据脱敏、index/config 不变与生命周期；`pnpm verify:full` 验证真实 DSH 下的组合与显式关联。未验证范围见本文，验证入口见[测试系统](../../docs/testing.md#分层与入口)。

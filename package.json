@@ -9,7 +9,7 @@
   },
   "scripts": {
     "build": "tsc -b tsconfig.json",
-    "test": "node --test packages/core/test/*.test.mjs plugins/session/test/*.test.mjs plugins/remote-machine/test/*.test.mjs plugins/connectivity/test/*.test.mjs tests/host.test.mjs tests/cli.test.mjs tests/cli-shell.test.mjs",
+    "test": "node --test packages/core/test/*.test.mjs plugins/session/test/*.test.mjs plugins/remote-machine/test/*.test.mjs plugins/connectivity/test/*.test.mjs plugins/gitea/test/*.test.mjs tests/host.test.mjs tests/cli.test.mjs tests/cli-shell.test.mjs",
     "test:all": "node --test packages/*/test/*.test.mjs plugins/*/test/*.test.mjs tests/*.test.mjs",
     "test:file": "node --test",
     "verify": "pnpm build && pnpm test && pnpm docs:check",

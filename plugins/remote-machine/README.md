@@ -31,4 +31,4 @@ fiber 卸载等待在途观察并关闭数据库，不删除机器、地址或 C
 
 ## 验证
 
-`pnpm test:all` 覆盖登记/重启、多地址、同地址不合并、改名与地址修改、观察分类、无 SSH、非法地址和未知版本；`pnpm verify:full` 在真实 profile 上覆盖注册、共享关联、地址修改、插件停用与跨进程恢复。真实 SSH 成功观察的条件与限制见 [Remote Machine 决定](../../.agents/notes/implemented/feature/2026-11-09-remote-machine.md#测试)。验证入口见[开发与验证](../../docs/development.md#修改与验证)。
+`pnpm test:all` 覆盖登记/重启、多地址、同地址不合并、改名与地址修改、观察分类、无 SSH、非法地址和未知版本；`pnpm verify:full` 在真实 profile 上覆盖注册、共享关联、地址修改、插件停用与跨进程恢复。真实 SSH 成功观察的条件与限制见 [Remote Machine 决定](../../.agents/notes/implemented/feature/2026-11-09-remote-machine.md#测试)。验证入口见[测试系统](../../docs/testing.md#分层与入口)。

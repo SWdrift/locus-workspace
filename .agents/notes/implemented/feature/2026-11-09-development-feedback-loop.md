@@ -25,7 +25,7 @@ HMR 复用 `@deepseek-ai/dsh-hmr`。开发 profile 覆盖 `hmr` 行，把 `base`
 
 ## 实测
 
-同一 shell 进程内连续 10 次操作约 6.4 秒，单发同机约 50 秒；Filesystem、Git、Core/host、CLI 四类修改均由 HMR 生效，整棵 DSH 重启 0 次。环境与验证入口见[开发与验证](../../../../docs/development.md#修改与验证)。
+同一 shell 进程内连续 10 次操作约 6.4 秒，单发同机约 50 秒；Filesystem、Git、Core/host、CLI 四类修改均由 HMR 生效，整棵 DSH 重启 0 次。环境与验证入口见[开发与验证](../../../../docs/testing.md#分层与入口)。
 
 ## 备选方案
 

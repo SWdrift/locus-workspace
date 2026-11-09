@@ -21,7 +21,7 @@
 | 工作 | 必读入口 |
 | --- | --- |
 | 修改产品边界、模块依赖或技术选型 | [项目架构](docs/architecture.md) |
-| 编写代码、执行验证 | [开发与验证](docs/development.md) 与[防御性模式](docs/defensive-patterns/README.md)，再读受影响模块的 README 与源码 |
+| 编写代码、执行验证 | [开发与验证](docs/development.md)、[测试系统](docs/testing.md) 与[防御性模式](docs/defensive-patterns/README.md)，再读受影响模块的 README 与源码 |
 | 编写、移动或删除文档 | [文档规范](docs/AGENTS.md) |
 | 编写设计方案、记录长期取舍或改变已有决定 | [Agent Notes 规则](.agents/notes/AGENTS.md)，再查相关主题 |
 | 查找其他资料 | [文档规范与入口](docs/AGENTS.md) |

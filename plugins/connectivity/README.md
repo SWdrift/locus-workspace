@@ -64,4 +64,4 @@ fiber 卸载等待在途 inspect/verify 并关闭数据库，不删除 Profile�
 
 ## 验证
 
-`pnpm test` 覆盖 Profile 持久化、machine 关联、inspect、verify 分类、FRP visitor 检查、脱敏与 open；`pnpm verify:full` 覆盖真实 profile、插件停用和跨进程恢复。真实 OpenSSH 直连与 ProxyJump 使用本机临时 sshd 验证；真实 FRP 使用现有 FRPP visitor 和已登记 Windows Dev 设备验证。证据与限制见 [Connectivity 决定](../../.agents/notes/implemented/feature/2026-11-09-connectivity.md#测试)。验证入口见[开发与验证](../../docs/development.md#修改与验证)。
+`pnpm test` 覆盖 Profile 持久化、machine 关联、inspect、verify 分类、FRP visitor 检查、脱敏与 open；`pnpm verify:full` 覆盖真实 profile、插件停用和跨进程恢复。真实 OpenSSH 直连与 ProxyJump 使用本机临时 sshd 验证；真实 FRP 使用现有 FRPP visitor 和已登记 Windows Dev 设备验证。证据与限制见 [Connectivity 决定](../../.agents/notes/implemented/feature/2026-11-09-connectivity.md#测试)。验证入口见[测试系统](../../docs/testing.md#分层与入口)。

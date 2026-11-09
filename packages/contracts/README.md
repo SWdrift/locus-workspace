@@ -26,6 +26,7 @@ function workspaceNames(locus: LocusService): readonly string[] {
 | Session 发现、引用与原生入口 | Session → CLI | [Session](../../plugins/session/README.md) |
 | Remote Machine 资料、地址与观察 | Remote Machine → CLI | [Remote Machine](../../plugins/remote-machine/README.md) |
 | Connection Profile、检查与验证 | Connectivity → CLI | [Connectivity](../../plugins/connectivity/README.md) |
+| Gitea 实例、来源限定仓库、Run 与候选 | Gitea → CLI | [Gitea](../../plugins/gitea/README.md) |
 
 具体字段与方法由[源码](src/index.ts)维护，不在 README 重抄类型清单。Core 的领域引用对其自身是不透明的；Plugin 返回当前观察，应用显式确认后才调用长期关系用例。提供方声明、保存的选择、加载与可用性不是同一事实，Tag 不能解释为依赖或授权。
 
@@ -33,4 +34,4 @@ function workspaceNames(locus: LocusService): readonly string[] {
 
 修改契约必须同步实际实现与所有消费者，不预留无调用方的接口。当前契约属于项目内实验 API，不承诺独立 SDK 兼容；持久数据的版本与恢复要求不能因此省略。
 
-执行 `pnpm build` 检查所有生产者和消费者；真实行为通过 `pnpm test:all` 与 `pnpm verify:full` 验证，不能用类型通过代替运行证据。验证入口见[开发与验证](../../docs/development.md#修改与验证)。
+执行 `pnpm build` 检查所有生产者和消费者；真实行为通过 `pnpm test:all` 与 `pnpm verify:full` 验证，不能用类型通过代替运行证据。验证入口见[测试系统](../../docs/testing.md#分层与入口)。
