@@ -4,7 +4,7 @@ import { join } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import type { SQLOutputValue, StatementSync } from 'node:sqlite'
 import { pathToFileURL } from 'node:url'
-import type { FilesystemLocation } from '@locus/contracts'
+import { FILESYSTEM_NAMESPACE_PREFIX, type FilesystemLocation } from '@locus/contracts'
 
 export interface StoredLocation {
   readonly location: FilesystemLocation
@@ -126,7 +126,7 @@ export class LocationStore {
     if (existing) return decode(existing).location
     connection.insert.run(
       randomUUID(), workspaceId, hostname, path,
-      `locus.filesystem:${hostname}`, pathToFileURL(path).href,
+      `${FILESYSTEM_NAMESPACE_PREFIX}${hostname}`, pathToFileURL(path).href,
     )
     const saved = connection.byPath.get(workspaceId, hostname, path)
     if (!saved) throw new Error('Filesystem 位置未能持久保存')

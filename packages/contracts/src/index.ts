@@ -72,6 +72,9 @@ export interface FilesystemLocation {
   readonly reference: ResourceReference
 }
 
+/** 本机 Filesystem 引用的命名空间前缀；后半段是主机标识。 */
+export const FILESYSTEM_NAMESPACE_PREFIX = 'locus.filesystem:'
+
 /** 每次查询的原生观察；不是持久成员或授权凭据。 */
 export interface FilesystemObservation {
   readonly path: string
@@ -121,6 +124,9 @@ export interface GitObservation {
   readonly remotes?: readonly { readonly name: string; readonly url: string }[]
   readonly error?: string
 }
+
+/** 本机 Git 仓库引用的命名空间前缀；后半段是主机标识。 */
+export const GIT_NAMESPACE_PREFIX = 'locus.git:'
 
 /** 直接消费 Filesystem 的路径线索，不维护另一套 Workspace 成员。 */
 export interface GitService {

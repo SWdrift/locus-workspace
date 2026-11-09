@@ -16,7 +16,7 @@ Status: proposed
 
 ### 后续候选能力
 
-Filesystem、最小只读 Git、Remote Machine、SSH/FRP Connectivity、Gitea 与 DSH Session 已交付；Session、Remote Machine、Connectivity 与 Gitea 的决定和限制分别见[Session 集成](../../implemented/feature/2026-11-09-session-integration.md)、[Remote Machine](../../implemented/feature/2026-11-09-remote-machine.md)、[Connectivity](../../implemented/feature/2026-11-09-connectivity.md)及[Gitea](../../implemented/feature/2026-11-09-gitea.md)。以下其余候选不是已实现功能，也不按行创建包。
+Filesystem、最小只读 Git、Remote Machine、SSH/FRP Connectivity、Gitea 与 DSH Session 已交付，CLI 应用层的 [Workspace Overview](../../implemented/feature/2026-11-09-workspace-overview.md) 也已交付；Session、Remote Machine、Connectivity 与 Gitea 的决定和限制分别见[Session 集成](../../implemented/feature/2026-11-09-session-integration.md)、[Remote Machine](../../implemented/feature/2026-11-09-remote-machine.md)、[Connectivity](../../implemented/feature/2026-11-09-connectivity.md)及[Gitea](../../implemented/feature/2026-11-09-gitea.md)。以下其余候选不是已实现功能，也不按行创建包。
 
 | Capability | 初步 Tag | 原生前提与组合机会 |
 | --- | --- | --- |

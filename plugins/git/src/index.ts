@@ -3,7 +3,14 @@ import { hostname } from 'node:os'
 import { dirname, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import type { Context } from '@deepseek-ai/cordis'
-import type { CapabilityDescriptor, FilesystemService, GitObservation, GitService, LocusService } from '@locus/contracts'
+import {
+  GIT_NAMESPACE_PREFIX,
+  type CapabilityDescriptor,
+  type FilesystemService,
+  type GitObservation,
+  type GitService,
+  type LocusService,
+} from '@locus/contracts'
 
 /** 稳定的 Cordis 插件名。 */
 export const name = 'locus-git'
@@ -154,7 +161,7 @@ export function createGitService(
         return observed({
           state: 'repository',
           root,
-          reference: { namespace: `locus.git:${localHostname}`, id: pathToFileURL(root).href },
+          reference: { namespace: `${GIT_NAMESPACE_PREFIX}${localHostname}`, id: pathToFileURL(root).href },
           branch: head === '(detached)' ? null : head,
           commit: oid === '(initial)' ? null : oid,
           dirty: /(?:^|\0)[12u?!] /.test(status.stdout),

@@ -214,6 +214,15 @@ try {
 
   const workspace = run(['workspace', 'create', 'Smoke'])
   const secondWorkspace = run(['workspace', 'create', 'SmokeB'])
+  const emptyWorkspace = run(['workspace', 'create', 'OverviewEmpty'])
+  const emptyOverview = run(['workspace', 'overview', emptyWorkspace.id])
+  assert.equal(emptyOverview.mode, 'relations')
+  assert.equal(emptyOverview.workspace.id, emptyWorkspace.id)
+  assert.deepEqual(emptyOverview.filesystem.locations, [])
+  assert.deepEqual(emptyOverview.gitea.repositories, [])
+  assert.deepEqual(emptyOverview.sessions.links, [])
+  assert.deepEqual(emptyOverview.machines.items, [])
+  assert.equal(emptyOverview.attention.length, 0)
   run(['capability', 'configure', workspace.id, 'filesystem'])
   const location = run(['fs', 'register', workspace.id, shared])
 
@@ -371,6 +380,39 @@ try {
   const connectionAttempt = JSON.parse(failedConnection.stdout)
   assert.ok(['target-unavailable', 'unreachable', 'host-key', 'denied', 'config-error'].includes(connectionAttempt.state))
 
+  writeFileSync(join(shared, 'repository.txt'), 'changed worktree\n')
+  const overview = run(['workspace', 'overview', workspace.id, '--observe'])
+  assert.equal(overview.mode, 'observed')
+  assert.equal(overview.workspace.id, workspace.id)
+  assert.equal(overview.filesystem.locations[0].observation.state, 'accessible')
+  assert.equal(overview.git.repositories[0].observation.state, 'repository')
+  assert.equal(overview.git.repositories[0].observation.branch, 'main')
+  assert.equal(overview.git.repositories[0].observation.dirty, true)
+  assert.equal(overview.gitea.repositories[0].repository.fullName, 'acme/repo')
+  assert.equal(overview.gitea.repositories[0].latestRun.outcome, 'success')
+  assert.equal(overview.gitea.repositories[0].head.state, 'matched')
+  assert.equal(overview.gitea.repositories[0].head.commit, head)
+  assert.equal(overview.gitea.repositories[0].head.runsState, 'available')
+  assert.equal(overview.sessions.links[0].summary.state, 'persisted')
+  assert.equal(overview.machines.items[0].profileCount, 1)
+  assert.ok(['ready', 'warning'].includes(overview.connectivity.profiles[0].state))
+  assert.ok(overview.attention.some((item) => item.code === 'git-worktree-dirty'))
+  assert.equal(overview.durationMs >= 0, true)
+  assert.equal(overview.timings.totalMs >= 0, true)
+  assert.equal(JSON.stringify(overview).includes('e2e-gitea-token'), false)
+  assert.equal(JSON.stringify(overview).includes('smoke-secret'), false)
+
+  const overviewShell = runShell([
+    `--json workspace overview ${workspace.id}`,
+    `--json workspace overview ${workspace.id}`,
+    `--json workspace overview ${workspace.id} --observe`,
+  ])
+  const overviewOutputs = overviewShell.stdout.trim().split(/\r?\n/).map((line) => JSON.parse(line))
+  assert.equal(overviewOutputs[0].mode, 'relations')
+  assert.equal(overviewOutputs[1].workspace.id, workspace.id)
+  assert.equal(overviewOutputs[2].mode, 'observed')
+  assert.equal(overviewShell.stderr, '')
+
   const machineShell = runShell([
     `--json machine show ${machine.id}`,
     `--json machine list ${workspace.id}`,
@@ -384,6 +426,7 @@ try {
   const offline = runShell([
     `--json workspace show ${workspace.id}`,
     `--json capability list ${workspace.id}`,
+    `--json workspace overview ${workspace.id}`,
     `--json session links ${workspace.id}`,
     `--json machine list`,
     `--json connect list`,
@@ -394,6 +437,11 @@ try {
   assert.match(offline.stdout, /"declared":false/)
   assert.match(offline.stdout, /"configured":true/)
   assert.match(offline.stdout, /"state":"unavailable"/)
+  assert.match(offline.stdout, /"filesystem":\{"state":"unavailable"/)
+  assert.match(offline.stdout, /"gitea":\{"state":"unavailable"/)
+  assert.match(offline.stdout, /"sessions":\{"state":"unavailable"/)
+  assert.match(offline.stdout, /"machines":\{"state":"unavailable"/)
+  assert.match(offline.stdout, /"connectivity":\{"state":"unavailable"/)
   assert.match(offline.stdout, /"removedRelationId"|dsh\.session\./)
   assert.match(offline.stderr, /Filesystem 能力不可用/)
   assert.match(offline.stderr, /Remote Machine 能力不可用/)

@@ -35,6 +35,7 @@ import {
   REMOTE_MACHINE_NAMESPACE,
   SESSION_NAMESPACE_PREFIX,
 } from '@locus/contracts'
+import { buildWorkspaceOverview, overviewText } from './overview.ts'
 
 export interface CommandResult {
   readonly value: unknown
@@ -357,6 +358,23 @@ export function createCommands(
   show.action((id: string) => choose(show, () => {
     const result = locus.workspaces.get(id)
     return { value: result, text: workspaceText(result) }
+  }))
+  const overview = workspace.command('overview <id>')
+    .description('聚合已确认关系、本次观察与未确认建议；不建立新关系')
+    .option('--observe', '执行本地/只读观察；不启动 SSH 连接或远程命令')
+  overview.action((id: string) => choose(overview, async () => {
+    const result = await buildWorkspaceOverview({
+      locus,
+      ...(filesystem === undefined ? {} : { filesystem }),
+      ...(git === undefined ? {} : { git }),
+      ...(gitea === undefined ? {} : { gitea }),
+      ...(session === undefined ? {} : { session }),
+      ...(remoteMachine === undefined ? {} : { remoteMachine }),
+      ...(connectivity === undefined ? {} : { connectivity }),
+    }, id, {
+      observe: overview.opts<{ observe?: boolean }>().observe === true,
+    })
+    return { value: result, text: overviewText(result) }
   }))
   const rename = workspace.command('rename <id> <name>').description('改名而不改变 Identity')
   rename.action((id: string, name: string) => choose(rename, () => {

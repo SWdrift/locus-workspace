@@ -6,7 +6,7 @@ Core、领域 Plugin、Host 与应用之间实际使用的 TypeScript 类型与�
 
 ## 使用
 
-通过 workspace 依赖与 `import type` 引用，构建后从 `lib/` 提供声明与空 ESM 入口。调用方不用运行时导入本包；类型本身不执行输入校验。
+通过 workspace 依赖引用，构建后从 `lib/` 提供声明与 ESM 入口。类型本身不执行输入校验；只有引用命名空间等必要常量以运行时值提供。
 
 ```ts
 import type { LocusService } from '@locus/contracts'
@@ -29,6 +29,8 @@ function workspaceNames(locus: LocusService): readonly string[] {
 | Gitea 实例、来源限定仓库、Run 与候选 | Gitea → CLI | [Gitea](../../plugins/gitea/README.md) |
 
 具体字段与方法由[源码](src/index.ts)维护，不在 README 重抄类型清单。Core 的领域引用对其自身是不透明的；Plugin 返回当前观察，应用显式确认后才调用长期关系用例。提供方声明、保存的选择、加载与可用性不是同一事实，Tag 不能解释为依赖或授权。
+
+Filesystem、Git、Session、Gitea 与 Remote Machine 的引用命名空间前缀由本包导出，应用层组合不应复制这些字符串或自行解析领域引用。
 
 ## 修改与验证
 

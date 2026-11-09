@@ -10,13 +10,15 @@ DSH 应用插件，提供 Workspace、能力选择、Filesystem、只读 Git、R
 
 完整命令语法、参数与成功判据由[命令手册](../../docs/commands.md#workspace-操作)维护。各层 `--help` 可查看用途与参数；`workspace show` 的 `open` 别名按 Identity 读取，不建立隐藏的当前目录或会话。
 
+`workspace overview <id>` 是应用层组合，不新增领域服务或持久化：默认只读取 Core 长期关系、各 Plugin 已保存配置与本地可用性，不访问原生文件、Git、Session、Gitea API 或 SSH。`--observe` 才并发执行有界只读观察：Filesystem 状态、Git 分支/HEAD/工作树、Session 元信息、Gitea 仓库与 Run 元信息、Connectivity `ssh -G`；不启动 SSH 连接、FRP visitor 或远程命令，也不读取日志、Artifact、Secret 或 transcript。单个来源失败只影响该段，其他段保留。输出区分已确认关系、本次观察、未确认建议和未知/不可用，不生成 Workspace 健康分数。
+
 ## 输出与确认
 
 默认输出人类可读文本；`--json` 输出独立 JSON，诊断写 stderr，不混入提示或 ANSI。查询与写入都支持 JSON，创建和登记返回后续操作所需的 Identity/位置 ID。
 
 关系确认、能力选择和位置登记是显式操作；发现不自动写成员。解除关系、取消能力或位置登记必须携带 `--yes`，且只修改 Locus 自有状态。单次命令在 TTY 与非 TTY 均不隐式等待输入；只有显式 `shell` 进入读线循环。
 
-退出码：0 表示调用成功（包括 `fs inspect` 明确查询到缺失/拒绝资源、Git 的非仓库结果，以及 `session links` 显示已保存但不可访问的关联）；1 表示参数/帮助树拒绝，如未知命令、缺参数、无效选项值或缺少 `--yes`；2 表示业务前置条件、能力缺失、读取/发现/Git/Session/Remote Machine/Connectivity/Gitea 查询或持久化失败。`fs discover` 根不可访问、`session show/open` 不可访问、`machine observe` 非 observed、`connect inspect` error/unavailable、`connect verify` 非 connected、`gitea instance verify` 非 ok、`gitea repo inspect` 非 available 时以 2 退出；`fs read` 的拒绝读取也是失败。
+退出码：0 表示调用成功（包括 `fs inspect` 明确查询到缺失/拒绝资源、Git 的非仓库结果、`session links` 显示已保存但不可访问的关联，以及 `workspace overview` 部分来源不可用）；1 表示参数/帮助树拒绝，如未知命令、缺参数、无效选项值或缺少 `--yes`；2 表示业务前置条件、能力缺失、读取/发现/Git/Session/Remote Machine/Connectivity/Gitea 查询或持久化失败。`fs discover` 根不可访问、`session show/open` 不可访问、`machine observe` 非 observed、`connect inspect` error/unavailable、`connect verify` 非 connected、`gitea instance verify` 非 ok、`gitea repo inspect` 非 available 时以 2 退出；`fs read` 的拒绝读取也是失败。`workspace overview` 只有 Workspace 不存在、参数错误或整体无法执行时返回 2。
 
 ## 能力与生命周期
 

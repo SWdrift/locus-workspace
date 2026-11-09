@@ -683,3 +683,186 @@ test('Connectivity Profile 保存、检查、验证与原生入口不改变 Mach
   assert.equal((await invoke(f.services(), ['connect', 'list'])).value.length, 0)
   assert.equal((await invoke(f.services(), ['machine', 'show', machine.id])).value.machine.id, machine.id)
 })
+
+test('Workspace Overview 默认只读关系，显式观察分离事实与未确认建议', async (t) => {
+  const f = fixture(t)
+  const workspace = await createWorkspace(f, 'Overview')
+  for (const capability of ['filesystem', 'git', 'gitea', 'session', 'remote-machine', 'connectivity']) {
+    await invoke(f.services(), ['capability', 'configure', workspace.id, capability])
+  }
+  const instance = (await invoke(f.services(), [
+    'gitea', 'instance', 'add', 'Overview Gitea', '--base-url', 'http://gitea.example',
+    '--credential-ref', 'GITEA_TOKEN',
+  ])).value
+  f.sessionRecords.push(sessionRecord('overview-session'))
+  const sessionRelation = (await invoke(f.services(), [
+    'session', 'associate', workspace.id, 'overview-session',
+  ])).value
+
+  const repo = join(f.resources, 'overview-repo')
+  mkdirSync(repo)
+  const native = (args) => {
+    const result = spawnSync('git', ['-C', repo, ...args], { encoding: 'utf8', timeout: 10000 })
+    assert.equal(result.status, 0, result.stderr)
+    return result.stdout.trim()
+  }
+  native(['init', '--initial-branch=main'])
+  writeFileSync(join(repo, 'file.txt'), 'overview\n')
+  native(['add', 'file.txt'])
+  native(['-c', 'user.name=CLI Test', '-c', 'user.email=cli@example.invalid', '-c', 'commit.gpgsign=false', 'commit', '-m', 'initial'])
+  native(['remote', 'add', 'origin', 'http://gitea.example/acme/repo.git'])
+  native(['remote', 'add', 'other', 'http://gitea.example/acme/other.git'])
+  const location = (await invoke(f.services(), ['fs', 'register', workspace.id, repo])).value
+  await invoke(f.services(), ['git', 'confirm', workspace.id, location.id])
+  const giteaRelation = (await invoke(f.services(), [
+    'gitea', 'repo', 'link', workspace.id, instance.id, 'acme/repo',
+  ])).value
+
+  const machine = (await invoke(f.services(), ['machine', 'register', 'Overview Host'])).value
+  const machineWithAddress = (await invoke(f.services(), [
+    'machine', 'address', 'add', machine.id, '--kind', 'ssh', '--value', 'overview.example', '--port', '22',
+  ])).value
+  await invoke(f.services(), ['machine', 'associate', workspace.id, machine.id])
+  const profile = (await invoke(f.services(), [
+    'connect', 'profile', 'add', machine.id, 'overview-profile', '--target', 'overview.example',
+  ])).value
+
+  const minimal = await createWorkspace(f, 'OverviewMinimal')
+  const minimalOverview = (await invoke(f.services(), ['workspace', 'overview', minimal.id])).value
+  assert.equal(minimalOverview.mode, 'relations')
+  assert.equal(minimalOverview.workspace.id, minimal.id)
+  assert.equal(minimalOverview.workspace.capabilities.length, 0)
+  assert.deepEqual(minimalOverview.filesystem.locations, [])
+  assert.deepEqual(minimalOverview.gitea.repositories, [])
+  assert.deepEqual(minimalOverview.sessions.links, [])
+  assert.deepEqual(minimalOverview.machines.items, [])
+  assert.equal(minimalOverview.attention.length, 0)
+  assert.match(minimalOverview.next.join('\n'), /workspace show/)
+
+  const relations = (await invoke(f.services(), ['workspace', 'overview', workspace.id])).value
+  assert.equal(relations.mode, 'relations')
+  assert.equal(relations.filesystem.locations[0].state, 'not-observed')
+  assert.equal(relations.git.repositories[0].state, 'not-observed')
+  assert.equal(relations.gitea.repositories[0].state, 'not-observed')
+  assert.equal(relations.sessions.links[0].state, 'not-observed')
+  assert.equal(relations.machines.items[0].machine.id, machine.id)
+  assert.equal(relations.connectivity.profiles[0].state, 'not-observed')
+  assert.equal(JSON.stringify(relations).includes('cli-token'), false)
+
+  writeFileSync(join(repo, 'file.txt'), 'dirty\n')
+  const observed = (await invoke(f.services(), [
+    'workspace', 'overview', workspace.id, '--observe',
+  ])).value
+  assert.equal(observed.mode, 'observed')
+  assert.equal(observed.filesystem.locations[0].observation.state, 'accessible')
+  assert.equal(observed.git.repositories[0].observation.state, 'repository')
+  assert.equal(observed.git.repositories[0].observation.dirty, true)
+  assert.equal(observed.gitea.repositories[0].repository.fullName, 'acme/repo')
+  assert.equal(observed.gitea.repositories[0].latestRun.outcome, 'success')
+  assert.equal(observed.gitea.repositories[0].head.state, 'matched')
+  assert.equal(observed.gitea.repositories[0].head.commit, native(['rev-parse', 'HEAD']).toLowerCase())
+  assert.equal(observed.gitea.repositories[0].head.runsState, 'available')
+  assert.equal(observed.sessions.links[0].summary.state, 'live')
+  assert.equal(observed.machines.items[0].profileCount, 1)
+  assert.ok(['ready', 'warning'].includes(observed.connectivity.profiles[0].state))
+  assert.equal(observed.gitea.suggestions.length, 1)
+  assert.equal(observed.gitea.suggestions[0].fullName, 'acme/other')
+  assert.ok(observed.attention.some((item) => item.code === 'git-worktree-dirty'))
+  assert.ok(observed.attention.some((item) => item.code === 'gitea-unconfirmed-suggestion'))
+  assert.ok(observed.next.some((command) => command.includes('gitea run show')))
+  assert.equal(JSON.stringify(observed).includes('cli-token'), false)
+  assert.equal(JSON.stringify(observed).includes('C:\\\\Users\\\\test'), false)
+
+  const failingGitea = createGiteaService(f.services().locus, {
+    env: { GITEA_TOKEN: 'cli-token' },
+    fetch: async () => new Response(JSON.stringify({ message: 'denied' }), {
+      status: 401,
+      headers: { 'content-type': 'application/json' },
+    }),
+  })
+  try {
+    const partial = (await invoke({
+      ...f.services(),
+      gitea: failingGitea,
+    }, ['workspace', 'overview', workspace.id, '--observe'])).value
+    assert.equal(partial.gitea.repositories[0].state, 'unauthorized')
+    assert.equal(partial.filesystem.locations[0].observation.state, 'accessible')
+    assert.equal(partial.git.repositories[0].observation.state, 'repository')
+    assert.equal(partial.sessions.links[0].summary.state, 'live')
+    assert.ok(partial.attention.some((item) => item.code === 'gitea-unauthorized'))
+  } finally {
+    await failingGitea.dispose()
+  }
+
+  const failureGitea = createGiteaService(f.services().locus, {
+    env: { GITEA_TOKEN: 'cli-token' },
+    fetch: async (input) => {
+      const url = new URL(String(input))
+      const repository = {
+        id: 7,
+        full_name: 'acme/repo',
+        default_branch: 'main',
+        private: true,
+        archived: false,
+        has_actions: true,
+      }
+      const run = {
+        id: 202,
+        run_number: 13,
+        display_title: 'Failed CI',
+        event: 'push',
+        status: 'completed',
+        conclusion: 'failure',
+        head_sha: native(['rev-parse', 'HEAD']).toLowerCase(),
+        head_branch: 'main',
+      }
+      if (url.pathname === '/api/v1/repositories/7') {
+        return new Response(JSON.stringify(repository), {
+          headers: { 'content-type': 'application/json' },
+        })
+      }
+      if (url.pathname.endsWith('/actions/runs')) {
+        return new Response(JSON.stringify({ total_count: 1, workflow_runs: [run] }), {
+          headers: { 'content-type': 'application/json' },
+        })
+      }
+      return new Response(JSON.stringify({ message: 'not found' }), {
+        status: 404,
+        headers: { 'content-type': 'application/json' },
+      })
+    },
+  })
+  try {
+    const failed = (await invoke({
+      ...f.services(),
+      gitea: failureGitea,
+    }, ['workspace', 'overview', workspace.id, '--observe'])).value
+    assert.equal(failed.gitea.repositories[0].latestRun.outcome, 'failure')
+    assert.equal(failed.gitea.repositories[0].head.runs[0].outcome, 'failure')
+    assert.ok(failed.attention.some((item) => item.code === 'gitea-ci-problem'))
+    assert.ok(failed.attention.some((item) => item.code === 'gitea-head-ci-problem'))
+  } finally {
+    await failureGitea.dispose()
+  }
+
+  const retained = (await invoke({
+    locus: f.services().locus,
+    filesystem: undefined,
+    git: undefined,
+    gitea: undefined,
+    session: undefined,
+    remoteMachine: undefined,
+    connectivity: undefined,
+  }, ['workspace', 'overview', workspace.id])).value
+  assert.equal(retained.workspace.id, workspace.id)
+  assert.equal(retained.filesystem.state, 'unavailable')
+  assert.equal(retained.git.state, 'unavailable')
+  assert.equal(retained.gitea.state, 'unavailable')
+  assert.equal(retained.sessions.state, 'unavailable')
+  assert.equal(retained.machines.state, 'unavailable')
+  assert.equal(retained.connectivity.state, 'unavailable')
+  assert.equal(retained.gitea.repositories[0].relationId, giteaRelation.id)
+  assert.equal(retained.sessions.links[0].relationId, sessionRelation.id)
+  assert.equal(retained.machines.items[0].machineId, machine.id)
+  assert.ok(retained.attention.some((item) => item.code === 'capability-provider-missing'))
+})

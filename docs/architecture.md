@@ -4,7 +4,7 @@
 
 ## 当前交付与方向
 
-Workspace Foundation 已交付：独立于目录/Project/Session 的长期 Workspace，持久身份与显式成员/关联；Filesystem 的多位置登记、按需发现与读取；Git 通过 Filesystem 线索进行最小只读观察；Session 只读发现、显式关联与原生返回入口；Remote Machine 的稳定机器身份、多地址、Workspace 共享关联与单地址 SSH 只读观察；Connectivity 的 SSH Connection Profile、配置检查、真实连接验证与原生入口；Gitea 的实例、来源限定仓库引用、Actions Run 与 Workspace 关联观察。CLI 在项目内 DSH profile 提供完整用户入口，重启、能力缺失和资源消失不删除长期关系。
+Workspace Foundation 已交付：独立于目录/Project/Session 的长期 Workspace，持久身份与显式成员/关联；Filesystem 的多位置登记、按需发现与读取；Git 通过 Filesystem 线索进行最小只读观察；Session 只读发现、显式关联与原生返回入口；Remote Machine 的稳定机器身份、多地址、Workspace 共享关联与单地址 SSH 只读观察；Connectivity 的 SSH Connection Profile、配置检查、真实连接验证与原生入口；Gitea 的实例、来源限定仓库引用、Actions Run 与 Workspace 关联观察；CLI 的 `workspace overview` 在应用层组合这些公开用例，区分确认关系、本次观察、未确认建议与未知项。CLI 在项目内 DSH profile 提供完整用户入口，重启、能力缺失和资源消失不删除长期关系。
 
 [Workspace 产品决定](../.agents/notes/implemented/feature/2026-11-08-workspace-capability-slice.md)、[Session 集成决定](../.agents/notes/implemented/feature/2026-11-09-session-integration.md)、[Remote Machine 决定](../.agents/notes/implemented/feature/2026-11-09-remote-machine.md)、[Connectivity 决定](../.agents/notes/implemented/feature/2026-11-09-connectivity.md)、[Gitea 决定](../.agents/notes/implemented/feature/2026-11-09-gitea.md)维护已交付概念与范围，[组件与恢复决定](../.agents/notes/implemented/architecture/2026-11-08-workspace-capability-composition.md)维护所有权与取舍。完整 DevOps、自动部署、Blueprint 执行、多提供方和跨设备能力仍在[提案](../.agents/notes/proposed/feature/2026-11-08-workspace-capability-evolution.md)，不等于已有实现。
 
@@ -21,7 +21,7 @@ Workspace Foundation 已交付：独立于目录/Project/Session 的长期 Works
 | `plugins/remote-machine/` | 机器管理身份、多地址、Workspace 共享引用与单地址 OpenSSH 只读观察；不拥有连接或远端生命周期 |
 | `plugins/connectivity/` | 机器级 Connection Profile、OpenSSH 配置检查、真实连接验证与原生命令入口；不拥有 SSH/FRP 运行时 |
 | `plugins/gitea/` | Gitea 实例配置、来源限定仓库引用、Actions Run 只读观察与凭据引用；不拥有 Gitea 事实或 CI 生命周期 |
-| `plugins/cli/` | 参数/帮助、用例编排、显式确认、人类/JSON 渲染与退出；不实现领域 I/O |
+| `plugins/cli/` | 参数/帮助、用例编排、Workspace Overview 跨领域组合、显式确认、人类/JSON 渲染与退出；不实现领域 I/O |
 | `tests/`、`scripts/` | 隔离真实资源测试及实际 profile 验收，不成为业务运行依赖 |
 
 下图表示运行时调用/装配，类型依赖统一经 contracts；不表示所有能力都要由 Core 转发。
@@ -83,6 +83,8 @@ flowchart TD
 | Web | 未实施；既有 React/TypeScript/Vite/Ant Design、优先复用 DSH UI/通信的方向未改变 |
 
 数据所有权与物理位置独立。Core 保存长期身份、确认关系与不透明引用，Plugin 解释领域规则；外部对象不可达不等于关系不存在。Session 的消息、执行状态和标题仍由 DSH 拥有；Remote Machine 的机器资料与地址归该 Plugin；Connectivity 的 Profile 归该 Plugin，SSH 配置、凭据和 FRP/FRPP 隧道生命周期仍归 OpenSSH/用户/外部面板；Gitea 的实例配置归该 Plugin，仓库、Run、日志、Artifact、Secret、权限与凭据值仍归 Gitea/DSH credentials/用户。Core 只保存 Workspace 关联与来源命名空间。备份在停止全部写者后复制整个数据目录，原生资源和授权不隐含包含；版本、恢复与清除约定见 [Core](../packages/core/README.md#持久化与恢复)，当前模型不承诺在线多库快照或多设备同步。
+
+Workspace Overview 只在单次 CLI 调用内组合上述公开用例与观察结果，不保存派生快照、健康分数或 Activity；每个来源的缺失、不可用与失败仍由所属领域表达。
 
 ## 控制与演进
 
