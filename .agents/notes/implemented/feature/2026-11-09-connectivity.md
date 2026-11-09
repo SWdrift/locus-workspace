@@ -60,8 +60,8 @@ Connectivity 通过 `locusRemoteMachine.get()` 验证 Machine，通过 Core 已�
 
 - 包内测试覆盖 Profile 持久化、同一 Machine 多 Profile、同名拒绝、transport 一致性、修改/删除、inspect 有效配置与路径脱敏、ProxyJump、FRP visitor 探测、verify 成功与失败分类、open 命令、availability 和未知数据库版本。
 - 跨包 CLI 测试覆盖 Profile 新建/查询/检查/验证/修改/删除、Workspace 过滤和 Machine Identity 保持。
-- 真实直连与 ProxyJump 使用本机两个临时 OpenSSH 服务与临时 SSH config 验证：direct `direct` alias、proxy-jump `target` -> `jump` 均返回 `CZXyee`；`connect inspect` 的 resolved 配置与 `verify` 的 `connected` 结果一致。另用系统默认 `~/.ssh/config` 的 `locus-default` alias（不传 `sshConfigFile`）验证了默认配置复用。
-- 真实 FRP 使用现有 FRPP client 与本机 visitor 验证：visitor 6000 监听后，Profile 通过既有设备密钥和 known_hosts 连接到已登记的 Windows Dev，`verify` 返回 `connected`，hostname 为 `WIN-BR4GK93GCV3`。验证后停止 FRPP client；未修改面板配置、Link、visitor 或远端状态。
+- 真实直连与 ProxyJump 使用本机两个临时 OpenSSH 服务与临时 SSH config 验证：direct `direct` alias、proxy-jump `target` -> `jump` 均返回 `<local-host>`；`connect inspect` 的 resolved 配置与 `verify` 的 `connected` 结果一致。另用系统默认 `~/.ssh/config` 的 `<default-alias>` alias（不传 `sshConfigFile`）验证了默认配置复用。
+- 真实 FRP 使用现有 FRPP client 与本机 visitor 验证：visitor 6000 监听后，Profile 通过既有设备密钥和 known_hosts 连接到已登记的 Windows Dev，`verify` 返回 `connected`，hostname 为 `<windows-dev>`。验证后停止 FRPP client；未修改面板配置、Link、visitor 或远端状态。
 - FRPP 自带启动日志会打印运行配置字段；未把该日志写入仓库、测试或文档，也没有复制日志内容。
 - 长驻 shell 中修改 Connectivity 构建产物后观察到 HMR 重载标记，随后同一 shell 的 `connect verify` 仍返回 `connected`；Filesystem/Git/Remote Machine/Session/Core-Host/CLI 回归通过。
 - 未使用 Mock 宣称真实 SSH/FRP 成功；单元测试的 fake runner 只覆盖解析与失败分类。

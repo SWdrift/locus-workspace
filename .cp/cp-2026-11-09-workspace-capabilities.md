@@ -134,7 +134,7 @@ Connectivity v0 已满足产品验收：
 - 同一 Machine 可保存 direct 与 proxy-jump 等多个 Profile；修改/删除 Profile 不改变 Machine Identity。
 - `inspect` 复用系统 OpenSSH 或显式配置文件，返回有效 hostname/port/user/ProxyJump/身份与 known_hosts 计数，不连接远端、不返回敏感路径。
 - `verify` 只执行一次只读 `hostname`，强制主机密钥校验，并区分配置、认证、主机密钥、网络、目标不可用与 OpenSSH 缺失。
-- OpenSSH 直连与 ProxyJump 在真实临时 sshd 上验证成功；FRP 通过现有 FRPP visitor 连接到已登记 Windows Dev 验证成功，Hostname 为 `WIN-BR4GK93GCV3`。
+- OpenSSH 直连与 ProxyJump 在真实临时 sshd 上验证成功；FRP 通过现有 FRPP visitor 连接到已登记 Windows Dev 验证成功，Hostname 为 `<windows-dev>`。
 - FRP Profile 不启动/修改 FRPP client、面板配置、Link 或 visitor；验证后停止客户端，未修改远端状态。
 - Profile 路径默认脱敏；`open` 才输出必要原生命令。当前 CLI 不接管 Agent/Web PTY，保留原生命令入口。
 - Plugin 停用、DSH 重启不删除 Profile；CLI shell/HMR 与既有 Capability 回归通过。

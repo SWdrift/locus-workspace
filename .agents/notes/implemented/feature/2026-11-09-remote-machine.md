@@ -40,7 +40,7 @@ Plugin 提供 `locusRemoteMachine`，Capability 为 `locus.remote-machine`，提
 - Remote Machine 包内测试覆盖登记与重启、多地址、同地址不同机器不合并、改名/地址修改保持 Identity、地址删除、观察来源/时间/范围、成功与失败分类、无 SSH 仍可登记、非法地址输入和未知数据版本。
 - 跨包 CLI 测试覆盖两 Workspace 共享机器、能力选择前置、地址修改、`machine observe`、解除不删除机器、重启恢复，以及 Plugin 停用后关联保留且仍可解除。
 - 真实 profile smoke 覆盖注册、地址、共享关联、机器视角反查、改名、插件停用和跨进程恢复；失败观察使用不可达端口验证 `unreachable` 形状。
-- 真实 OpenSSH 成功观察使用本机临时 sshd 完成：`127.0.0.1:22222` 返回 `hostname=CZXyee`，Observation 记录 `scope=single-address` 和观察时间。没有现成外部主机或 SSH 配置，因此未验证外部机器、ProxyJump、FRP 或跨网络条件；没有用 mock 冒充真实连接成功。
+- 真实 OpenSSH 成功观察使用本机临时 sshd 完成：`127.0.0.1:22222` 返回 `hostname=<local-host>`，Observation 记录 `scope=single-address` 和观察时间。没有现成外部主机或 SSH 配置，因此未验证外部机器、ProxyJump、FRP 或跨网络条件；没有用 mock 冒充真实连接成功。
 - 长驻 shell 中修改 Remote Machine 构建产物后观察到模块重新加载标记，随后 `machine register` 在同一 shell 成功，进程未退出；Filesystem/Git/Core-Host/CLI 的既有 shell 回归同时通过。
 - 未保存 SSH 私钥、密码、Token 或原始 stderr；测试结束后移除临时 SSH 服务与配置。
 
