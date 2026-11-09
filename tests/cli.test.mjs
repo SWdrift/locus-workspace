@@ -723,6 +723,14 @@ test('Workspace Overview 默认只读关系，显式观察分离事实与未确�
     'machine', 'address', 'add', machine.id, '--kind', 'ssh', '--value', 'overview.example', '--port', '22',
   ])).value
   await invoke(f.services(), ['machine', 'associate', workspace.id, machine.id])
+  const withoutProfile = (await invoke(f.services(), [
+    'workspace', 'overview', workspace.id,
+  ])).value
+  assert.equal(withoutProfile.machines.items[0].profileCount, 0)
+  assert.ok(withoutProfile.machines.items[0].actions.some((value) =>
+    value.startsWith('connect profile add ')))
+  assert.equal(withoutProfile.attention.some((item) => item.code === 'machine-without-profile'), false)
+
   const profile = (await invoke(f.services(), [
     'connect', 'profile', 'add', machine.id, 'overview-profile', '--target', 'overview.example',
   ])).value
@@ -762,16 +770,137 @@ test('Workspace Overview 默认只读关系，显式观察分离事实与未确�
   assert.equal(observed.gitea.repositories[0].head.state, 'matched')
   assert.equal(observed.gitea.repositories[0].head.commit, native(['rev-parse', 'HEAD']).toLowerCase())
   assert.equal(observed.gitea.repositories[0].head.runsState, 'available')
+  assert.match(observed.gitea.repositories[0].head.note, /本地 HEAD/)
+  assert.ok(observed.gitea.repositories[0].actions.some((value) => value.includes('gitea runs')))
   assert.equal(observed.sessions.links[0].summary.state, 'live')
+  assert.ok(observed.sessions.links[0].actions.some((value) => value.includes('session open')))
   assert.equal(observed.machines.items[0].profileCount, 1)
   assert.ok(['ready', 'warning'].includes(observed.connectivity.profiles[0].state))
   assert.equal(observed.gitea.suggestions.length, 1)
   assert.equal(observed.gitea.suggestions[0].fullName, 'acme/other')
+  assert.ok(observed.gitea.suggestions[0].actions.some((value) => value.includes('gitea repo link')))
   assert.ok(observed.attention.some((item) => item.code === 'git-worktree-dirty'))
-  assert.ok(observed.attention.some((item) => item.code === 'gitea-unconfirmed-suggestion'))
+  assert.equal(observed.attention.some((item) => item.code === 'gitea-unconfirmed-suggestion'), false)
   assert.ok(observed.next.some((command) => command.includes('gitea run show')))
   assert.equal(JSON.stringify(observed).includes('cli-token'), false)
   assert.equal(JSON.stringify(observed).includes('C:\\\\Users\\\\test'), false)
+
+  const emptyHeadGitea = createGiteaService(f.services().locus, {
+    env: { GITEA_TOKEN: 'cli-token' },
+    fetch: async (input) => {
+      const url = new URL(String(input))
+      const repository = {
+        id: 7,
+        full_name: 'acme/repo',
+        default_branch: 'main',
+        private: true,
+        archived: false,
+        has_actions: true,
+      }
+      if (url.pathname === '/api/v1/repositories/7') {
+        return new Response(JSON.stringify(repository), {
+          headers: { 'content-type': 'application/json' },
+        })
+      }
+      if (url.pathname.endsWith('/actions/runs')) {
+        return new Response(JSON.stringify({
+          total_count: url.searchParams.has('head_sha') ? 0 : 1,
+          workflow_runs: url.searchParams.has('head_sha') ? [] : [{
+            id: 203,
+            run_number: 14,
+            display_title: 'Latest CI',
+            event: 'push',
+            status: 'completed',
+            conclusion: 'success',
+            head_sha: 'b'.repeat(40),
+            head_branch: 'main',
+          }],
+        }), { headers: { 'content-type': 'application/json' } })
+      }
+      return new Response(JSON.stringify({ message: 'not found' }), {
+        status: 404,
+        headers: { 'content-type': 'application/json' },
+      })
+    },
+  })
+  try {
+    const empty = (await invoke({
+      ...f.services(),
+      gitea: emptyHeadGitea,
+    }, ['workspace', 'overview', workspace.id, '--observe'])).value
+    assert.equal(empty.gitea.repositories[0].head.state, 'matched')
+    assert.equal(empty.gitea.repositories[0].head.runsState, 'empty')
+    assert.match(empty.gitea.repositories[0].head.note, /没有匹配/)
+    assert.ok(empty.gitea.repositories[0].actions.some((value) => value.includes('gitea runs')))
+    assert.equal(empty.attention.some((item) => item.code === 'gitea-ci-problem'), false)
+  } finally {
+    await emptyHeadGitea.dispose()
+  }
+
+  const unmatchedWorkspace = await createWorkspace(f, 'OverviewUnmatched')
+  for (const capability of ['filesystem', 'git', 'gitea']) {
+    await invoke(f.services(), ['capability', 'configure', unmatchedWorkspace.id, capability])
+  }
+  const unmatchedRepo = join(f.resources, 'overview-unmatched')
+  mkdirSync(unmatchedRepo)
+  const unmatchedNative = (args) => {
+    const result = spawnSync('git', ['-C', unmatchedRepo, ...args], { encoding: 'utf8', timeout: 10000 })
+    assert.equal(result.status, 0, result.stderr)
+    return result.stdout.trim()
+  }
+  unmatchedNative(['init', '--initial-branch=main'])
+  writeFileSync(join(unmatchedRepo, 'file.txt'), 'unmatched\n')
+  unmatchedNative(['add', 'file.txt'])
+  unmatchedNative(['-c', 'user.name=CLI Test', '-c', 'user.email=cli@example.invalid', '-c', 'commit.gpgsign=false', 'commit', '-m', 'initial'])
+  unmatchedNative(['remote', 'add', 'origin', 'http://gitea.example/acme/other.git'])
+  const unmatchedLocation = (await invoke(f.services(), [
+    'fs', 'register', unmatchedWorkspace.id, unmatchedRepo,
+  ])).value
+  await invoke(f.services(), ['git', 'confirm', unmatchedWorkspace.id, unmatchedLocation.id])
+  await invoke(f.services(), [
+    'workspace', 'link', unmatchedWorkspace.id, 'locus.gitea.repository', `${instance.id}:7`,
+  ])
+  const unmatched = (await invoke(f.services(), [
+    'workspace', 'overview', unmatchedWorkspace.id, '--observe',
+  ])).value
+  assert.equal(unmatched.gitea.repositories[0].head.state, 'unmatched')
+  assert.match(unmatched.gitea.repositories[0].head.note, /Remote/)
+  assert.ok(unmatched.gitea.repositories[0].actions.some((value) => value.includes('gitea repo suggest')))
+  assert.equal(unmatched.attention.some((item) => item.code === 'gitea-head-ci-problem'), false)
+  await invoke(f.services(), [
+    'capability', 'remove', unmatchedWorkspace.id, 'gitea', '--yes',
+  ])
+  let unselectedFetchCalled = false
+  const unselectedGitea = createGiteaService(f.services().locus, {
+    env: { GITEA_TOKEN: 'cli-token' },
+    fetch: async () => {
+      unselectedFetchCalled = true
+      return new Response(JSON.stringify({ message: 'should not be called' }), {
+        status: 500,
+        headers: { 'content-type': 'application/json' },
+      })
+    },
+  })
+  try {
+    const unselected = (await invoke({
+      ...f.services(),
+      gitea: unselectedGitea,
+    }, ['workspace', 'overview', unmatchedWorkspace.id, '--observe'])).value
+    assert.equal(unselectedFetchCalled, false)
+    assert.equal(unselected.gitea.state, 'not-observed')
+    assert.equal(unselected.gitea.repositories[0].state, 'not-observed')
+    assert.ok(unselected.gitea.repositories[0].actions.some((value) =>
+      value.includes('capability configure')))
+    assert.equal(unselected.attention.some((item) => item.domain === 'gitea'), false)
+  } finally {
+    await unselectedGitea.dispose()
+  }
+  await invoke(f.services(), [
+    'capability', 'configure', unmatchedWorkspace.id, 'gitea',
+  ])
+  await invoke(f.services(), [
+    'workspace', 'link', unmatchedWorkspace.id, 'locus.gitea.repository', `${instance.id}:8`,
+  ])
 
   const failingGitea = createGiteaService(f.services().locus, {
     env: { GITEA_TOKEN: 'cli-token' },
@@ -790,6 +919,13 @@ test('Workspace Overview 默认只读关系，显式观察分离事实与未确�
     assert.equal(partial.git.repositories[0].observation.state, 'repository')
     assert.equal(partial.sessions.links[0].summary.state, 'live')
     assert.ok(partial.attention.some((item) => item.code === 'gitea-unauthorized'))
+    const grouped = (await invoke({
+      ...f.services(),
+      gitea: failingGitea,
+    }, ['workspace', 'overview', unmatchedWorkspace.id, '--observe'])).value
+    const unauthorized = grouped.attention.filter((item) => item.code === 'gitea-unauthorized')
+    assert.equal(unauthorized.length, 1)
+    assert.match(unauthorized[0].message, /2 个关联/)
   } finally {
     await failingGitea.dispose()
   }
@@ -840,7 +976,7 @@ test('Workspace Overview 默认只读关系，显式观察分离事实与未确�
     assert.equal(failed.gitea.repositories[0].latestRun.outcome, 'failure')
     assert.equal(failed.gitea.repositories[0].head.runs[0].outcome, 'failure')
     assert.ok(failed.attention.some((item) => item.code === 'gitea-ci-problem'))
-    assert.ok(failed.attention.some((item) => item.code === 'gitea-head-ci-problem'))
+    assert.equal(failed.attention.filter((item) => item.code === 'gitea-ci-problem').length, 1)
   } finally {
     await failureGitea.dispose()
   }

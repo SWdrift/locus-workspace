@@ -30,7 +30,7 @@
 | `workspace create <name>` | 返回具有稳定 UUID 的新 Workspace，不要求目录 |
 | `workspace list` | 列出长期 Workspace；空集合不是错误 |
 | `workspace show <id>` / `workspace open <id>` | 按 Identity 打开并显示基本信息、关系与能力选择；不设置隐式当前目录 |
-| `workspace overview <id> [--observe]` | 聚合已确认关系、本地配置、本次观察与未确认建议；默认不访问原生资源或远端 API。`--observe` 并发执行 Filesystem/Git/Session 查询、Gitea 仓库与 Run 元信息、Connectivity `ssh -G` 检查；不启动 SSH、FRP visitor 或远程命令，单个来源失败不隐藏其他结果 |
+| `workspace overview <id> [--observe]` | 聚合已确认关系、本地配置、本次观察与未确认建议；默认不访问原生资源或远端 API。`--observe` 仅对已选择能力并发执行 Filesystem/Git/Session 查询、Gitea 仓库与 Run 元信息、Connectivity `ssh -G` 检查；不启动 SSH、FRP visitor 或远程命令，单个来源失败不隐藏其他结果 |
 | `workspace rename <id> <name>` | 改名，Identity 不变 |
 | `workspace link <id> <namespace> <reference> [--kind member\|association] [--source <说明>]` | 显式保存外部引用；默认 association；引用 Workspace 使用 namespace `locus.workspace` |
 | `workspace unlink <id> <relation-id> --yes` | 仅解除该关系，不删除目标或其他归属 |
@@ -92,7 +92,7 @@
 
 Gitea 的 `--credential-ref` 只接受 POSIX 名称（例如 `GITEA_TOKEN`），不接收 Token 本身。DSH `credentials` 服务存在时优先解析；缺失值再回退到启动环境。`gitea status` 与 Run 查询只表示 Gitea Actions 事实，不建立 CI 与 Machine 的部署关系。
 
-`workspace overview` 是聚合查询，单个来源或单个关联不可用仍返回 0，并在对应段标记 unavailable/error；Workspace 不存在、参数错误或整体聚合无法执行才返回 2。默认模式只读长期关系与已保存配置；`--observe` 的耗时按来源记录在 JSON `timings` 中，各段并发执行，总耗时不是简单相加。成功与否不改变任何关系、Profile、实例配置或原生资源。
+`workspace overview` 是聚合查询，单个来源或单个关联不可用仍返回 0，并在对应段标记 unavailable/error；Workspace 不存在、参数错误或整体聚合无法执行才返回 2。默认模式只读长期关系与已保存配置；`--observe` 的耗时按来源记录在 JSON `timings` 中，各段并发执行，总耗时不是简单相加。每个资源项在 JSON 中带 `actions`，人类输出在资源旁显示“下一步”；这些只是已有命令入口，不自动执行。`attention` 只列需要处理或注意的问题：缺少可选 Session/Profile 不当作异常，Gitea 同类认证/网络错误按状态合并，Plugin 未加载、未配置与原生资源不可访问分别表达。成功与否不改变任何关系、Profile、实例配置或原生资源。
 
 ### 初始配置配方
 

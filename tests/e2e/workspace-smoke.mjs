@@ -341,6 +341,7 @@ try {
   ])
   const machineAddress = machineWithAddress.addresses[0]
   run(['capability', 'configure', workspace.id, 'remote-machine'])
+  run(['capability', 'configure', workspace.id, 'connectivity'])
   run(['capability', 'configure', secondWorkspace.id, 'remote-machine'])
   const machineRelationA = run(['machine', 'associate', workspace.id, machine.id])
   const machineRelationB = run(['machine', 'associate', secondWorkspace.id, machine.id])

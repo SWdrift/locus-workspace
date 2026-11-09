@@ -70,6 +70,7 @@ export interface OverviewFilesystemLocation {
   state: 'not-observed' | FilesystemObservation['state']
   observation?: FilesystemObservation
   confirmedRelations: string[]
+  actions: string[]
   error?: string
 }
 
@@ -86,6 +87,7 @@ export interface OverviewGitRepository {
   state: 'not-observed' | GitObservation['state']
   observation?: GitObservation
   confirmedRelations: string[]
+  actions: string[]
   error?: string
 }
 
@@ -103,6 +105,7 @@ export interface OverviewGiteaHead {
   locationId?: string
   remoteName?: string
   runs: readonly GiteaRun[]
+  note: string
   error?: string
 }
 
@@ -111,10 +114,12 @@ export interface OverviewGiteaRepository {
   readonly reference: WorkspaceRelation['target']
   state: 'not-observed' | 'unavailable' | GiteaRunListObservation['state']
   observedAt?: string
+  instanceId?: string
   instance?: { readonly id: string; readonly name: string; readonly baseUrl: string }
   repository?: GiteaRepository
   latestRun?: GiteaRun
   head?: OverviewGiteaHead
+  actions: string[]
   error?: string
 }
 
@@ -123,6 +128,7 @@ export interface OverviewGiteaSuggestion extends GiteaRepositorySuggestion {
   readonly locationPath: string
   readonly branch?: string | null
   readonly commit?: string | null
+  readonly actions: string[]
 }
 
 export interface OverviewGitea {
@@ -139,6 +145,7 @@ export interface OverviewSessionLink {
   sourceLabel?: string
   state: 'not-observed' | 'unavailable' | SessionSummary['state']
   summary?: SessionSummary
+  actions: string[]
   error?: string
 }
 
@@ -154,6 +161,7 @@ export interface OverviewMachine {
   state: 'ready' | 'unavailable'
   machine?: RemoteMachine
   profileCount: number | null
+  actions: string[]
   error?: string
 }
 
@@ -182,6 +190,7 @@ export interface OverviewConnection {
   readonly profile: OverviewProfile
   state: 'not-observed' | ConnectionInspection['state']
   inspection?: ConnectionInspection
+  actions: string[]
   error?: string
 }
 
@@ -349,10 +358,21 @@ function runProblem(run: GiteaRun): boolean {
   return run.outcome === 'failure' || run.outcome === 'cancelled' || run.outcome === 'unknown'
 }
 
-function headProblem(head: OverviewGiteaHead): boolean {
-  return head.state === 'unmatched' || head.state === 'ambiguous' || head.state === 'no-commit' ||
-    (head.runsState !== undefined && head.runsState !== 'available') ||
-    head.runs.some(runProblem)
+function headNote(head: Omit<OverviewGiteaHead, 'note'>): string {
+  if (head.state === 'no-local-git') return '没有可用于对应的本地 Git 仓库或 Remote。'
+  if (head.state === 'unmatched') return '本地 Remote 与仓库完整名称不一致；可重新生成候选或显式确认关联。'
+  if (head.state === 'ambiguous') return '多个本地仓库指向同一 Gitea 仓库；先明确应使用哪一个 HEAD。'
+  if (head.state === 'no-commit') return '本地仓库尚无提交；无法对应当前 HEAD 的 CI。'
+  if (head.runsState === 'empty') return '当前提交没有匹配的 Run；查看近期 Run、提交与工作流触发条件。CI 无结果不表示失败。'
+  if (head.runsState !== undefined && head.runsState !== 'available') {
+    return `本地 HEAD 的 Run 查询为 ${head.runsState}；这不表示没有 CI。`
+  }
+  if (head.runs.some(runProblem)) return '已找到本地 HEAD 的 Run，但结论需要查看详情。'
+  return '本地 HEAD 有对应 Run；CI 结果不代表部署成功。'
+}
+
+function withHeadNote(head: Omit<OverviewGiteaHead, 'note'>): OverviewGiteaHead {
+  return { ...head, note: headNote(head) }
 }
 
 export async function buildWorkspaceOverview(
@@ -391,6 +411,9 @@ export async function buildWorkspaceOverview(
   ]
   const fsSelected = selectedCapability(workspace, 'locus.filesystem') !== undefined
   const gitSelected = selectedCapability(workspace, 'locus.git') !== undefined
+  const giteaSelected = selectedCapability(workspace, 'locus.gitea') !== undefined
+  const sessionSelected = selectedCapability(workspace, 'locus.session') !== undefined
+  const connectivitySelected = selectedCapability(workspace, 'locus.connectivity') !== undefined
 
   let filesystemMs = 0
   let gitMs = 0
@@ -436,6 +459,7 @@ export async function buildWorkspaceOverview(
         machineId: relation.target.id,
         state: 'unavailable',
         profileCount: profileCount(relation.target.id),
+        actions: [command(['capability', 'list', workspaceId])],
         error: 'Remote Machine 能力不可用：profile 未加载 locusRemoteMachine；已保存关系保留。',
       }
     }
@@ -447,6 +471,7 @@ export async function buildWorkspaceOverview(
         state: 'ready',
         machine,
         profileCount: profileCount(machine.id),
+        actions: [command(['machine', 'show', machine.id])],
       }
     } catch (error) {
       return {
@@ -454,10 +479,25 @@ export async function buildWorkspaceOverview(
         machineId: relation.target.id,
         state: 'unavailable',
         profileCount: profileCount(relation.target.id),
+        actions: [command(['machine', 'list'])],
         error: describe(error),
       }
     }
   })
+  for (const item of machineItems) {
+    if (item.machine === undefined || item.profileCount !== 0 || services.connectivity === undefined) continue
+    if (!connectivitySelected) {
+      addNext(item.actions, command(['capability', 'configure', workspaceId, 'connectivity']))
+      continue
+    }
+    const address = item.machine.addresses.find((value) => value.kind === 'ssh')
+    if (address === undefined) continue
+    const parts = [
+      'connect', 'profile', 'add', item.machine.id, 'default', '--target', address.value,
+    ]
+    if (address.port !== undefined) parts.push('--port', String(address.port))
+    addNext(item.actions, command(parts))
+  }
 
   const connections: OverviewConnection[] = (profileList ?? [])
     .filter((profile) => machineRelations.some((relation) => relation.target.id === profile.machineId))
@@ -467,6 +507,9 @@ export async function buildWorkspaceOverview(
         ...(relation === undefined ? {} : { machineRelationId: relation.id }),
         profile: profileView(profile),
         state: 'not-observed',
+        actions: connectivitySelected
+          ? [command(['connect', 'inspect', profile.id])]
+          : [command(['capability', 'configure', workspaceId, 'connectivity'])],
       }
     })
 
@@ -477,11 +520,21 @@ export async function buildWorkspaceOverview(
     reference: relation.target,
     sourceId: relation.target.namespace.slice(SESSION_NAMESPACE_PREFIX.length),
     state: 'not-observed',
+    actions: services.session === undefined
+      ? [command(['capability', 'list', workspaceId])]
+      : sessionSelected
+        ? [command(['session', 'show', relation.target.id])]
+        : [command(['capability', 'configure', workspaceId, 'session'])],
   }))
   let giteaRepositories: OverviewGiteaRepository[] = giteaRelations.map((relation) => ({
     relationId: relation.id,
     reference: relation.target,
     state: services.gitea === undefined ? 'unavailable' : 'not-observed',
+    actions: services.gitea === undefined
+      ? [command(['capability', 'list', workspaceId])]
+      : giteaSelected
+        ? [command(['gitea', 'runs', workspaceId, relation.id])]
+        : [command(['capability', 'configure', workspaceId, 'gitea'])],
     ...(services.gitea === undefined
       ? { error: 'Gitea 能力不可用：profile 未加载 locusGitea；已保存关系保留。' }
       : {}),
@@ -493,6 +546,9 @@ export async function buildWorkspaceOverview(
       locationPath: location.path,
       state: 'not-observed',
       confirmedRelations: [],
+      actions: services.git === undefined
+        ? [command(['capability', 'list', workspaceId])]
+        : [command(['git', 'inspect', workspaceId, location.id])],
     }))
     : []
   const filesystemLocations: OverviewFilesystemLocation[] = locations.map((location) => ({
@@ -501,6 +557,7 @@ export async function buildWorkspaceOverview(
     confirmedRelations: fsRelations
       .filter((relation) => sameReference(relation.target, location.reference))
       .map((relation) => relation.id),
+    actions: [command(['fs', 'inspect', workspaceId, location.id])],
   }))
 
   let gitObservations: GitObservation[] = []
@@ -604,7 +661,7 @@ export async function buildWorkspaceOverview(
       }
     }
 
-    if (sessionRelations.length > 0 && services.session !== undefined) {
+    if (sessionRelations.length > 0 && services.session !== undefined && sessionSelected) {
       const start = Date.now()
       const observed = await Promise.all(sessionRelations.map(async (relation) => {
         try {
@@ -633,10 +690,16 @@ export async function buildWorkspaceOverview(
             state: 'unavailable',
             error: result.error,
           }
+        const link = sessionLinks[index]!
+        if (link.state === 'live' || link.state === 'persisted') {
+          addNext(link.actions, command(['session', 'open', link.reference.id]))
+        } else {
+          addNext(link.actions, command(['session', 'list']))
+        }
       }
     }
 
-    if (giteaRepositories.length > 0 && services.gitea !== undefined) {
+    if (giteaRepositories.length > 0 && services.gitea !== undefined && giteaSelected) {
       const start = Date.now()
       let instances: readonly GiteaInstance[] = []
       try {
@@ -666,11 +729,21 @@ export async function buildWorkspaceOverview(
             ...giteaRepositories[index]!,
             state: observation.state,
             observedAt: observation.observedAt,
+            instanceId: observation.instanceId,
             ...(instance === undefined
               ? {}
               : { instance: { id: instance.id, name: instance.name, baseUrl: instance.baseUrl } }),
             ...(observation.repository === undefined ? {} : { repository: observation.repository }),
             ...(observation.runs[0] === undefined ? {} : { latestRun: observation.runs[0] }),
+            actions: observation.state === 'available' || observation.state === 'empty'
+              ? giteaRepositories[index]!.actions
+              : observation.repository !== undefined &&
+                (observation.state === 'actions-disabled' || observation.state === 'unsupported')
+                ? [command([
+                  'gitea', 'repo', 'inspect', observation.instanceId,
+                  observation.repository.fullName,
+                ])]
+                : [command(['gitea', 'instance', 'verify', observation.instanceId])],
             ...(observation.error === undefined ? {} : { error: observation.error }),
           }
         } else {
@@ -698,6 +771,9 @@ export async function buildWorkspaceOverview(
             locationPath: observation.filesystem.path,
             ...(observation.branch === undefined ? {} : { branch: observation.branch }),
             ...(observation.commit === undefined ? {} : { commit: observation.commit }),
+            actions: [command([
+              'gitea', 'repo', 'link', workspaceId, suggestion.instanceId, suggestion.fullName,
+            ])],
           })
         }
       }
@@ -721,46 +797,46 @@ export async function buildWorkspaceOverview(
             observation.state === 'repository').length
           return {
             ...item,
-            head: {
+            head: withHeadNote({
               state: localGitCount === 0 ? 'no-local-git' as const : 'unmatched' as const,
               runs: [],
-            },
+            }),
           }
         }
         if (uniqueLocations.length > 1) {
           return {
             ...item,
-            head: {
+            head: withHeadNote({
               state: 'ambiguous' as const,
               runs: [],
               error: '多个本地仓库指向同一 Gitea 仓库；未猜测应该使用哪一个 HEAD。',
-            },
+            }),
           }
         }
         const local = uniqueLocations[0]!
         if (local.commit === null || local.commit === undefined) {
           return {
             ...item,
-            head: {
+            head: withHeadNote({
               state: 'no-commit' as const,
               locationId: local.locationId,
               remoteName: local.remoteName,
               runs: [],
               error: '本地仓库尚无提交；无法对应当前 HEAD 的 CI。',
-            },
+            }),
           }
         }
         if (item.state === 'empty') {
           return {
             ...item,
-            head: {
+            head: withHeadNote({
               state: 'matched' as const,
               runsState: 'empty' as const,
               commit: local.commit,
               locationId: local.locationId,
               remoteName: local.remoteName,
               runs: [],
-            },
+            }),
           }
         }
         try {
@@ -771,7 +847,7 @@ export async function buildWorkspaceOverview(
           )
           return {
             ...item,
-            head: {
+            head: withHeadNote({
               state: 'matched' as const,
               runsState: runs.state,
               commit: local.commit,
@@ -779,12 +855,12 @@ export async function buildWorkspaceOverview(
               remoteName: local.remoteName,
               runs: runs.runs,
               ...(runs.error === undefined ? {} : { error: runs.error }),
-            },
+            }),
           }
         } catch (error) {
           return {
             ...item,
-            head: {
+            head: withHeadNote({
               state: 'matched' as const,
               runsState: 'error' as const,
               commit: local.commit,
@@ -792,17 +868,31 @@ export async function buildWorkspaceOverview(
               remoteName: local.remoteName,
               runs: [],
               error: describe(error),
-            },
+            }),
           }
         }
       }))
       giteaRepositories = headObserved
+      for (const item of giteaRepositories) {
+        const firstRun = item.head?.runs[0] ?? item.latestRun
+        if (firstRun !== undefined) {
+          addNext(item.actions, command([
+            'gitea', 'run', 'show', workspaceId, item.relationId, String(firstRun.id),
+          ]))
+        }
+        if ((item.head?.state === 'unmatched' || item.head?.state === 'no-local-git') &&
+          gitRepositories[0] !== undefined) {
+          addNext(item.actions, command([
+            'gitea', 'repo', 'suggest', workspaceId, gitRepositories[0].locationId,
+          ]))
+        }
+      }
       giteaMs += Date.now() - start
     } else if (giteaRepositories.length > 0 && services.gitea === undefined) {
       giteaError = 'Gitea 能力不可用：profile 未加载 locusGitea；已保存关系保留。'
     }
 
-    if (connections.length > 0 && services.connectivity !== undefined) {
+    if (connections.length > 0 && services.connectivity !== undefined && connectivitySelected) {
       const start = Date.now()
       const observed = await Promise.all(connections.map(async (item) => {
         try {
@@ -829,6 +919,11 @@ export async function buildWorkspaceOverview(
             state: 'error',
             error: result.error,
           }
+        const connection = connections[index]!
+        if (connection.state === 'warning' || connection.state === 'error' ||
+          connection.state === 'unavailable') {
+          addNext(connection.actions, command(['connect', 'verify', connection.profile.id]))
+        }
       }
       connectivityMs += Date.now() - start
     }
@@ -837,7 +932,70 @@ export async function buildWorkspaceOverview(
   }
 
   const gitConfirmed = new Set(gitRepositories.flatMap((item) => item.confirmedRelations))
-  const suggestions = giteaSuggestions
+  const provider = (id: string): OverviewProviderStatus => providerById(providers, id)
+  const providerActive = (id: string): boolean => {
+    const current = provider(id)
+    return current.selected && current.loaded && current.available !== false
+  }
+  const giteaAccess = new Map<string, {
+    state: string
+    error?: string
+    repositories: string[]
+  }>()
+  if (providerActive('locus.gitea')) {
+    for (const item of giteaRepositories) {
+      if (item.state === 'available' || item.state === 'empty' || item.state === 'not-observed') continue
+      const key = `${item.state}\u0000${item.error ?? ''}`
+      const group = giteaAccess.get(key)
+      const repository = item.repository?.fullName ?? item.relationId
+      if (group === undefined) {
+        giteaAccess.set(key, {
+          state: item.state,
+          ...(item.error === undefined ? {} : { error: item.error }),
+          repositories: [repository],
+        })
+      } else {
+        group.repositories.push(repository)
+      }
+    }
+  }
+
+  const ciAttention: OverviewAttention[] = []
+  if (providerActive('locus.gitea')) {
+    for (const item of giteaRepositories) {
+      const headRuns = item.head?.runs ?? []
+      const headFailure = headRuns.find(runProblem)
+      const latest = item.latestRun
+      if (headFailure !== undefined) {
+        ciAttention.push(runAttention(
+          'gitea',
+          'gitea-ci-problem',
+          `Gitea ${item.repository?.fullName ?? item.relationId} 的本地 HEAD Run #${headFailure.runNumber} 为 ${headFailure.outcome}。`,
+        ))
+      } else if (latest !== undefined && runProblem(latest)) {
+        ciAttention.push(runAttention(
+          'gitea',
+          'gitea-ci-problem',
+          `Gitea ${item.repository?.fullName ?? item.relationId} 最近 Run #${latest.runNumber} 为 ${latest.outcome}。`,
+        ))
+      } else if (latest?.outcome === 'running' || latest?.outcome === 'pending' ||
+        headRuns.some((run) => run.outcome === 'running' || run.outcome === 'pending')) {
+        ciAttention.push(runAttention(
+          'gitea',
+          'gitea-ci-active',
+          `Gitea ${item.repository?.fullName ?? item.relationId} 有 Run 仍在运行或等待；结果尚未确定。`,
+        ))
+      }
+      if (item.head?.state === 'matched' && item.head.runsState !== undefined &&
+        item.head.runsState !== 'available' && item.head.runsState !== 'empty') {
+        ciAttention.push(runAttention(
+          'gitea',
+          'gitea-head-query-problem',
+          `Gitea ${item.repository?.fullName ?? item.relationId} 的本地 HEAD Run 查询为 ${item.head.runsState}；这不表示没有 CI。`,
+        ))
+      }
+    }
+  }
 
   const attention: OverviewAttention[] = [
     ...providers
@@ -854,32 +1012,32 @@ export async function buildWorkspaceOverview(
         'capability-provider-mismatch',
         `${provider.id} 的提供方状态不一致：${provider.error}`,
       )),
-    ...filesystemLocations
+    ...(providerActive('locus.filesystem') ? filesystemLocations
       .filter((item) => item.observation !== undefined && item.observation.state !== 'accessible')
       .map((item) => runAttention(
         'filesystem',
         `filesystem-${item.observation!.state}`,
         `Filesystem 位置 ${item.location.id} (${item.location.path}) 当前为 ${item.observation!.state}${item.observation!.error === undefined ? '' : `：${item.observation!.error}`}。`,
-      )),
-    ...(filesystemError === undefined
+      )) : []),
+    ...(filesystemError === undefined || !providerActive('locus.filesystem')
       ? []
       : [runAttention('filesystem', 'filesystem-error', filesystemError)]),
-    ...gitRepositories
+    ...(providerActive('locus.git') ? gitRepositories
       .filter((item) => item.observation !== undefined &&
         (item.observation.state === 'error' || item.observation.state === 'unavailable'))
       .map((item) => runAttention(
         'git',
         `git-${item.observation!.state}`,
         `Git 位置 ${item.locationPath} 当前为 ${item.observation!.state}${item.observation!.error === undefined ? '' : `：${item.observation!.error}`}。`,
-      )),
-    ...gitRepositories
+      )) : []),
+    ...(providerActive('locus.git') ? gitRepositories
       .filter((item) => item.observation?.dirty === true)
       .map((item) => runAttention(
         'git',
         'git-worktree-dirty',
         `Git 仓库 ${item.observation!.root ?? item.locationPath} 有未提交变化。`,
-      )),
-    ...(observe
+      )) : []),
+    ...(observe && providerActive('locus.git')
       ? gitRelations
         .filter((relation) => !gitConfirmed.has(relation.id))
         .map((relation) => runAttention(
@@ -888,76 +1046,36 @@ export async function buildWorkspaceOverview(
           `已确认 Git 关联 ${relation.id} 未能在当前 Filesystem 位置中重新观察到。`,
         ))
       : []),
-    ...(gitError === undefined ? [] : [runAttention('git', 'git-error', gitError)]),
-    ...giteaRepositories
-      .filter((item) => item.state !== 'available' && item.state !== 'empty' &&
-        item.state !== 'not-observed')
-      .map((item) => runAttention(
-        'gitea',
-        `gitea-${item.state}`,
-        `Gitea 仓库关联 ${item.relationId} 当前为 ${item.state}${item.error === undefined ? '' : `：${item.error}`}。`,
-      )),
-    ...giteaRepositories
-      .filter((item) => item.latestRun !== undefined && runProblem(item.latestRun))
-      .map((item) => runAttention(
-        'gitea',
-        'gitea-ci-problem',
-        `Gitea ${item.repository?.fullName ?? item.relationId} 最近 Run #${item.latestRun!.runNumber} 为 ${item.latestRun!.outcome}。`,
-      )),
-    ...giteaRepositories
-      .filter((item) => item.latestRun !== undefined &&
-        (item.latestRun.outcome === 'running' || item.latestRun.outcome === 'pending'))
-      .map((item) => runAttention(
-        'gitea',
-        'gitea-ci-active',
-        `Gitea ${item.repository?.fullName ?? item.relationId} 最近 Run #${item.latestRun!.runNumber} 为 ${item.latestRun!.outcome}；结果尚未确定。`,
-      )),
-    ...giteaRepositories
-      .filter((item) => item.head !== undefined && headProblem(item.head))
-      .map((item) => runAttention(
-        'gitea',
-        'gitea-head-ci-problem',
-        `Gitea ${item.repository?.fullName ?? item.relationId} 的本地 HEAD 对应状态为 ${item.head!.state}${item.head!.runsState === undefined ? '' : `/${item.head!.runsState}`}${item.head!.error === undefined ? '' : `：${item.head!.error}`}。`,
-      )),
-    ...(giteaError === undefined ? [] : [runAttention('gitea', 'gitea-error', giteaError)]),
-    ...(suggestions.length === 0
+    ...(gitError === undefined || !providerActive('locus.git')
       ? []
-      : [runAttention(
-        'gitea',
-        'gitea-unconfirmed-suggestion',
-        `发现 ${suggestions.length} 个 Git Remote → Gitea 候选；尚未确认，未自动写入长期关系。`,
-      )]),
-    ...sessionLinks
-      .filter((item) => item.state === 'unavailable')
-      .map((item) => runAttention(
-        'session',
-        'session-unavailable',
-        `Session 关联 ${item.relationId} 当前不可访问${item.error === undefined ? '' : `：${item.error}`}。`,
-      )),
-    ...(sessionError === undefined ? [] : [runAttention('session', 'session-error', sessionError)]),
-    ...machineItems
+      : [runAttention('git', 'git-error', gitError)]),
+    ...[...giteaAccess.values()].map((group) => runAttention(
+      'gitea',
+      `gitea-${group.state}`,
+      `Gitea ${group.state}${group.error === undefined ? '' : `：${group.error}`}；涉及 ${group.repositories.length} 个关联${group.repositories.length > 0 ? `（${group.repositories.slice(0, 3).join('、')}${group.repositories.length > 3 ? '…' : ''}）` : ''}。`,
+    )),
+    ...ciAttention,
+    ...(giteaError === undefined || !providerActive('locus.gitea')
+      ? []
+      : [runAttention('gitea', 'gitea-error', giteaError)]),
+    ...(sessionError === undefined || !providerActive('locus.session')
+      ? []
+      : [runAttention('session', 'session-error', sessionError)]),
+    ...(providerActive('locus.remote-machine') ? machineItems
       .filter((item) => item.state === 'unavailable')
       .map((item) => runAttention(
         'machine',
         'machine-unavailable',
         `Machine 关联 ${item.relationId} 当前不可读取${item.error === undefined ? '' : `：${item.error}`}。`,
-      )),
-    ...machineItems
-      .filter((item) => item.machine !== undefined && item.machine.addresses.some((address) => address.kind === 'ssh') &&
-        item.profileCount === 0)
-      .map((item) => runAttention(
-        'connectivity',
-        'machine-without-profile',
-        `Machine ${item.machine!.name} 有 SSH 地址，但没有 Connection Profile；配置入口不表示连接成功。`,
-      )),
-    ...connections
+      )) : []),
+    ...(providerActive('locus.connectivity') ? connections
       .filter((item) => item.state === 'error' || item.state === 'unavailable' || item.state === 'warning')
       .map((item) => runAttention(
         'connectivity',
         `connectivity-${item.state}`,
         `Connection Profile ${item.profile.name} 检查为 ${item.state}${item.error === undefined ? '' : `：${item.error}`}。`,
-      )),
-    ...(connectivityListError === undefined
+      )) : []),
+    ...(connectivityListError === undefined || !providerActive('locus.connectivity')
       ? []
       : [runAttention('connectivity', 'connectivity-error', connectivityListError)]),
   ]
@@ -976,12 +1094,12 @@ export async function buildWorkspaceOverview(
     ? 'unavailable'
     : giteaRepositories.length === 0
       ? 'empty'
-      : observe ? 'observed' : 'not-observed'
+      : observe && giteaSelected ? 'observed' : 'not-observed'
   const sessionState: OverviewSessions['state'] = services.session === undefined && sessionLinks.length > 0
     ? 'unavailable'
     : sessionLinks.length === 0
       ? 'empty'
-      : observe ? 'observed' : 'not-observed'
+      : observe && sessionSelected ? 'observed' : 'not-observed'
   const machineState: OverviewMachines['state'] = services.remoteMachine === undefined && machineItems.length > 0
     ? 'unavailable'
     : machineItems.length === 0
@@ -992,16 +1110,35 @@ export async function buildWorkspaceOverview(
     ? 'unavailable'
     : connections.length === 0
       ? 'empty'
-      : observe ? 'observed' : 'not-observed'
+      : observe && connectivitySelected ? 'observed' : 'not-observed'
 
+  const suggestions = giteaSuggestions
   const next: string[] = []
   addNext(next, command(['workspace', 'show', workspace.id]))
   if (!observe && (locations.length > 0 || relations.length > 0)) {
     addNext(next, command(['workspace', 'overview', workspace.id, '--observe']))
   }
-  if (workspace.capabilities.length === 0) {
+  if (workspace.capabilities.length === 0 || providers.some((item) => item.selected && !item.loaded)) {
     addNext(next, command(['capability', 'list', workspace.id]))
   }
+  const capabilityFor = (id: string, name: string, hasRelations: boolean): void => {
+    const current = providerById(providers, id)
+    if (!hasRelations || current.selected || !current.loaded) return
+    addNext(next, command(['capability', 'configure', workspace.id, name]))
+  }
+  capabilityFor('locus.filesystem', 'filesystem', fsRelations.length > 0)
+  capabilityFor('locus.git', 'git', gitRelations.length > 0)
+  capabilityFor('locus.gitea', 'gitea', giteaRepositories.length > 0)
+  capabilityFor('locus.session', 'session', sessionLinks.length > 0)
+  capabilityFor('locus.remote-machine', 'remote-machine', machineItems.length > 0)
+  capabilityFor('locus.connectivity', 'connectivity', machineItems.length > 0)
+  for (const item of filesystemLocations) for (const action of item.actions) addNext(next, action)
+  for (const item of gitRepositories) for (const action of item.actions) addNext(next, action)
+  for (const item of giteaRepositories) for (const action of item.actions) addNext(next, action)
+  for (const item of suggestions) for (const action of item.actions) addNext(next, action)
+  for (const item of sessionLinks) for (const action of item.actions) addNext(next, action)
+  for (const item of machineItems) for (const action of item.actions) addNext(next, action)
+  for (const item of connections) for (const action of item.actions) addNext(next, action)
   if (locations.length > 0) {
     addNext(next, command(['fs', 'locations', workspace.id]))
     addNext(next, command(['fs', 'inspect', workspace.id, locations[0]!.id]))
@@ -1026,6 +1163,8 @@ export async function buildWorkspaceOverview(
     if (first.state === 'live' || first.state === 'persisted') {
       addNext(next, command(['session', 'open', first.reference.id]))
     }
+  } else if (providerActive('locus.session') && services.session !== undefined) {
+    addNext(next, command(['session', 'list']))
   }
   const firstMachine = machineItems.find((item) => item.machine !== undefined)
   if (firstMachine !== undefined) {
@@ -1129,6 +1268,10 @@ function giteaHeadLine(head: OverviewGiteaHead): string {
   return `本地 HEAD ${head.commit === undefined ? '-' : head.commit.slice(0, 12)} -> ${state}${head.runs.length === 0 ? '' : `：${head.runs.map(runLine).join('；')}`}${head.error === undefined ? '' : ` (${head.error})`}`
 }
 
+function actionsLine(actions: readonly string[]): string[] {
+  return actions.length === 0 ? [] : [`    下一步: ${actions.join('；')}`]
+}
+
 export function overviewText(value: WorkspaceOverview): string {
   const lines: string[] = [
     `Workspace: ${value.workspace.name}`,
@@ -1155,6 +1298,9 @@ export function overviewText(value: WorkspaceOverview): string {
       for (const relationId of item.confirmedRelations) {
         lines.push(`    已确认关系 ${relationId}`)
       }
+      if (item.observation?.state !== 'accessible' || item.error !== undefined) {
+        lines.push(...actionsLine(item.actions))
+      }
       if (item.error !== undefined) lines.push(`    错误: ${item.error}`)
     }
     if (value.filesystem.error !== undefined) lines.push(`  错误: ${value.filesystem.error}`)
@@ -1170,6 +1316,10 @@ export function overviewText(value: WorkspaceOverview): string {
       for (const relationId of item.confirmedRelations) {
         lines.push(`    已确认关系 ${relationId}`)
       }
+      if (item.state === 'not-observed' || item.observation?.dirty === true || item.observation?.state === 'error' ||
+        item.observation?.state === 'unavailable' || item.error !== undefined) {
+        lines.push(...actionsLine(item.actions))
+      }
     }
     if (value.git.error !== undefined) lines.push(`  错误: ${value.git.error}`)
   }
@@ -1181,22 +1331,32 @@ export function overviewText(value: WorkspaceOverview): string {
       if (item.repository !== undefined) {
         lines.push(`    仓库 ${item.repository.fullName}  ${item.instance?.name ?? item.repository.instanceId}  ${item.state}  [本次观察]`)
         if (item.latestRun !== undefined) lines.push(`    最近 Run ${runLine(item.latestRun)}`)
-        if (item.head !== undefined) lines.push(`    ${giteaHeadLine(item.head)}`)
+        if (item.head !== undefined) {
+          lines.push(`    ${giteaHeadLine(item.head)}`)
+          lines.push(`    ${item.head.note}`)
+        }
       } else {
-        lines.push(`    未观察${item.error === undefined ? '' : ` (${item.error})`}`)
+        lines.push(item.state === 'not-observed'
+          ? '    未观察'
+          : `    仓库不可用: ${item.state}${item.error === undefined ? '' : ` (${item.error})`}`)
       }
+      lines.push(...actionsLine(item.actions))
     }
     if (value.gitea.error !== undefined) lines.push(`  错误: ${value.gitea.error}`)
   }
 
   if (hasContent('locus.session', value.sessions.links.length)) {
     lines.push('', `Session [${value.sessions.state}]`)
+    if (value.sessions.links.length === 0) {
+      lines.push(`  下一步: ${command(['session', 'list'])}`)
+    }
     for (const item of value.sessions.links) {
       const summary = item.summary
       const detail = summary === undefined
         ? '未观察'
         : `${summary.state}  ${summary.live ? 'live' : ''}${summary.live && summary.persisted ? '/' : ''}${summary.persisted ? 'persisted' : ''}${summary.title === undefined ? '' : `  ${summary.title}`}`
       lines.push(`  关联 ${item.relationId}  ${item.reference.id}  来源 ${item.sourceLabel ?? item.sourceId}  [已确认]  ${detail}`)
+      lines.push(...actionsLine(item.actions))
       if (item.error !== undefined) lines.push(`    ${item.error}`)
     }
     if (value.sessions.error !== undefined) lines.push(`  错误: ${value.sessions.error}`)
@@ -1211,7 +1371,8 @@ export function overviewText(value: WorkspaceOverview): string {
       }
       const addresses = item.machine.addresses.map((address) =>
         `${address.kind}:${address.value}${address.port === undefined ? '' : `:${address.port}`}`).join(', ')
-      lines.push(`  关联 ${item.relationId}  ${item.machine.name} (${item.machine.id})  ${addresses || '无地址'}  Profile=${item.profileCount ?? '未检查'}`)
+      lines.push(`  关联 ${item.relationId}  ${item.machine.name} (${item.machine.id})  ${addresses || '无地址'}  Profile=${item.profileCount === 0 ? '未配置' : item.profileCount ?? '未检查'}`)
+      lines.push(...actionsLine(item.actions))
     }
     if (value.machines.error !== undefined) lines.push(`  错误: ${value.machines.error}`)
   }
@@ -1225,6 +1386,7 @@ export function overviewText(value: WorkspaceOverview): string {
         ? '未检查'
         : `${item.inspection.state}${item.inspection.resolved === undefined ? '' : `  有效目标 ${item.inspection.resolved.hostname}:${item.inspection.resolved.port}`}`
       lines.push(`  Profile ${profile.id}  ${profile.name}  ${profile.transport}  ${target}  [配置]  ${detail}`)
+      lines.push(...actionsLine(item.actions))
       if (item.error !== undefined) lines.push(`    ${item.error}`)
     }
     if (value.connectivity.error !== undefined) lines.push(`  错误: ${value.connectivity.error}`)
@@ -1234,6 +1396,7 @@ export function overviewText(value: WorkspaceOverview): string {
     lines.push('', '建议（未确认）')
     for (const item of value.gitea.suggestions) {
       lines.push(`  ${item.remoteName}  ${item.remoteUrl}  ->  ${item.instanceName}  ${item.fullName}  [${item.matchedBy}]  位置 ${item.locationId}`)
+      lines.push(...actionsLine(item.actions))
     }
   }
 

@@ -10,7 +10,7 @@ DSH 应用插件，提供 Workspace、能力选择、Filesystem、只读 Git、R
 
 完整命令语法、参数与成功判据由[命令手册](../../docs/commands.md#workspace-操作)维护。各层 `--help` 可查看用途与参数；`workspace show` 的 `open` 别名按 Identity 读取，不建立隐藏的当前目录或会话。
 
-`workspace overview <id>` 是应用层组合，不新增领域服务或持久化：默认只读取 Core 长期关系、各 Plugin 已保存配置与本地可用性，不访问原生文件、Git、Session、Gitea API 或 SSH。`--observe` 才并发执行有界只读观察：Filesystem 状态、Git 分支/HEAD/工作树、Session 元信息、Gitea 仓库与 Run 元信息、Connectivity `ssh -G`；不启动 SSH 连接、FRP visitor 或远程命令，也不读取日志、Artifact、Secret 或 transcript。单个来源失败只影响该段，其他段保留。输出区分已确认关系、本次观察、未确认建议和未知/不可用，不生成 Workspace 健康分数。
+`workspace overview <id>` 是应用层组合，不新增领域服务或持久化：默认只读取 Core 长期关系、各 Plugin 已保存配置与本地可用性，不访问原生文件、Git、Session、Gitea API 或 SSH。`--observe` 才执行有界只读观察，且只针对已选择能力：Filesystem 状态、Git 分支/HEAD/工作树、Session 元信息、Gitea 仓库与 Run 元信息、Connectivity `ssh -G`；不启动 SSH 连接、FRP visitor 或远程命令，也不读取日志、Artifact、Secret 或 transcript。单个来源失败只影响该段，其他段保留。输出区分已确认关系、本次观察、未确认建议和未知/不可用，不生成 Workspace 健康分数。每个资源项带可执行的后续命令建议，人类输出放在对应资源附近；`attention` 只保留需要处理或注意的问题，缺少可选 Session/Profile 不自动报异常，同类 Gitea 认证/网络错误合并。
 
 ## 输出与确认
 

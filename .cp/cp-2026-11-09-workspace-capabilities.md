@@ -169,10 +169,14 @@ Workspace Overview v0 已满足本轮产品验收：
 - 默认模式只读长期关系与已保存配置，不访问原生文件、Git、Session、Gitea API 或 SSH；相应状态显示为未观察。
 - `--observe` 并发执行有界只读查询；Filesystem、Git、Session、Gitea 或 Connectivity 单段失败不隐藏其他段成功结果。
 - 输出区分已确认关系、本次观察、未确认建议与未知/不可用；不生成单一 Workspace 健康分数。
+- 人类与 JSON 输出把可执行下一步放在对应资源附近；缺少可选 Session/Profile 不自动进入 attention，Plugin 未加载、未配置与原生资源不可访问分别表达。
+- 已保存关系但能力未选择时，`--observe` 不查询该领域，显示 `not-observed` 并提供 `capability configure`；能力选择仍是观察前提。
 - Git Remote 只产生 Gitea 建议，不写长期关系；只有唯一本地仓库/Remote 匹配且有提交时才按 `head_sha` 展示对应 CI。无匹配、多个匹配、无提交分别表达。
+- `matched/empty` 提供查看近期 Run、提交与触发条件的入口；`unmatched` 提供重新生成候选的入口；不自动关联、不触发 CI、不执行 SSH。
 - 零资源 Workspace 正常显示；插件停用与资源不可达仍保留长期关系，并提供其他领域结果。
 - 真实 Gitea 1.25.5 下验证了最近 Run、历史失败 Run、`matched/empty` 与 `unmatched`；本地工作树变化反映为 attention。
-- 长驻 shell 连续执行默认/观察/默认 Overview 复用同一 DSH 进程；profile 冒烟覆盖 61 个独立 DSH 进程。
+- 同一 Gitea 认证/网络故障按状态与错误合并 attention，不再为每个仓库重复同一根因。
+- 长驻 shell 连续执行默认/观察/默认 Overview 复用同一 DSH 进程；profile 冒烟覆盖 62 个独立 DSH 进程。
 
 证据与限制见 [Workspace Overview 决定](../.agents/notes/implemented/feature/2026-11-09-workspace-overview.md)。
 

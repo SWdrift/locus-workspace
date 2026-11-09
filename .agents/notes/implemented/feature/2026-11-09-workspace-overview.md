@@ -51,6 +51,20 @@ workspace overview <workspace> [--observe]
 
 不计算单一 Workspace 健康分数。人类输出将已确认、本次观察、未确认建议和未知/不可用分开标记。
 
+### 交互收敛
+
+Overview 的后续操作直接生成自已交付命令，放在对应资源附近：
+
+- `matched/empty`：说明当前提交没有匹配 Run，提供 `gitea runs` 与 `gitea run show`；不推断失败原因。
+- `unmatched`：说明本地 Remote 与仓库完整名称不一致，提供 `gitea repo suggest`；不自动 link。
+- 未确认 Gitea 候选：每个候选提供 `gitea repo link`。
+- Machine 无 Profile：提供 `connect profile add <machine> default --target <ssh 地址>`；不再作为 attention。
+- 没有 Session/Profile：保持普通信息，不报异常；Session 可选时提供 `session list`。
+- 访问失败：提供 `gitea instance verify` 或 `connect verify` 等既有入口，不自动请求。
+- 已保存关系但能力未选择：不发起该领域的 `--observe` 查询，显示 `not-observed` 并提供 `capability configure`；选择后才观察。
+
+Attention 只保留需要用户处理或注意的问题。Gitea 的相同认证/网络错误按状态与错误合并为一条，列出受影响关联；插件未加载、未配置、凭据失败和原生资源不可访问分别表达。JSON 在每个资源项增加 `actions`，不新增通用领域模型。
+
 ### CI 与本地 HEAD
 
 只有同时满足以下条件，Overview 才把 Gitea Run 与本地 Git HEAD 关联：
@@ -75,22 +89,23 @@ CI success 不代表部署成功；Overview 不建立 Machine 或部署关系。
 ### 进程内与 profile
 
 - `pnpm test:all`：95 个测试，94 通过，1 个既有平台跳过。
-- 新增 CLI 用例覆盖：零资源 Workspace、默认不观察、`--observe` 的 Filesystem/Git/Gitea/Session/Machine/Connectivity、本地 HEAD 对应、未确认 Remote 候选、工作树 dirty、Gitea 401 时其他来源仍成功、失败 CI、提供方全部缺失时长期关系保留。
-- `pnpm verify:full` profile 冒烟通过：61 个独立 DSH 进程；包含最小 Workspace、多能力 Workspace、插件停用、重复 Overview 与长驻 shell 连续查询。
+- 新增 CLI 用例覆盖：零资源 Workspace、默认不观察、`--observe` 的 Filesystem/Git/Gitea/Session/Machine/Connectivity、本地 HEAD 对应、`matched/empty` 与 `unmatched` 的不同下一步、未确认 Remote 候选、工作树 dirty、Gitea 401 时其他来源仍成功、同一错误合并、失败 CI、无 Profile 不误报、能力未选择时不请求、提供方全部缺失时长期关系保留。
+- profile 冒烟通过：62 个独立 DSH 进程；包含最小 Workspace、多能力 Workspace、插件停用、重复 Overview 与长驻 shell 连续查询。
 - profile 冒烟中的 Gitea 使用 fixture，不冒充真实实例。
 
 ### 真实 Gitea 1.25.5
 
 - 实例：`http://localhost:9700`，登录 `CZXyee`，Actions 已启用。
 - 真实 Overview（初始 2 个关联仓库）：
-  - 默认模式 6ms；`--observe` 冷启动 1194ms（Git 798ms、Gitea 325ms、Connectivity 42ms）。
+  - 交互收敛后默认模式 19ms；`--observe` 1078ms（Git/Gitea/Connectivity 仍为主要成本，处于与收敛前 6ms/1194ms 相同量级）。
   - `CZXyee/2608-freight-platform` 最近 Run #135 success，提交 `eef8ca…`。
   - `CZXyee/test` 最近 Run #15 success；历史 Run #14 单独查询为 `completed/failure`，提交 `a1b390…`。
   - 本地 HEAD `b168874…` 与 `2608` Remote 匹配，但没有对应 Run，Overview 报 `matched/empty`，没有伪造成成功或失败。
   - 扩展到 4 个关联仓库后：`2610` 有本地 Remote 但当前提交无 Run，报 `matched/empty`；`SW-Projects` 无对应 Remote，报 `unmatched`。`--observe` 耗时 1221ms。
   - 确认前 `other` Remote 的 2610 仓库以建议显示；显式关联后不再作为未确认建议。
   - 本地工作树修改后，Overview 报 `git-worktree-dirty`。
-  - 移除启动环境凭据后再次观察：Filesystem/Git 仍为 `accessible`/`repository`，四个 Gitea 关联分别报 `credential-missing`，没有把访问失败写成空 CI。
+  - 移除启动环境凭据后再次观察：Filesystem/Git 仍为 `accessible`/`repository`，Gitea 关联报 `credential-missing`，没有把访问失败写成空 CI；同一错误的跨关联合并由进程内双关联用例验证。
+  - Machine 没有 Profile 时显示 `Profile=未配置` 与 `connect profile add ...`，不进入 attention；`matched/empty` 显示无匹配 Run 与查看 Run 的入口。
   - 未观察到 token 出现在 JSON 或输出中。
 - 真实 Session 查询为空：当前 `.dsh` 数据目录没有可关联 Session；多能力会话状态由 profile fixture 验证，不把空来源写成 live。
 - 长驻 shell 连续执行默认、`--observe`、默认三次 Overview，共 3 行 JSON，同一 DSH 进程；观察耗时 557ms，未重复启动 DSH。
