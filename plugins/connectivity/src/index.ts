@@ -5,7 +5,6 @@ import { homedir } from 'node:os'
 import { connect as tcpConnect } from 'node:net'
 import type { Context } from '@deepseek-ai/cordis'
 import {
-  type CapabilityDescriptor,
   type ConnectionAttempt,
   type ConnectionCheck,
   type ConnectionInspection,
@@ -16,6 +15,7 @@ import {
   type LocusService,
   type RemoteMachineService,
 } from '@locus/contracts'
+import { capability } from './capability.ts'
 import { ConnectivityStore } from './store.ts'
 
 /** 稳定的 Cordis 插件名。 */
@@ -24,12 +24,7 @@ export const name = 'locus-connectivity'
 /** Connection Profile 依赖 Remote Machine 的公开机器用例。 */
 export const inject = ['locus', 'locusRemoteMachine']
 
-/** 提供方声明；Tag 只用于分类，不代表权限或当前可达性。 */
-export const capability: CapabilityDescriptor = Object.freeze({
-  id: 'locus.connectivity',
-  provider: '@locus/connectivity',
-  tags: Object.freeze(['connectivity']),
-})
+export { capability }
 
 export interface ConnectivityCommandResult {
   readonly stdout: string

@@ -70,6 +70,7 @@ function prepareProfile() {
     join(resolve('.'), 'plugins/gitea'),
     join(resolve('.'), 'plugins/session'),
     join(resolve('.'), 'plugins/cli'),
+    join(resolve('.'), 'plugins/ui'),
   ]
   const result = spawnSync(process.execPath, [
     pnpm,
@@ -94,6 +95,10 @@ function prepareProfile() {
     "      name: '@locus/host-dsh'",
     "    - id: locus-filesystem",
     "      name: '@locus/filesystem'",
+    "    - id: locus-remote-machine-contract",
+    "      name: '@locus/remote-machine/contract'",
+    "    - id: locus-connectivity-contract",
+    "      name: '@locus/connectivity/contract'",
     "    - id: locus-git",
     "      name: '@locus/git'",
     "    - id: locus-remote-machine",
@@ -104,6 +109,8 @@ function prepareProfile() {
     "      name: '@locus/gitea'",
     "    - id: locus-session",
     "      name: '@locus/session'",
+    "    - id: locus-ui",
+    "      name: '@locus/ui'",
     "    - id: locus-cli",
     "      name: '@locus/cli'",
     '',

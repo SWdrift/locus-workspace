@@ -7,10 +7,11 @@ import type {
   GiteaService,
   GitService,
   LocusService,
+  OperationCatalogService,
   RemoteMachineService,
   SessionService,
 } from '@locus/contracts'
-import { createCommands } from './commands.ts'
+import { createCommands, type UiLauncher } from './commands.ts'
 import { runShell } from './shell.ts'
 
 /** 稳定的 Cordis 插件名。 */
@@ -34,6 +35,8 @@ export function apply(ctx: Context): void {
         ctx.get('locusRemoteMachine') as RemoteMachineService | undefined,
         ctx.get('locusConnectivity') as ConnectivityService | undefined,
         ctx.get('locusGitea') as GiteaService | undefined,
+        ctx.get('locusOperations') as OperationCatalogService | undefined,
+        ctx.get('locusUi') as UiLauncher | undefined,
       )
       parseCmdline(ctx, commands.program)
       if (commands.shell()) {
@@ -45,15 +48,19 @@ export function apply(ctx: Context): void {
           const remoteMachine = ctx.get('locusRemoteMachine') as RemoteMachineService | undefined
           const connectivity = ctx.get('locusConnectivity') as ConnectivityService | undefined
           const gitea = ctx.get('locusGitea') as GiteaService | undefined
+          const operations = ctx.get('locusOperations') as OperationCatalogService | undefined
+          const ui = ctx.get('locusUi') as UiLauncher | undefined
           return {
-            commands: createCommands(locus, filesystem, git, session, remoteMachine, connectivity, gitea),
+            commands: createCommands(locus, filesystem, git, session, remoteMachine, connectivity, gitea, operations, ui),
             current: () => ctx.get('locus') === locus
               && ctx.get('locusFilesystem') === filesystem
               && ctx.get('locusGit') === git
               && ctx.get('locusSession') === session
               && ctx.get('locusRemoteMachine') === remoteMachine
               && ctx.get('locusConnectivity') === connectivity
-              && ctx.get('locusGitea') === gitea,
+              && ctx.get('locusGitea') === gitea
+              && ctx.get('locusOperations') === operations
+              && ctx.get('locusUi') === ui,
           }
         }
         void runShell(create, exit, (dispose) => {

@@ -6,7 +6,7 @@
 
 | 层级 | 入口 | 运行内容 |
 | --- | --- | --- |
-| 快速层 | `pnpm test` | Core、Session、Remote Machine、Connectivity、Gitea 包测试，以及跨包 Host/CLI/shell；不含 Filesystem/Git 包测试与 profile e2e |
+| 快速层 | `pnpm test` | Core、Operations、Application、Session、Remote Machine、Connectivity、Gitea 与 UI API 包测试，以及跨包 Host/CLI/shell；不含 Filesystem/Git 包测试与 profile e2e |
 | 全量进程内 | `pnpm test:all` | `packages/*/test/`、`plugins/*/test/` 与 `tests/*.test.mjs`；不含 profile e2e |
 | 单文件 | `pnpm test:file <文件>` | 直接运行一个 `node --test` 文件，可附加 `--test-name-pattern <模式>` 过滤用例 |
 | profile 冒烟 | `pnpm verify:full` | 构建、全量进程内与文档检查之后运行 `tests/e2e/workspace-smoke.mjs`，使用真实 launcher/profile；受[高耗时操作节流](#高耗时操作节流)约束 |
@@ -41,8 +41,8 @@ e2e 执行前查看 `temp/e2e-runs.log` 的最后一条开始记录。该文件�
 
 ## 目录与形态
 
-- `packages/*/test/` 与 `plugins/*/test/` 是包测试，使用 `node:test`。只有注册了 `test` script 的包可直接运行 `pnpm --dir <包> test`；`packages/contracts`、`packages/host-dsh` 与 `plugins/cli` 没有独立 test script。
-- `tests/*.test.mjs` 是跨包进程内测试，当前为 Host、CLI 与 shell。Host/CLI/shell 同时进入快速层，其余文件只在 `pnpm test:all` 收集。
+- `packages/*/test/` 与 `plugins/*/test/` 是包测试，使用 `node:test`。只有注册了 `test` script 的包可直接运行 `pnpm --dir <包> test`；`packages/contracts`、`packages/host-dsh` 与 `plugins/cli` 没有独立 test script。`plugins/ui/test/` 读取 `web/dist`，因此运行前需要构建浏览器端。
+- `tests/*.test.mjs` 是跨包进程内测试，当前为 Host、CLI、shell 与 Operations。Host/CLI/shell 同时进入快速层，其余文件只在 `pnpm test:all` 收集。
 - `tests/e2e/workspace-smoke.mjs` 是真实 profile 冒烟，不匹配 `tests/*.test.mjs`，因此不会被快速层或全量层误收集。
 - `tests/e2e/fixtures/` 提供冒烟所需的本地 Gitea HTTP 服务与 Session fixture 插件。
 - `scripts/docs.test.mjs` 验证文档检查器自身的通过与失败边界。
@@ -53,7 +53,7 @@ e2e 执行前查看 `temp/e2e-runs.log` 的最后一条开始记录。该文件�
 
 - Core、Filesystem、Git、Gitea 测试使用真实 SQLite 文件、真实临时目录、原生 Git 仓库或本地 HTTP 服务；Host 测试使用真实 Cordis Context。
 - Remote Machine 与 Connectivity 注入 `run`/`probeTcp`，Session 注入查询服务；它们在外部进程或网络边界替换不可控依赖，不伪造被测领域行为。
-- CLI 测试在进程内复用真实命令树和真实服务，只抑制终端输出，不启动 launcher；launcher 与 profile 装配由 e2e 覆盖。
+- CLI 测试在进程内复用真实命令树和真实服务，只抑制终端输出，不启动 launcher；launcher 与 profile 装配由 e2e 覆盖。UI 测试启动真实 loopback HTTP 服务器并读取构建后的静态页，覆盖令牌、来源、静态路径、Overview API 与 Operation 调用；浏览器视觉与交互用本地 Chromium 手工验证，不作为默认自动化门禁。
 - e2e 使用临时 `DSH_HOME` 与 `LOCUS_HOME`、fixture Gitea 服务、fixture Session 插件、真实 Git 仓库和 loopback 地址；凭据使用合成 token，不访问外部服务。
 - 测试导入各包 `lib/` 构建产物，因此运行前需要 `pnpm build`；测试不使用运行时 TypeScript 转译。
 

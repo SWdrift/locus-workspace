@@ -1,0 +1,114 @@
+.tag {
+  display: inline-block;
+  padding: 1px 7px;
+  border: 1px solid var(--dsw-alias-border-l1);
+  border-radius: 999px;
+  color: var(--dsw-alias-label-secondary);
+  font-size: 11px;
+  line-height: 1.6;
+  white-space: nowrap;
+}
+
+.muted {
+  color: var(--dsw-alias-label-secondary);
+}
+
+.toolbar {
+  display: flex;
+  align-items: flex-end;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin: 12px 0;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  font-size: var(--dsw-font-xs-13);
+}
+
+.field span {
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.field input,
+.field select {
+  padding: 8px 10px;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: var(--dsw-radius-md);
+  background: var(--dsw-alias-bg-layer-1);
+  color: var(--dsw-alias-label-primary);
+}
+
+.field input:focus,
+.field select:focus {
+  outline: 2px solid var(--dsw-alias-interactive-bg-hover-solid);
+  border-color: var(--dsw-alias-brand-primary);
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 12px;
+  margin: 12px 0;
+}
+
+.button,
+.primary {
+  padding: 7px 14px;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: var(--dsw-radius-md);
+  background: var(--dsw-alias-bg-layer-1);
+  color: var(--dsw-alias-label-primary);
+  font-size: var(--dsw-font-xs-13);
+}
+
+.button:hover:not(:disabled) {
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+
+.primary {
+  background: var(--dsw-alias-button-primary-fill);
+  border-color: var(--dsw-alias-button-primary-fill);
+  color: var(--dsw-alias-label-primary-foreground);
+}
+
+.primary:hover:not(:disabled) {
+  background: var(--dsw-alias-button-primary-hover);
+}
+
+.button:disabled,
+.primary:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.availability {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin: 10px 0;
+  font-size: var(--dsw-font-xs-13);
+}
+
+.confirm {
+  display: flex;
+  align-items: flex-start;
+  gap: 7px;
+  margin: 12px 0;
+  color: var(--dsw-alias-state-warn-label);
+  font-size: var(--dsw-font-xs-13);
+}
+
+.result {
+  margin-top: 12px;
+}
+
+.resultHead {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+}

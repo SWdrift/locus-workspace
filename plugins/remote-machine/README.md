@@ -10,7 +10,9 @@ Plugin 只拥有机器资料与地址，不拥有 SSH 配置、凭据、连接�
 
 按[开发与验证](../../docs/development.md#宿主运行)将本包链接到项目内 `locus` profile 并合入插件行。Plugin 注入 `locus`，提供 `locusRemoteMachine`；Capability 为 `locus.remote-machine`，提供方 `@locus/remote-machine`，Tag `environment` 仅分类。
 
-`machine register` 建立机器资料，不需要 Workspace 或 OpenSSH；`machine associate` 才要求目标 Workspace 已选择本提供方。注册是全局机器登记，不因某个 Workspace 解除关联而删除。CLI 语法由[命令手册](../../docs/commands.md#workspace-操作)维护；非终端调用使用 `createRemoteMachineService(locus, options?)` 与 [contracts](../../packages/contracts/README.md) 中的局部协议。
+`@locus/remote-machine/contract` 是独立插件行，只注册 `machine.observe` Definition，不加载本 Plugin；Provider 缺省时 Definition 仍可发现，调用返回 `provider-missing`。CLI 的 `machine observe` 由该契约投影生成，命令路径、参数、帮助和文本格式仍归 CLI。
+
+`machine register` 建立机器资料，不需要 Workspace 或 OpenSSH；`machine associate` 才要求目标 Workspace 已选择本提供方。注册是全局机器登记，不因某个 Workspace 解除关联而删除。CLI 语法由[命令手册](../../docs/commands.md#workspace-操作)维护；非终端调用使用 `createRemoteMachineService(locus, options?)` 与 [contracts](../../packages/contracts/README.md) 中的局部协议，或通过 [Operation Catalog](../../packages/operations/README.md) 读取 `machine.observe` 的 Schema、可用性与结构化结果。
 
 ## 身份、地址与观察
 

@@ -7,7 +7,7 @@
 | 命令 | 用途与成功判据 |
 | --- | --- |
 | `pnpm install` | 安装 workspace 依赖并链接本地包 |
-| `pnpm build` | 编译实际库和 Plugin，退出 0 |
+| `pnpm build` | 编译实际库和 Plugin，并执行浏览器端类型检查与 Vite 构建，退出 0 |
 | `pnpm test` | 快速层测试，退出 0；范围见[测试系统](testing.md#分层与入口) |
 | `pnpm test:all` | 全量进程内测试，退出 0；范围见[测试系统](testing.md#分层与入口) |
 | `pnpm test:file <文件>` | 直接运行单个测试文件；可附加 `--test-name-pattern <模式>` 过滤用例 |
@@ -17,6 +17,7 @@
 | `pnpm docs:test` | 文档检查器测试通过；仅修改检查器时要求执行 |
 | `pnpm docs:check --root <目录>` | 在指定真实目录执行相同文档检查 |
 | `dsh --profile locus shell` | 进入长驻交互 shell；连续命令复用同一 DSH 进程，不新增启动 |
+| `pnpm ui` | 启动本地 Workspace UI；需要先按开发文档设置 `DSH_HOME`，默认监听 `127.0.0.1:4310` |
 
 测试目录、覆盖范围、运行成本与选择规则见[测试系统](testing.md#分层与入口)；本表只登记命令入口，不复制测试矩阵。
 
@@ -27,6 +28,7 @@
 | 参数 | 行为与成功判据 |
 | --- | --- |
 | `version` | stdout `0.0.0`、退出 0 |
+| `ui [--port <port>]` | 在现有 DSH 进程内启动 loopback Workspace UI 与 JSON 接口；默认端口 4310，按 Ctrl+C 停止。只服务本机，不自动打开浏览器 |
 | `workspace create <name>` | 返回具有稳定 UUID 的新 Workspace，不要求目录 |
 | `workspace list` | 列出长期 Workspace；空集合不是错误 |
 | `workspace show <id>` / `workspace open <id>` | 按 Identity 打开并显示基本信息、关系与能力选择；不设置隐式当前目录 |
@@ -93,6 +95,8 @@
 Gitea 的 `--credential-ref` 只接受 POSIX 名称（例如 `GITEA_TOKEN`），不接收 Token 本身。DSH `credentials` 服务存在时优先解析；缺失值再回退到启动环境。`gitea status` 与 Run 查询只表示 Gitea Actions 事实，不建立 CI 与 Machine 的部署关系。
 
 `workspace overview` 是聚合查询，单个来源或单个关联不可用仍返回 0，并在对应段标记 unavailable/error；Workspace 不存在、参数错误或整体聚合无法执行才返回 2。默认模式只读长期关系与已保存配置；`--observe` 的耗时按来源记录在 JSON `timings` 中，各段并发执行，总耗时不是简单相加。每个资源项在 JSON 中带 `actions`，人类输出在资源旁显示“下一步”；这些只是已有命令入口，不自动执行。`attention` 只列需要处理或注意的问题：缺少可选 Session/Profile 不当作异常，Gitea 同类认证/网络错误按状态合并，Plugin 未加载、未配置与原生资源不可访问分别表达。成功与否不改变任何关系、Profile、实例配置或原生资源。
+
+`workspace overview` 的组合逻辑由 `@locus/application` 同时提供给 CLI 与本地 UI；CLI 只负责人类/JSON 投影，不在命令处理器中重新组合跨领域事实。UI 的 `GET /api/workspaces/:id/overview` 使用同一应用用例。UI 只监听 loopback，页面内嵌一次性会话令牌，API 不接受其他来源；调用要求确认的操作时必须显式 `confirm: true`。
 
 ### 初始配置配方
 

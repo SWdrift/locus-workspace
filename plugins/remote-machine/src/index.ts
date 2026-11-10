@@ -3,7 +3,6 @@ import type { ExecFileException } from 'node:child_process'
 import type { Context } from '@deepseek-ai/cordis'
 import {
   REMOTE_MACHINE_NAMESPACE,
-  type CapabilityDescriptor,
   type LocusService,
   type MachineAddress,
   type MachineObservation,
@@ -11,6 +10,7 @@ import {
   type RemoteMachineService,
   type ResourceReference,
 } from '@locus/contracts'
+import { capability } from './capability.ts'
 import { RemoteMachineStore } from './store.ts'
 
 /** 稳定的 Cordis 插件名。 */
@@ -19,12 +19,7 @@ export const name = 'locus-remote-machine'
 /** 只依赖公开的 Locus 用例；不要求 Core 装配领域插件。 */
 export const inject = ['locus']
 
-/** 提供方声明；Tag 只用于分类，不代表权限或当前可达性。 */
-export const capability: CapabilityDescriptor = Object.freeze({
-  id: 'locus.remote-machine',
-  provider: '@locus/remote-machine',
-  tags: Object.freeze(['environment']),
-})
+export { capability }
 
 export interface RemoteCommandResult {
   readonly stdout: string

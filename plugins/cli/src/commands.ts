@@ -23,6 +23,7 @@ import type {
   MachineAddress,
   MachineAddressKind,
   MachineObservation,
+  OperationCatalogService,
   RemoteMachine,
   RemoteMachineService,
   SessionService,
@@ -35,7 +36,9 @@ import {
   REMOTE_MACHINE_NAMESPACE,
   SESSION_NAMESPACE_PREFIX,
 } from '@locus/contracts'
-import { buildWorkspaceOverview, overviewText } from './overview.ts'
+import { buildWorkspaceOverview } from '@locus/application'
+import { registerOperationCommand, type CliOperationProjection } from './operation-projection.ts'
+import { overviewText } from './overview-text.ts'
 
 export interface CommandResult {
   readonly value: unknown
@@ -49,6 +52,11 @@ export interface ParsedCommand {
   json(): boolean
   shell(): boolean
   parse(argv: readonly string[]): void
+}
+
+export interface UiLauncher {
+  start(options?: { readonly port?: number }): Promise<{ readonly url: string; readonly port: number }>
+  stop(): Promise<void>
 }
 
 function integer(value: string): number {
@@ -181,6 +189,27 @@ function attemptText(value: ConnectionAttempt): string {
   ].join('\n')
 }
 
+const machineObserveProjection: CliOperationProjection = {
+  operationId: 'machine.observe',
+  name: 'observe',
+  description: '通过 OpenSSH 对一个 ssh 地址做只读观察；不代表机器全局在线',
+  arguments: [
+    { name: 'machine', property: 'machine' },
+    { name: 'address', property: 'address', optional: true },
+  ],
+  render: (value) => machineObservationText(value as MachineObservation),
+  exitCode: (value) => (value as MachineObservation).state === 'observed' ? 0 : 2,
+}
+
+const connectionVerifyProjection: CliOperationProjection = {
+  operationId: 'connect.verify',
+  name: 'verify',
+  description: '通过 OpenSSH 执行一次只读 hostname 验证；不修改远端状态',
+  arguments: [{ name: 'profile', property: 'profile' }],
+  render: (value) => attemptText(value as ConnectionAttempt),
+  exitCode: (value) => (value as ConnectionAttempt).state === 'connected' ? 0 : 2,
+}
+
 function shellArgument(value: string): string {
   return /^[\w@%+=:,./\\-]+$/.test(value) ? value : `"${value.replaceAll('"', '\\"')}"`
 }
@@ -266,6 +295,8 @@ export function createCommands(
   remoteMachine: RemoteMachineService | undefined,
   connectivity: ConnectivityService | undefined,
   gitea: GiteaService | undefined,
+  operations: OperationCatalogService | undefined,
+  ui: UiLauncher | undefined,
 ): ParsedCommand {
   const program = new Command()
     .name('dsh --profile locus')
@@ -342,6 +373,27 @@ export function createCommands(
     shellMode = true
     selected = shell
   })
+
+  const uiCommand = program.command('ui')
+    .description('启动本地 Workspace UI（仅 loopback）；按 Ctrl+C 停止')
+    .option('--port <port>', '监听端口（默认 4310）', port)
+  uiCommand.action(() => choose(uiCommand, async () => {
+    if (ui === undefined) throw new Error('UI 服务不可用：profile 未加载 @locus/ui。')
+    const portValue = uiCommand.opts<{ port?: number }>().port
+    const info = await ui.start(portValue === undefined ? {} : { port: portValue })
+    process.stderr.write(`Locus UI: ${info.url}\n按 Ctrl+C 停止。\n`)
+    const { promise, resolve } = Promise.withResolvers<void>()
+    const stop = (): void => {
+      process.off('SIGINT', stop)
+      process.off('SIGTERM', stop)
+      resolve()
+    }
+    process.once('SIGINT', stop)
+    process.once('SIGTERM', stop)
+    await promise
+    await ui.stop()
+    return { value: info, text: `Locus UI 已停止：${info.url}` }
+  }))
 
   const workspace = program.command('workspace').description('持久工作语境与显式关系，不依赖目录')
   const create = workspace.command('create <name>').description('创建具有新 UUID 的 Workspace，可无目录')
@@ -736,16 +788,7 @@ export function createCommands(
         || '该机器没有 Workspace 关联。',
     }
   }))
-  const machineObserve = machines.command('observe <machine> [address]')
-    .description('通过 OpenSSH 对一个 ssh 地址做只读观察；不代表机器全局在线')
-  machineObserve.action((machineId: string, addressId?: string) => choose(machineObserve, async () => {
-    const result = await remoteMachineService().observe(machineId, addressId)
-    return {
-      value: result,
-      text: machineObservationText(result),
-      exitCode: result.state === 'observed' ? 0 : 2,
-    }
-  }))
+  registerOperationCommand({ parent: machines, catalog: operations, projection: machineObserveProjection, choose })
 
   const connection = program.command('connect')
     .description('Connectivity：SSH Connection Profile、配置检查、真实连接验证与原生入口')
@@ -890,16 +933,7 @@ export function createCommands(
       exitCode: result.state === 'error' || result.state === 'unavailable' ? 2 : 0,
     }
   }))
-  const connectionVerify = connection.command('verify <profile>')
-    .description('通过 OpenSSH 执行一次只读 hostname 验证；不修改远端状态')
-  connectionVerify.action((profileId: string) => choose(connectionVerify, async () => {
-    const result = await connectivityService().verify(profileId)
-    return {
-      value: result,
-      text: attemptText(result),
-      exitCode: result.state === 'connected' ? 0 : 2,
-    }
-  }))
+  registerOperationCommand({ parent: connection, catalog: operations, projection: connectionVerifyProjection, choose })
   const connectionOpen = connection.command('open <profile>')
     .description('返回可执行的原生 SSH 入口；当前 CLI 不接管 Agent/Web 终端')
   connectionOpen.action((profileId: string) => choose(connectionOpen, () => {

@@ -552,3 +552,104 @@ export interface GiteaService {
   run(reference: ResourceReference, runId: number, signal?: AbortSignal): Promise<GiteaRunObservation>
   suggest(remotes: readonly { readonly name: string; readonly url: string }[]): readonly GiteaRepositorySuggestion[]
 }
+
+/** JSON Schema 形状；由公共校验机制解释，不引入领域类型系统或 DSL。 */
+export type OperationSchema = Readonly<Record<string, unknown>>
+
+/**
+ * 领域对外暴露的操作契约。Definition 只描述可发现结构与行为约定，
+ * 不包含实现、CLI 语法或调用方专用格式。
+ */
+export interface OperationDefinition {
+  readonly id: string
+  readonly version: number
+  readonly description: string
+  readonly input: OperationSchema
+  readonly output: OperationSchema
+  /** 操作所属领域能力；只有调用上下文带 Workspace 时才检查选择状态。 */
+  readonly capability?: CapabilityDescriptor
+  readonly prerequisites?: readonly string[]
+  readonly effects?: readonly string[]
+  /** 需要访问外部环境或产生副作用时，应用必须取得明确确认。 */
+  readonly requiresConfirmation?: boolean
+  /** 领域 Outcome 的说明；非成功结果仍可能是 ok 的调用值。 */
+  readonly outcome?: string
+}
+
+export interface OperationInvocationContext {
+  readonly workspaceId?: string
+  readonly signal?: AbortSignal
+}
+
+export interface OperationProviderAvailability {
+  readonly available: boolean
+  readonly error?: string
+}
+
+/**
+ * 当前提供方绑定。Execute 的返回值按 Definition.output 校验；
+ * 领域不满足条件时仍应返回领域 Outcome，而不是把它改写成调用错误。
+ */
+export interface OperationProvider {
+  readonly operationId: string
+  readonly version: number
+  availability(): OperationProviderAvailability | Promise<OperationProviderAvailability>
+  execute(input: unknown, context: OperationInvocationContext): Promise<unknown>
+}
+
+/** 调用时解析当前提供方；未加载时返回 undefined。 */
+export type OperationProviderBinder = () => OperationProvider | undefined
+
+export type OperationUnavailableCode =
+  | 'definition-missing'
+  | 'provider-missing'
+  | 'capability-not-selected'
+  | 'contract-mismatch'
+  | 'provider-unavailable'
+
+export type OperationAvailability =
+  | { readonly state: 'available' }
+  | {
+    readonly state: 'unavailable'
+    readonly code: OperationUnavailableCode
+    readonly message: string
+  }
+
+export type OperationInvocationErrorCode =
+  | 'definition-missing'
+  | 'provider-missing'
+  | 'capability-not-selected'
+  | 'contract-mismatch'
+  | 'invalid-input'
+  | 'invalid-output'
+  | 'invocation-error'
+
+export interface OperationInvocationError {
+  readonly code: OperationInvocationErrorCode
+  readonly message: string
+  readonly details?: readonly string[]
+}
+
+export type OperationInvocationResult = {
+  readonly operationId: string
+  readonly startedAt: string
+  readonly finishedAt: string
+} & (
+  | { readonly ok: true; readonly value: unknown }
+  | { readonly ok: false; readonly error: OperationInvocationError }
+)
+
+export type OperationRegistration = () => void
+
+/** Definition 发现、提供方绑定与调用的公共机制；不拥有领域语义。 */
+export interface OperationCatalogService {
+  register(definition: OperationDefinition, bind: OperationProviderBinder): OperationRegistration
+  list(): readonly OperationDefinition[]
+  get(operationId: string): OperationDefinition | undefined
+  availability(operationId: string, context?: OperationInvocationContext): Promise<OperationAvailability>
+  invoke(
+    operation: OperationDefinition | string,
+    input: unknown,
+    context?: OperationInvocationContext,
+  ): Promise<OperationInvocationResult>
+}

@@ -5,19 +5,38 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import test from 'node:test'
 import { createLocusCore } from '../packages/core/lib/index.js'
+import { createOperationCatalog } from '../packages/operations/lib/index.js'
 import { createFilesystemService } from '../plugins/filesystem/lib/index.js'
 import { createGitService } from '../plugins/git/lib/index.js'
 import { createConnectivityService } from '../plugins/connectivity/lib/index.js'
+import { registerConnectivityOperations } from '../plugins/connectivity/lib/contract.js'
 import { createGiteaService } from '../plugins/gitea/lib/index.js'
 import { createRemoteMachineService } from '../plugins/remote-machine/lib/index.js'
+import { registerRemoteMachineOperations } from '../plugins/remote-machine/lib/contract.js'
 import { createSessionService } from '../plugins/session/lib/index.js'
 import { createCommands } from '../plugins/cli/lib/commands.js'
+
+function operationsFor(services) {
+  const catalog = createOperationCatalog({
+    isCapabilitySelected: (workspaceId, capability) => {
+      try {
+        return services.locus.workspaces.get(workspaceId).capabilities.some((entry) =>
+          entry.id === capability.id && entry.provider === capability.provider)
+      } catch {
+        return false
+      }
+    },
+  })
+  registerRemoteMachineOperations(catalog, () => services.remoteMachine)
+  registerConnectivityOperations(catalog, () => services.connectivity)
+  return catalog
+}
 
 /** 复用真实应用命令树，但不启动 launcher；DSH profile 装配由 smoke 覆盖。 */
 async function invoke(services, argv) {
   const commands = createCommands(
     services.locus, services.filesystem, services.git, services.session, services.remoteMachine,
-    services.connectivity, services.gitea,
+    services.connectivity, services.gitea, services.operations ?? operationsFor(services),
   )
   const silence = (program) => {
     program.exitOverride()
@@ -628,6 +647,10 @@ test('Remote Machine 登记、共享关联、地址修改与只读观察不依�
 
   const withoutMachine = { ...f.services(), remoteMachine: undefined }
   await assert.rejects(invoke(withoutMachine, ['machine', 'list']), /Remote Machine 能力不可用/)
+  await assert.rejects(
+    invoke(withoutMachine, ['machine', 'observe', machine.id]),
+    /provider-missing/,
+  )
   assert.equal((await invoke(withoutMachine, ['workspace', 'show', b.id])).value.relations.length, 1)
   await invoke(withoutMachine, ['machine', 'dissociate', b.id, relationB.id, '--yes'])
   assert.equal((await invoke(withoutMachine, ['workspace', 'show', b.id])).value.relations.length, 0)
@@ -682,6 +705,21 @@ test('Connectivity Profile 保存、检查、验证与原生入口不改变 Mach
   assert.equal(removed.removedProfileId, profile.id)
   assert.equal((await invoke(f.services(), ['connect', 'list'])).value.length, 0)
   assert.equal((await invoke(f.services(), ['machine', 'show', machine.id])).value.machine.id, machine.id)
+
+  const withoutConnectivity = { ...f.services(), connectivity: undefined }
+  await assert.rejects(
+    invoke(withoutConnectivity, ['connect', 'verify', profile.id]),
+    /provider-missing/,
+  )
+})
+
+test('Operation Definition 未安装时不创建对应命令', async (t) => {
+  const f = fixture(t)
+  const machine = (await invoke(f.services(), ['machine', 'register', 'No Definition'])).value
+  const withoutDefinitions = { ...f.services(), operations: createOperationCatalog() }
+  const result = await invoke(withoutDefinitions, ['machine', 'observe', machine.id])
+  assert.equal(result.exitCode, 1)
+  assert.match(result.error.message, /unknown command/)
 })
 
 test('Workspace Overview 默认只读关系，显式观察分离事实与未确认建议', async (t) => {

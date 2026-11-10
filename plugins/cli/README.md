@@ -2,15 +2,15 @@
 
 ## 简述与职责
 
-DSH 应用插件，提供 Workspace、能力选择、Filesystem、只读 Git、Remote Machine、Connectivity、Gitea 观察及 Session 关联的用户入口。只负责参数、用例编排、确认、渲染和退出；不直接生成身份、扫描文件、执行 Git/SSH、访问 Gitea API、读取 Session 日志或写持久化。
+DSH 应用插件，提供 Workspace、能力选择、Filesystem、只读 Git、Remote Machine、Connectivity、Gitea 观察及 Session 关联的用户入口。只负责参数、用例编排、确认、渲染和退出；不直接生成身份、扫描文件、执行 Git/SSH、访问 Gitea API、读取 Session 日志或写持久化。`workspace overview` 调用 `@locus/application` 的共享用例，`machine observe` 与 `connect verify` 依据已安装的 Operation Definition 生成，其余命令仍由本插件手写。
 
 ## 启动与命令
 
 使用项目内 DSH 和 `locus` profile，装配步骤见[开发与验证](../../docs/development.md#宿主运行)。`version` 仍打印产品版本 `0.0.0`；`--version` / `-V` 由 DSH 启动器拥有。
 
-完整命令语法、参数与成功判据由[命令手册](../../docs/commands.md#workspace-操作)维护。各层 `--help` 可查看用途与参数；`workspace show` 的 `open` 别名按 Identity 读取，不建立隐藏的当前目录或会话。
+完整命令语法、参数与成功判据由[命令手册](../../docs/commands.md#workspace-操作)维护。各层 `--help` 可查看用途与参数；`workspace show` 的 `open` 别名按 Identity 读取，不建立隐藏的当前目录或会话。`ui` 只启动 `locusUi` 提供的本地 loopback 传输层并等待 Ctrl+C，不自行读取或渲染 UI。
 
-`workspace overview <id>` 是应用层组合，不新增领域服务或持久化：默认只读取 Core 长期关系、各 Plugin 已保存配置与本地可用性，不访问原生文件、Git、Session、Gitea API 或 SSH。`--observe` 才执行有界只读观察，且只针对已选择能力：Filesystem 状态、Git 分支/HEAD/工作树、Session 元信息、Gitea 仓库与 Run 元信息、Connectivity `ssh -G`；不启动 SSH 连接、FRP visitor 或远程命令，也不读取日志、Artifact、Secret 或 transcript。单个来源失败只影响该段，其他段保留。输出区分已确认关系、本次观察、未确认建议和未知/不可用，不生成 Workspace 健康分数。每个资源项带可执行的后续命令建议，人类输出放在对应资源附近；`attention` 只保留需要处理或注意的问题，缺少可选 Session/Profile 不自动报异常，同类 Gitea 认证/网络错误合并。
+`workspace overview <id>` 调用共享应用用例，不新增领域服务或持久化：默认只读取 Core 长期关系、各 Plugin 已保存配置与本地可用性，不访问原生文件、Git、Session、Gitea API 或 SSH。`--observe` 才执行有界只读观察，且只针对已选择能力：Filesystem 状态、Git 分支/HEAD/工作树、Session 元信息、Gitea 仓库与 Run 元信息、Connectivity `ssh -G`；不启动 SSH 连接、FRP visitor 或远程命令，也不读取日志、Artifact、Secret 或 transcript。单个来源失败只影响该段，其他段保留。CLI 只渲染共享结果，不重新解释领域语义；输出区分已确认关系、本次观察、未确认建议和未知/不可用，不生成 Workspace 健康分数。每个资源项带可执行的后续命令建议，人类输出放在对应资源附近；`attention` 只保留需要处理或注意的问题，缺少可选 Session/Profile 不自动报异常，同类 Gitea 认证/网络错误合并。
 
 ## 输出与确认
 
@@ -24,11 +24,13 @@ DSH 应用插件，提供 Workspace、能力选择、Filesystem、只读 Git、R
 
 Plugin 注入 `locus`、`cmdlineArgs`、`appExit`、`appReady`，通过 DSH `parseCmdline` 和 commander 解析。语法解析只选择动作；等待 profile 启动完成后读取可选领域服务，异步用例完成才请求退出，确保正常清理。
 
+CLI 同时读取可选的 `locusOperations`。Definition 未安装时不创建对应命令；Definition 已安装但 Provider 未加载时命令仍存在，调用明确失败。命令路径、位置参数、帮助、文本格式与退出码属于 CLI 投影，Schema、能力依赖与领域 Outcome 属于领域契约；CLI 不重新判定业务成功或失败。`--json` 输出 Catalog 返回的领域值，调用错误仍写 stderr。
+
 `locusFilesystem` / `locusGit` / `locusRemoteMachine` / `locusConnectivity` / `locusGitea` / `locusSession` 不是 CLI 的必需注入项。缺失领域 Plugin 时仍可打开 Workspace、查看保存的关系和能力选择；只有相应用例明确失败。`session links` 在 Session Plugin 停用时仍列出关联并标记 unavailable；`gitea repos/status` 在 Gitea Plugin 停用时仍显示长期关系；`machine dissociate`、`connect profile remove` 与 `gitea repo unlink` 只修改 Locus 自有配置/关系，不依赖外部连接。`capability list` 的“声明”只来自当前已加载提供方；保存的选择、配置、加载、可用性和按操作检查的授权状态分别显示，不以 Tag 推断可用或授权。
 
 选择能力时接受 `filesystem` / `git` / `remote-machine` / `connectivity` / `gitea` / `session`、完整能力标识或提供方包名；用户不需要先区分语义能力与具体实现。`fs` / `git` / `machine associate` / `session associate` / `gitea repo link` 用例提示“尚未启用能力”时，先配置对应能力，Workspace 与其他 Plugin 不受影响。Connectivity Profile 是机器级配置，Gitea 实例与仓库查询也不要求 Workspace 选择；`gitea repo link` 才写入长期关系。
 
-Core、Filesystem、Git、Remote Machine、Connectivity、Gitea、Session 均有不经过 CLI 的实际调用入口；后续 Web 应复用这些用例，不解析 CLI 文本或复制规则。Session 列表不返回消息正文，`session show` 只读取标题；Remote Machine/Connectivity/Gitea 只返回脱敏失败类别并保留 `--json` 结构。Connectivity 的 `connect open` 会输出必要原生命令参数，其他 Profile 视图默认隐藏身份文件与 known_hosts 路径；Gitea 凭据只显示名称，`gitea runs/run show` 不读取日志或 Artifact。未来 Web 入口仍需限制来源与字段。服务与数据所有权见[架构](../../docs/architecture.md)。
+Core、Filesystem、Git、Remote Machine、Connectivity、Gitea、Session 均有不经过 CLI 的实际调用入口；`machine.observe` 与 `connect.verify` 还可经 Operation Catalog 获取 Definition、Schema、可用性与结构化结果。后续 Web 应复用这些用例与 Catalog，不解析 CLI 文本或复制规则。Session 列表不返回消息正文，`session show` 只读取标题；Remote Machine/Connectivity/Gitea 只返回脱敏失败类别并保留 `--json` 结构。Connectivity 的 `connect open` 会输出必要原生命令参数，其他 Profile 视图默认隐藏身份文件与 known_hosts 路径；Gitea 凭据只显示名称，`gitea runs/run show` 不读取日志或 Artifact。未来 Web 入口仍需限制来源与字段。服务与数据所有权见[架构](../../docs/architecture.md)。
 
 ## 长驻 shell
 

@@ -10,7 +10,9 @@ Plugin 不拥有 Machine、SSH 配置、凭据或 FRP/FRPP 隧道生命周期。
 
 按[开发与验证](../../docs/development.md#宿主运行)将本包链接到项目内 `locus` profile 并合入插件行。Plugin 注入 `locus` 与 `locusRemoteMachine`，提供 `locusConnectivity`；Capability 为 `locus.connectivity`，提供方 `@locus/connectivity`，Tag `connectivity` 仅分类。
 
-Connection Profile 通过 `machineId` 关联已有 Remote Machine。Profile 的增删改不改变 Machine Identity，也不改变 Workspace 与 Machine 的 Core 关系。CLI 语法由[命令手册](../../docs/commands.md#workspace-操作)维护；非终端调用使用 `createConnectivityService(locus, remoteMachine)` 与 [contracts](../../packages/contracts/README.md) 中的局部协议。
+`@locus/connectivity/contract` 是独立插件行，只注册 `connect.verify` Definition，不加载本 Plugin；Provider 缺省时 Definition 仍可发现，调用返回 `provider-missing`。CLI 的 `connect verify` 由该契约投影生成，命令路径、参数、帮助和文本格式仍归 CLI。
+
+Connection Profile 通过 `machineId` 关联已有 Remote Machine。Profile 的增删改不改变 Machine Identity，也不改变 Workspace 与 Machine 的 Core 关系。CLI 语法由[命令手册](../../docs/commands.md#workspace-操作)维护；非终端调用使用 `createConnectivityService(locus, remoteMachine)` 与 [contracts](../../packages/contracts/README.md) 中的局部协议，或通过 [Operation Catalog](../../packages/operations/README.md) 读取 `connect.verify` 的 Schema、可用性与结构化结果。
 
 ## Connection Profile
 

@@ -9,6 +9,10 @@
     ".": {
       "types": "./lib/index.d.ts",
       "default": "./lib/index.js"
+    },
+    "./contract": {
+      "types": "./lib/contract.d.ts",
+      "default": "./lib/contract.js"
     }
   },
   "files": [
