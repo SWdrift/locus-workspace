@@ -1,0 +1,43 @@
+# CP Filesystem
+
+## Control Plane Role
+
+本平面控制 Workspace 的第一个领域能力：本机 Filesystem 的位置登记、单层发现、有界读取与显式确认。Filesystem 只拥有位置配置与原生观察；长期成员/关联仍由 Core 保存。UI 与 CLI 通过共享 application 用例调用它。
+
+本平面不控制 Mount/多 Provider 的最终模型；相关方向先做最小实验，不提前冻结 schema 或接口。
+
+## Meta Reference
+
+- [cp-meta.md](./cp-meta.md)：控制平面结构、命名与更新规则。
+- [Filesystem 模块](../plugins/filesystem/README.md)：位置、引用、观察、读取、失败语义与数据生命周期。
+- [项目架构](../docs/architecture.md)：组件依赖与数据所有权。
+- 方向材料：Workspace 属于 Core、具体应用驱动；Mount、Provider、Execution World 仍是待验证方向，不是已实现契约。
+- 扩展/收尾使用 `create-control-plane` / `compact-control-plane`。
+
+## Scope
+
+- `plugins/filesystem`：位置登记、命名空间引用、范围检查、状态观察、单层发现、有界读取。
+- `packages/contracts` 中的 Filesystem 局部协议与命名空间常量。
+- Filesystem 与 Core 的确认边界：观察结果不自动成为关系，`confirmResource` 才写入。
+- 不包含：Workspace 身份/关系 schema、UI 视觉、CLI 参数树、SSH/远端文件系统。
+
+## Core Rules
+
+- Workspace 先于文件系统：位置属于某个 Workspace；登记只建立发现入口，不创建成员、不复制文件、不要求路径存在。
+- 观察与长期事实分离：`inspect`/`discover`/`read` 每次真实读取原生状态，不持久化缓存；`fs confirm` 才通过 Core 保存不透明引用与发现来源。
+- 引用是地址而非对象身份：命名空间含本机标识，异机恢复保留原引用并报告 `unavailable`，不自动绑定同名路径。
+- 路径边界：相对路径不得绝对或越过登记范围；单层发现不递归、不跟随符号链接；读取只接受普通文件并有字节上限。
+- 失败分类保持 `accessible`/`missing`/`denied`/`unavailable`/`error`，不回显可能含敏感内容的原生异常正文；不把拒绝读取伪装成空文件。
+- 数据所有权：Filesystem 独占 `filesystem.sqlite`；未知版本/损坏不重建为空库。Core 不读写位置表。
+- 不引入 Capability 选择门禁；插件加载即可用。多 Provider/Mount 的引入必须先有实验证据与独立决策。
+- 新能力按真实应用需求逐项增加；第一版保持只读，不预建写入、监听或跨设备语义。
+
+## Task Board
+
+- [x] 多位置登记、按 Workspace 隔离、共享/父子位置独立
+- [x] 单层发现、有界 UTF-8 读取、符号链接与越界防护
+- [x] 显式确认写入 Core 关系；UI/CLI 共用 `confirmResource`
+- [x] SQLite 版本、写锁、完整性检查与恢复测试
+- [ ] 按方向文档做“两个本地根 + DSH `ctx.fs` 适配”最小实验，记录多根访问、失效隔离与身份稳定性
+- [ ] 实验通过后再决定 Mount 模型、Provider 契约与是否引入 DSH Adapter
+- [ ] 写入、监听、权限与 Execution World 在出现真实应用后再评估
