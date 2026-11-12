@@ -9,7 +9,7 @@
 ## Meta Reference
 
 - [cp-meta.md](./cp-meta.md)：控制平面结构、命名与更新规则。
-- [UI 设计基线](../docs/ui-design.md)：当前圆角、材质、主题与控件规则。
+- [UI 设计基线](../docs/ui-design.md)：总体设计原则与权威来源入口。
 - [DSH UI 摘抄说明](../packages/ui/web/src/dsh/README.md)：来源、版本、保留范围与未摘抄组件。
 - [UI 模块](../packages/ui/README.md)：启动方式、API、安全边界。
 - 扩展/收尾使用 `create-control-plane` / `compact-control-plane`。
