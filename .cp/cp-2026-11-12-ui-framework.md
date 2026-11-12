@@ -27,7 +27,7 @@
 - 摘抄新组件前先确认 DSH `ui-primitives` 是否已有实现；按需摘抄并保留来源说明，不整体复制依赖 shiki/katex/simple-icons 的 Markdown/终端/diff 组件。
 - 卡片使用 R20；标准控件 R12，紧凑控件 R8；正圆/胶囊配对 `corner-shape: round`。悬停样式放在 `@media (hover: hover)`。
 - 反馈使用 DSH 组件：Loading 用 `StateDot ongoing`，瞬态成功用 `Toast`，截断文本用 `Tooltip(onlyWhenClipped)`，敏感操作确认用 `RiskConfirmation`；持久错误保留内联面板。
-- 表单关闭浏览器原生校验气泡，使用 `noValidate`、`aria-invalid` 与字段下方错误文本；Tooltip 只补充说明，不承载校验。
+- 表单关闭浏览器原生校验气泡；必填为空时禁用主操作，不插入占位提示行。字段有真实 hint 时，错误替换同一 message 行；Tooltip 只补充说明，不承载校验。
 - UI 传输只绑定 loopback，页面内嵌会话令牌，API 要求 `x-locus-ui-token` 并做同源检查；不提供跨域、写入或执行能力。
 - 浏览器端构建产物在 `web/dist`，运行前执行 `pnpm build`；UI 测试读取构建产物。修改主题/atoms 时同步 `docs/ui-design.md` 与来源说明。
 - UI 与 CLI 的差异只属于交互投影；新增业务语义进入 application 或领域服务，不在页面手写。

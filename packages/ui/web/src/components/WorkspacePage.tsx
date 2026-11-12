@@ -42,8 +42,6 @@ export default function WorkspacePage({
   const [browseId, setBrowseId] = useState<string | undefined>(undefined)
   const [pending, setPending] = useState<PendingAction | undefined>(undefined)
   const [acknowledged, setAcknowledged] = useState(false)
-  const [renameError, setRenameError] = useState<string | undefined>(undefined)
-  const [pathError, setPathError] = useState<string | undefined>(undefined)
 
   const reload = useCallback(async () => {
     setLoading(true)
@@ -105,11 +103,7 @@ export default function WorkspacePage({
           noValidate
           onSubmit={(event: FormEvent) => {
             event.preventDefault()
-            if (name.trim().length === 0) {
-              setRenameError('请输入 Workspace 名称。')
-              return
-            }
-            setRenameError(undefined)
+            if (name.trim().length === 0) return
             void run(async () => {
               await renameWorkspace(workspaceId, name)
               onNotify(`已改名：${name}`)
@@ -118,18 +112,11 @@ export default function WorkspacePage({
           }}
         >
           <Input
-            className={renameError === undefined ? undefined : styles.invalidInput}
             value={name}
-            onChange={(event) => {
-              setName(event.target.value)
-              if (renameError !== undefined) setRenameError(undefined)
-            }}
+            onChange={(event) => setName(event.target.value)}
             required
-            aria-invalid={renameError === undefined ? undefined : true}
-            aria-describedby={renameError === undefined ? undefined : 'rename-workspace-error'}
           />
-          <Button type="submit" variant="outline" size="sm">改名</Button>
-          {renameError === undefined ? null : <p id="rename-workspace-error" className={styles.fieldError}>{renameError}</p>}
+          <Button type="submit" variant="outline" size="sm" disabled={name.trim().length === 0}>改名</Button>
         </form>
       </header>
 
@@ -200,11 +187,7 @@ export default function WorkspacePage({
             noValidate
             onSubmit={(event: FormEvent) => {
               event.preventDefault()
-              if (path.trim().length === 0) {
-                setPathError('请输入要登记的本机绝对路径。')
-                return
-              }
-              setPathError(undefined)
+              if (path.trim().length === 0) return
               void run(async () => {
                 await registerLocation(workspaceId, path)
                 setPath('')
@@ -214,21 +197,15 @@ export default function WorkspacePage({
             }}
           >
             <Input
-              className={pathError === undefined ? styles.grow : `${styles.grow} ${styles.invalidInput}`}
+              className={styles.grow}
               value={path}
-              onChange={(event) => {
-                setPath(event.target.value)
-                if (pathError !== undefined) setPathError(undefined)
-              }}
+              onChange={(event) => setPath(event.target.value)}
               placeholder="要登记的本机绝对路径"
               required
-              aria-invalid={pathError === undefined ? undefined : true}
-              aria-describedby={pathError === undefined ? undefined : 'register-location-error'}
             />
             <Tooltip label="只建立发现入口，不确认成员" delayMs={300}>
-              <Button type="submit" variant="primary" size="sm">登记位置</Button>
+              <Button type="submit" variant="primary" size="sm" disabled={path.trim().length === 0}>登记位置</Button>
             </Tooltip>
-            {pathError === undefined ? null : <p id="register-location-error" className={styles.fieldError}>{pathError}</p>}
           </form>
         ) : (
           <p className={styles.muted}>当前 profile 未加载 Filesystem；已保存的 Workspace 与关系仍可查看。</p>
