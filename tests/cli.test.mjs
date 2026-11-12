@@ -6,7 +6,7 @@ import test from 'node:test'
 import { createWorkspaceApplication } from '../packages/application/lib/index.js'
 import { createLocusCore } from '../packages/core/lib/index.js'
 import { createFilesystemService } from '../plugins/filesystem/lib/index.js'
-import { createCommands } from '../plugins/cli/lib/commands.js'
+import { createCommands } from '../packages/cli/lib/commands.js'
 
 /** 复用真实应用命令树，但不启动 launcher；DSH profile 装配由 smoke 覆盖。 */
 async function invoke(services, argv) {

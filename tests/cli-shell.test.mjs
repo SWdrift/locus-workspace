@@ -7,8 +7,8 @@ import test from 'node:test'
 import { createWorkspaceApplication } from '../packages/application/lib/index.js'
 import { createLocusCore } from '../packages/core/lib/index.js'
 import { createFilesystemService } from '../plugins/filesystem/lib/index.js'
-import { createCommands } from '../plugins/cli/lib/commands.js'
-import { runShell, splitCommandLine } from '../plugins/cli/lib/shell.js'
+import { createCommands } from '../packages/cli/lib/commands.js'
+import { runShell, splitCommandLine } from '../packages/cli/lib/shell.js'
 
 function fixture(t) {
   const root = mkdtempSync(join(tmpdir(), 'locus-shell-'))

@@ -16,12 +16,12 @@ Status: implemented
 - `packages/core`：Workspace 身份、长期成员/关联与来源；不再包含 `capabilities` 表与选择用例。
 - `packages/host-dsh`：只创建并持有 Core，提供 `locus`。
 - `plugins/filesystem`：位置登记、单层发现、有界读取；不再要求 `capability configure`，加载即可用。
-- `plugins/cli`：`version`、`shell`、`workspace` 与 `fs` 命令；不再注入其他领域服务或 Catalog。
+- `packages/cli`：`version`、`shell`、`workspace` 与 `fs` 命令；不再注入其他领域服务或 Catalog。
 
 ### 已移除
 
 - `packages/operations`、`packages/application`。
-- `plugins/git`、`plugins/session`、`plugins/remote-machine`、`plugins/connectivity`、`plugins/gitea`、`plugins/ui`。
+- `plugins/git`、`plugins/session`、`plugins/remote-machine`、`plugins/connectivity`、`plugins/gitea`、`packages/ui`。
 - `OperationDefinition`/Provider/Catalog 类型、`machine observe` 与 `connect verify` 生成命令、CLI 投影文件。
 - `CapabilityDescriptor`、Core 能力表与 `configureCapability`/`removeCapability`、领域 `capability.ts`、CLI `capability` 命令组、跨领域门禁。
 - `docs/domain-generation.md` 及对应 proposed/implemented Agent Notes。

@@ -30,8 +30,8 @@ function prepareProfile() {
   const links = [
     join(resolve('.'), 'packages/host-dsh'),
     join(resolve('.'), 'plugins/filesystem'),
-    join(resolve('.'), 'plugins/ui'),
-    join(resolve('.'), 'plugins/cli'),
+    join(resolve('.'), 'packages/ui'),
+    join(resolve('.'), 'packages/cli'),
   ]
   const result = spawnSync(process.execPath, [
     pnpm,

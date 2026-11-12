@@ -6,7 +6,7 @@ Status: rejected — CLI 先定六域命令再推导模型的方案由[产品切
 
 首版需要尽快验证六个 P0 产品域的真实链路，Web 界面后置。CLI 与未来的 Web 必须共用领域能力，否则会出现两套业务规则、两套状态处理，最终无法保证同一操作在不同入口得到一致结果。
 
-当前 `plugins/cli` 只有 `version` 命令和手写参数判断，没有命令树、领域分组、机器可读输出或共享能力边界。若继续把所有逻辑堆进入口插件，CLI 会变成第二个 Core；若先按 Core、插件、原语切模块，又会回到抽象先行。
+当前 `packages/cli` 只有 `version` 命令和手写参数判断，没有命令树、领域分组、机器可读输出或共享能力边界。若继续把所有逻辑堆进入口插件，CLI 会变成第二个 Core；若先按 Core、插件、原语切模块，又会回到抽象先行。
 
 需要固定一条自上而下的推导顺序，并明确 CLI 只承担应用层职责。
 
@@ -47,7 +47,7 @@ DSH_HOME=.dsh pnpm exec dsh --profile locus <domain> <verb> [options]
 
 | 层 | 负责 | 不负责 |
 | --- | --- | --- |
-| `plugins/cli` | 参数、帮助、命令编排、人类/JSON 渲染、交互确认、退出码 | 业务规则、Git/Gitea/SSH 细节、持久化、DSH 装配 |
+| `packages/cli` | 参数、帮助、命令编排、人类/JSON 渲染、交互确认、退出码 | 业务规则、Git/Gitea/SSH 细节、持久化、DSH 装配 |
 | 领域能力 | workspace、project、connection、lifecycle、issue、agent 的用例与返回数据 | 终端格式、进程退出、参数语法 |
 | 适配与功能插件 | Git、Gitea、Actions、SSH/FRP、Agent 等原生系统集成 | 跨域产品编排 |
 | `packages/core` | 领域协调、共享状态与基础原语 | CLI/Web/DSH 依赖 |

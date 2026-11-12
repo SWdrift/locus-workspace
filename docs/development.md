@@ -11,7 +11,7 @@ Node.js 24 或更高、pnpm 11.24.0。执行 `pnpm install`，首次运行及修
 Locus 作为项目内 DSH profile Plugin 运行。先将 `DSH_HOME` 设置为仓库 `.dsh/` 的绝对路径，不读写 `~/.dsh`；PowerShell 可用 `$env:DSH_HOME = "$PWD/.dsh"`。profile 由 Git 忽略，首次安装实际插件：
 
 ```sh
-pnpm exec dsh plugin --profile locus add link:"$PWD/packages/host-dsh" link:"$PWD/plugins/filesystem" link:"$PWD/plugins/ui" link:"$PWD/plugins/cli"
+pnpm exec dsh plugin --profile locus add link:"$PWD/packages/host-dsh" link:"$PWD/plugins/filesystem" link:"$PWD/packages/ui" link:"$PWD/packages/cli"
 ```
 
 将以下插件行合入 `.dsh/profiles/locus/cordis.patch.yml`，已有其他配置时只合并相应 ID，不覆盖其他行；加载与覆盖语义见 [DSH 插件开发](references/dsh-plugin-development.md)。没有 `dsh.bundle` 的提示是普通链接依赖的预期行为。
@@ -42,7 +42,7 @@ UI 由 `@locus/ui` 在现有 DSH 进程内提供，与 CLI 读取同一 Core、F
 DSH_HOME="$PWD/.dsh" LOCUS_HOME="$PWD/.locus-data" pnpm exec dsh --profile locus ui
 ```
 
-默认访问 `http://127.0.0.1:4310/`；`--port <port>` 可改端口。服务只绑定 loopback，不自动打开浏览器，按 Ctrl+C 停止；关闭 UI 不删除任何长期关系与配置。页面是 React 18 + Vite + TypeScript + CSS Modules 的浏览器应用，源码在 `plugins/ui/web`，构建到 `plugins/ui/web/dist`；根 `pnpm build` 会编译传输层并执行 `vite build` 与浏览器端类型检查。单独构建使用 `pnpm --filter @locus/ui build:web`。修改 `web/src` 后必须重新构建再刷新。组件使用 `--dsw-*` 主题变量、CSS Modules 与 `clsx`，不引入 Tailwind 或组件库。
+默认访问 `http://127.0.0.1:4310/`；`--port <port>` 可改端口。服务只绑定 loopback，不自动打开浏览器，按 Ctrl+C 停止；关闭 UI 不删除任何长期关系与配置。页面是 React 18 + Vite + TypeScript + CSS Modules 的浏览器应用，源码在 `packages/ui/web`，主题与 `Button`/`Input`/`Tag` atoms 摘抄自 DSH master、目标宿主 `0.2.1-rc.5`（`web/src/dsh/`），构建到 `packages/ui/web/dist`；根 `pnpm build` 会编译传输层并执行 `vite build` 与浏览器端类型检查。单独构建使用 `pnpm --filter @locus/ui build:web`。修改 `web/src` 后必须重新构建再刷新。组件使用 `--dsw-*` 主题变量、CSS Modules 与 `clsx`，不引入 Tailwind 或额外组件库；新增共享控件优先从 DSH atoms 按需摘抄，不自行重写主题值。
 
 ## 数据与恢复
 

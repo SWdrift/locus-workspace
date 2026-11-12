@@ -2,7 +2,7 @@
 .dsh/
 packages/*/lib/
 plugins/*/lib/
-plugins/*/web/dist/
+packages/*/web/dist/
 temp/*
 node_modules/
 

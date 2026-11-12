@@ -9,7 +9,7 @@
   },
   "scripts": {
     "build": "tsc -b tsconfig.json && pnpm --filter @locus/ui build:web",
-    "test": "node --test packages/core/test/*.test.mjs packages/application/test/*.test.mjs plugins/filesystem/test/*.test.mjs plugins/ui/test/*.test.mjs tests/host.test.mjs tests/cli.test.mjs tests/cli-shell.test.mjs",
+    "test": "node --test packages/core/test/*.test.mjs packages/application/test/*.test.mjs plugins/filesystem/test/*.test.mjs packages/ui/test/*.test.mjs tests/host.test.mjs tests/cli.test.mjs tests/cli-shell.test.mjs",
     "test:all": "node --test packages/*/test/*.test.mjs plugins/*/test/*.test.mjs tests/*.test.mjs",
     "test:file": "node --test",
     "verify": "pnpm build && pnpm test && pnpm docs:check",

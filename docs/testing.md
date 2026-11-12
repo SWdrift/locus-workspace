@@ -41,7 +41,7 @@ e2e 执行前查看 `temp/e2e-runs.log` 的最后一条开始记录。该文件�
 
 ## 目录与形态
 
-- `packages/*/test/` 与 `plugins/*/test/` 是包测试，使用 `node:test`。只有注册了 `test` script 的包可直接运行 `pnpm --dir <包> test`；`packages/contracts`、`packages/host-dsh` 与 `plugins/cli` 没有独立 test script。
+- `packages/*/test/` 与 `plugins/*/test/` 是包测试，使用 `node:test`。只有注册了 `test` script 的包可直接运行 `pnpm --dir <包> test`；`packages/contracts`、`packages/host-dsh` 与 `packages/cli` 没有独立 test script。
 - `tests/*.test.mjs` 是跨包进程内测试，当前为 Host、CLI 与 shell。
 - `tests/e2e/workspace-smoke.mjs` 是真实 profile 冒烟，不匹配 `tests/*.test.mjs`，因此不会被快速层或全量层误收集。
 - `scripts/docs.test.mjs` 验证文档检查器自身的通过与失败边界。

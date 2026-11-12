@@ -6,7 +6,7 @@ Status: rejected — 方向重定位后放弃领域生成、契约互操作与�
 
 已交付领域在 CLI 中各自形成命令命名空间，但同名动词的领域含义并不相同：`machine register` 确立长期机器身份且不要求机器在线，`fs register` 只登记一个发现位置而不确认成员，`connect profile add` 保存连接配置但不建立连接，`git confirm` 确认观察到的仓库关联但不取得仓库。命名空间只隔离名称与操作身份，不能提供领域语义。
 
-新增一个领域当前要分别修改共享类型、领域 Plugin、`plugins/cli/src/commands.ts` 中的手写命令、DSH profile 装配和文档；CLI 实际成为领域能力的唯一用户入口与命令结构定义位置。`packages/contracts` 也已随每个领域增长，集中保存各领域服务接口，使同一个包同时承担公共契约与领域契约。另一方面，Core 若开始理解 Git、Session、部署等领域概念，就会演变为通用业务平台或完整 Ontology，违背既有组件边界。
+新增一个领域当前要分别修改共享类型、领域 Plugin、`packages/cli/src/commands.ts` 中的手写命令、DSH profile 装配和文档；CLI 实际成为领域能力的唯一用户入口与命令结构定义位置。`packages/contracts` 也已随每个领域增长，集中保存各领域服务接口，使同一个包同时承担公共契约与领域契约。另一方面，Core 若开始理解 Git、Session、部署等领域概念，就会演变为通用业务平台或完整 Ontology，违背既有组件边界。
 
 目标是 Domain → Applications 的开放生成机制：新增领域通过定义自身的领域原语、可消费契约和实现，能够在不修改公共机制或其他领域的前提下，被不同应用发现、组合与使用。各应用通过独立投影提供适合自身交互方式的操作与视图，领域语义及其正确性约束不由应用重复定义。CLI 是第一个验证场景，不是设计中心；本文给出该方向的设计、验证标准与风险。Operation Catalog、Application Composition 与最小 Workspace UI 已交付并验证，见 Operation Catalog 切片决定与 Application Composition 与 UI 决定；自动领域组合、完整 UI 生成与 L3 原生领域生成仍未实现，未验证部分不构成已交付契约。
 
@@ -254,7 +254,7 @@ Connector 扩展 Locus 能接触的现实系统，领域生成扩展 Locus 能�
 
 ## 参考
 
-当前组件与依赖见[项目架构](../../../../docs/architecture.md)，概念与实现状态见领域生成与应用投影，命令与投影规则见 [CLI 模块](../../../../plugins/cli/README.md)，共享类型范围见 [contracts](../../../../packages/contracts/README.md)，已交付切片见 Operation Catalog 切片决定与 Application Composition 与 UI 决定。已交付的组件边界与宿主选择见[能力组合决定](../../implemented/architecture/2026-11-08-workspace-capability-composition.md)，已交付的跨领域组合基线见 Workspace Overview 决定，未交付能力候选见后续提案。
+当前组件与依赖见[项目架构](../../../../docs/architecture.md)，概念与实现状态见领域生成与应用投影，命令与投影规则见 [CLI 模块](../../../../packages/cli/README.md)，共享类型范围见 [contracts](../../../../packages/contracts/README.md)，已交付切片见 Operation Catalog 切片决定与 Application Composition 与 UI 决定。已交付的组件边界与宿主选择见[能力组合决定](../../implemented/architecture/2026-11-08-workspace-capability-composition.md)，已交付的跨领域组合基线见 Workspace Overview 决定，未交付能力候选见后续提案。
 
 外部参考按其解决的问题区分，接口 Schema 规范不构成完整的领域契约规范：
 

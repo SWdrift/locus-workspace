@@ -13,7 +13,7 @@ Status: implemented
 - [contracts](../../../../packages/contracts/README.md) 只声明共享类型与服务形状，不依赖 DSH/Cordis 或 core。
 - [core](../../../../packages/core/README.md) 拥有产品版本与领域生命周期，不依赖宿主。
 - [host-dsh](../../../../packages/host-dsh/README.md) 是 Cordis 插件：创建 core、注册 `locus` 服务，并随 fiber 释放。
-- [plugins/cli](../../../../plugins/cli/README.md) 是应用插件：消费 `locus` 与启动器提供的命令行、退出和就绪事实，不实例化 Core。
+- [packages/cli](../../../../packages/cli/README.md) 是应用插件：消费 `locus` 与启动器提供的命令行、退出和就绪事实，不实例化 Core。
 
 CLI 通过项目内 DSH profile 运行：`DSH_HOME=.dsh pnpm exec dsh --profile locus version` 输出 `0.0.0`。首个切片不实现 `apps/cli` 与独立 Node Host。
 

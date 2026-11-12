@@ -1,0 +1,226 @@
+import { useCallback, useEffect, useState, type FormEvent } from 'react'
+import { Button } from '../dsh/primitives/Button'
+import { Input } from '../dsh/primitives/Input'
+import { Tag } from '../dsh/primitives/Tag'
+import {
+  loadWorkspace,
+  registerLocation,
+  removeRelation,
+  renameWorkspace,
+  unregisterLocation,
+} from '../api'
+import Panel from '../primitives/Panel'
+import { EmptyState, ErrorPanel, Loading } from '../primitives/States'
+import type { WorkspaceDetail } from '../types'
+import FilesystemBrowser from './FilesystemBrowser'
+import styles from './WorkspacePage.module.css'
+
+export default function WorkspacePage({
+  workspaceId,
+  onChanged,
+}: {
+  readonly workspaceId: string
+  readonly onChanged: () => Promise<void>
+}) {
+  const [detail, setDetail] = useState<WorkspaceDetail | undefined>(undefined)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<Error | undefined>(undefined)
+  const [name, setName] = useState('')
+  const [path, setPath] = useState('')
+  const [browseId, setBrowseId] = useState<string | undefined>(undefined)
+
+  const reload = useCallback(async () => {
+    setLoading(true)
+    setError(undefined)
+    try {
+      const next = await loadWorkspace(workspaceId)
+      setDetail(next)
+      setName(next.workspace.name)
+      setBrowseId((current) => next.locations.some((location) => location.id === current) ? current : undefined)
+    } catch (cause) {
+      setError(cause instanceof Error ? cause : new Error(String(cause)))
+    } finally {
+      setLoading(false)
+    }
+  }, [workspaceId])
+
+  useEffect(() => {
+    void reload()
+  }, [reload])
+
+  const changed = useCallback(async () => {
+    await reload()
+    await onChanged()
+  }, [onChanged, reload])
+
+  async function run(action: () => Promise<void>): Promise<void> {
+    try {
+      setError(undefined)
+      await action()
+    } catch (cause) {
+      setError(cause instanceof Error ? cause : new Error(String(cause)))
+    }
+  }
+
+  if (loading && detail === undefined) return <Loading>读取 Workspace…</Loading>
+  if (error !== undefined && detail === undefined) {
+    return <ErrorPanel error={error} onRetry={() => void reload()} />
+  }
+  if (detail === undefined) return <EmptyState title="Workspace 不存在">可能已被删除或服务已重载。</EmptyState>
+
+  const workspace = detail.workspace
+  return (
+    <div className={styles.page}>
+      <header className={styles.head}>
+        <div>
+          <p className={styles.eyebrow}>长期语境</p>
+          <h1 className={styles.title}>{workspace.name}</h1>
+          <p className={styles.mono}>{workspace.id}</p>
+        </div>
+        <form
+          className={styles.rename}
+          onSubmit={(event: FormEvent) => {
+            event.preventDefault()
+            void run(async () => {
+              await renameWorkspace(workspaceId, name)
+              await changed()
+            })
+          }}
+        >
+          <Input value={name} onChange={(event) => setName(event.target.value)} required />
+          <Button type="submit" variant="outline" size="sm">改名</Button>
+        </form>
+      </header>
+
+      {error === undefined ? null : <ErrorPanel error={error} onRetry={() => void reload()} />}
+
+      <Panel
+        title="长期关系"
+        meta={<Tag tone="neutral">{String(workspace.relations.length)}</Tag>}
+        description="成员与关联是显式长期事实；解除关系不删除外部资源。"
+      >
+        {workspace.relations.length === 0 ? (
+          <p className={styles.muted}>尚无成员或关联。在下方浏览位置后确认，或使用 CLI 显式关联。</p>
+        ) : (
+          <table className={styles.table}>
+            <thead>
+              <tr>
+                <th>种类</th>
+                <th>命名空间</th>
+                <th>引用</th>
+                <th>来源</th>
+                <th />
+              </tr>
+            </thead>
+            <tbody>
+              {workspace.relations.map((relation) => (
+                <tr key={relation.id}>
+                  <td><Tag tone={relation.kind === 'member' ? 'info' : 'neutral'}>{relation.kind}</Tag></td>
+                  <td className={styles.mono}>{relation.target.namespace}</td>
+                  <td className={styles.mono}>{relation.target.id}</td>
+                  <td className={styles.source}>{relation.source.kind}: {relation.source.detail}</td>
+                  <td className={styles.actionCell}>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className={styles.danger}
+                      onClick={() => {
+                        if (!window.confirm('仅解除这条关系，不删除外部资源。继续？')) return
+                        void run(async () => {
+                          await removeRelation(workspaceId, relation.id)
+                          await changed()
+                        })
+                      }}
+                    >
+                      解除
+                    </Button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </Panel>
+
+      <Panel
+        title="位置"
+        meta={<Tag tone="neutral">{String(detail.locations.length)}</Tag>}
+        description="登记只建立发现入口；浏览与确认是后续显式动作。"
+      >
+        {detail.filesystemAvailable ? (
+          <form
+            className={styles.register}
+            onSubmit={(event: FormEvent) => {
+              event.preventDefault()
+              if (path.trim().length === 0) return
+              void run(async () => {
+                await registerLocation(workspaceId, path)
+                setPath('')
+                await changed()
+              })
+            }}
+          >
+            <Input
+              className={styles.grow}
+              value={path}
+              onChange={(event) => setPath(event.target.value)}
+              placeholder="要登记的本机绝对路径"
+              required
+            />
+            <Button type="submit" variant="primary" size="sm">登记位置</Button>
+          </form>
+        ) : (
+          <p className={styles.muted}>当前 profile 未加载 Filesystem；已保存的 Workspace 与关系仍可查看。</p>
+        )}
+        {detail.locations.length === 0 ? (
+          <p className={styles.muted}>尚未登记位置。</p>
+        ) : (
+          <table className={styles.table}>
+            <thead>
+              <tr>
+                <th>路径</th>
+                <th>操作</th>
+              </tr>
+            </thead>
+            <tbody>
+              {detail.locations.map((location) => (
+                <tr key={location.id}>
+                  <td className={styles.mono}>{location.path}</td>
+                  <td className={styles.actionCell}>
+                    <div className={styles.actions}>
+                      <Button variant="outline" size="sm" onClick={() => setBrowseId(location.id)}>浏览</Button>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className={styles.danger}
+                        onClick={() => {
+                          if (!window.confirm('取消位置登记？文件与已确认关系不会被删除。')) return
+                          void run(async () => {
+                            await unregisterLocation(workspaceId, location.id)
+                            if (browseId === location.id) setBrowseId(undefined)
+                            await changed()
+                          })
+                        }}
+                      >
+                        取消登记
+                      </Button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </Panel>
+
+      {detail.locations.filter((location) => location.id === browseId).map((location) => (
+        <FilesystemBrowser
+          key={location.id}
+          workspaceId={workspaceId}
+          location={location}
+          onChanged={changed}
+        />
+      ))}
+    </div>
+  )
+}

@@ -18,10 +18,10 @@
       "path": "./plugins/filesystem"
     },
     {
-      "path": "./plugins/ui"
+      "path": "./packages/ui"
     },
     {
-      "path": "./plugins/cli"
+      "path": "./packages/cli"
     }
   ]
 }
