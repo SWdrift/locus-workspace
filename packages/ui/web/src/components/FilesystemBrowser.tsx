@@ -105,14 +105,16 @@ export default function FilesystemBrowser({
             {part}
           </Button>
         ))}
-        <Button
-          variant="outline"
-          size="sm"
-          className={styles.crumbAction}
-          onClick={() => void confirm(relative, 'member')}
-        >
-          确认当前目录
-        </Button>
+        <Tooltip label="把当前目录保存为长期成员" delayMs={300}>
+          <Button
+            variant="outline"
+            size="sm"
+            className={styles.crumbAction}
+            onClick={() => void confirm(relative, 'member')}
+          >
+            确认当前目录
+          </Button>
+        </Tooltip>
       </div>
       {error === undefined ? null : <ErrorPanel error={error} onRetry={() => void load(relative)} />}
       {loading ? <Loading>读取位置…</Loading> : null}
@@ -130,18 +132,22 @@ export default function FilesystemBrowser({
             return (
               <li key={entry.path}>
                 <Tag tone="neutral">{entry.kind}</Tag>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className={styles.name}
-                  onClick={() => void openEntry(entry.kind, target)}
-                >
-                  {name}
-                </Button>
-                {entry.state === 'accessible' ? (
-                  <Button variant="outline" size="sm" onClick={() => void confirm(target, 'member')}>
-                    确认成员
+                <Tooltip label={name} onlyWhenClipped portal maxWidth={360}>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className={styles.name}
+                    onClick={() => void openEntry(entry.kind, target)}
+                  >
+                    {name}
                   </Button>
+                </Tooltip>
+                {entry.state === 'accessible' ? (
+                  <Tooltip label="把当前可访问引用保存为长期成员" delayMs={300}>
+                    <Button variant="outline" size="sm" onClick={() => void confirm(target, 'member')}>
+                      确认成员
+                    </Button>
+                  </Tooltip>
                 ) : <Tag tone="danger">{entry.state}</Tag>}
               </li>
             )

@@ -42,13 +42,28 @@
   display: flex;
   gap: 8px;
   align-items: center;
+  flex-wrap: wrap;
 }
 
 .register {
   display: flex;
   gap: 8px;
   align-items: center;
+  flex-wrap: wrap;
   margin-bottom: 10px;
+}
+
+.fieldError {
+  flex-basis: 100%;
+  margin: 0;
+  color: var(--dsw-alias-state-error-primary);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.invalidInput,
+.invalidInput:focus-within {
+  border-color: var(--dsw-alias-state-error-primary);
 }
 
 .grow {

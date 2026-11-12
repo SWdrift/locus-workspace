@@ -42,6 +42,8 @@ export default function WorkspacePage({
   const [browseId, setBrowseId] = useState<string | undefined>(undefined)
   const [pending, setPending] = useState<PendingAction | undefined>(undefined)
   const [acknowledged, setAcknowledged] = useState(false)
+  const [renameError, setRenameError] = useState<string | undefined>(undefined)
+  const [pathError, setPathError] = useState<string | undefined>(undefined)
 
   const reload = useCallback(async () => {
     setLoading(true)
@@ -100,8 +102,14 @@ export default function WorkspacePage({
         </div>
         <form
           className={styles.rename}
+          noValidate
           onSubmit={(event: FormEvent) => {
             event.preventDefault()
+            if (name.trim().length === 0) {
+              setRenameError('请输入 Workspace 名称。')
+              return
+            }
+            setRenameError(undefined)
             void run(async () => {
               await renameWorkspace(workspaceId, name)
               onNotify(`已改名：${name}`)
@@ -109,8 +117,19 @@ export default function WorkspacePage({
             })
           }}
         >
-          <Input value={name} onChange={(event) => setName(event.target.value)} required />
+          <Input
+            className={renameError === undefined ? undefined : styles.invalidInput}
+            value={name}
+            onChange={(event) => {
+              setName(event.target.value)
+              if (renameError !== undefined) setRenameError(undefined)
+            }}
+            required
+            aria-invalid={renameError === undefined ? undefined : true}
+            aria-describedby={renameError === undefined ? undefined : 'rename-workspace-error'}
+          />
           <Button type="submit" variant="outline" size="sm">改名</Button>
+          {renameError === undefined ? null : <p id="rename-workspace-error" className={styles.fieldError}>{renameError}</p>}
         </form>
       </header>
 
@@ -142,11 +161,12 @@ export default function WorkspacePage({
                   <td className={styles.mono}>{relation.target.id}</td>
                   <td className={styles.source}>{relation.source.kind}: {relation.source.detail}</td>
                   <td className={styles.actionCell}>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className={styles.danger}
-                      onClick={() => ask({
+                    <Tooltip label="只解除关系，不删除外部资源" delayMs={300}>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className={styles.danger}
+                        onClick={() => ask({
                         title: '解除长期关系',
                         description: '仅解除这条关系，不删除外部资源、其他 Workspace 的归属或原生文件。',
                         acknowledgeLabel: '我了解解除关系不会删除外部资源',
@@ -156,10 +176,11 @@ export default function WorkspacePage({
                           onNotify('已解除关系')
                           await changed()
                         },
-                      })}
-                    >
-                      解除
-                    </Button>
+                        })}
+                      >
+                        解除
+                      </Button>
+                    </Tooltip>
                   </td>
                 </tr>
               ))}
@@ -176,9 +197,14 @@ export default function WorkspacePage({
         {detail.filesystemAvailable ? (
           <form
             className={styles.register}
+            noValidate
             onSubmit={(event: FormEvent) => {
               event.preventDefault()
-              if (path.trim().length === 0) return
+              if (path.trim().length === 0) {
+                setPathError('请输入要登记的本机绝对路径。')
+                return
+              }
+              setPathError(undefined)
               void run(async () => {
                 await registerLocation(workspaceId, path)
                 setPath('')
@@ -188,13 +214,21 @@ export default function WorkspacePage({
             }}
           >
             <Input
-              className={styles.grow}
+              className={pathError === undefined ? styles.grow : `${styles.grow} ${styles.invalidInput}`}
               value={path}
-              onChange={(event) => setPath(event.target.value)}
+              onChange={(event) => {
+                setPath(event.target.value)
+                if (pathError !== undefined) setPathError(undefined)
+              }}
               placeholder="要登记的本机绝对路径"
               required
+              aria-invalid={pathError === undefined ? undefined : true}
+              aria-describedby={pathError === undefined ? undefined : 'register-location-error'}
             />
-            <Button type="submit" variant="primary" size="sm">登记位置</Button>
+            <Tooltip label="只建立发现入口，不确认成员" delayMs={300}>
+              <Button type="submit" variant="primary" size="sm">登记位置</Button>
+            </Tooltip>
+            {pathError === undefined ? null : <p id="register-location-error" className={styles.fieldError}>{pathError}</p>}
           </form>
         ) : (
           <p className={styles.muted}>当前 profile 未加载 Filesystem；已保存的 Workspace 与关系仍可查看。</p>
@@ -219,12 +253,15 @@ export default function WorkspacePage({
                   </td>
                   <td className={styles.actionCell}>
                     <div className={styles.actions}>
-                      <Button variant="outline" size="sm" onClick={() => setBrowseId(location.id)}>浏览</Button>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className={styles.danger}
-                        onClick={() => ask({
+                      <Tooltip label="查看该位置的一层内容" delayMs={300}>
+                        <Button variant="outline" size="sm" onClick={() => setBrowseId(location.id)}>浏览</Button>
+                      </Tooltip>
+                      <Tooltip label="只取消发现入口，不删除文件或长期关系" delayMs={300}>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className={styles.danger}
+                          onClick={() => ask({
                           title: '取消位置登记',
                           description: '取消发现入口，不删除文件、目录或此前已确认的长期关系。',
                           acknowledgeLabel: '我了解文件与长期关系不会被删除',
@@ -235,10 +272,11 @@ export default function WorkspacePage({
                             onNotify('已取消位置登记')
                             await changed()
                           },
-                        })}
-                      >
-                        取消登记
-                      </Button>
+                          })}
+                        >
+                          取消登记
+                        </Button>
+                      </Tooltip>
                     </div>
                   </td>
                 </tr>

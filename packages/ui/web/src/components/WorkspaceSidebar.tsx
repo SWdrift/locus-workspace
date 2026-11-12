@@ -18,10 +18,16 @@ export default function WorkspaceSidebar({
 }) {
   const [name, setName] = useState('')
   const [creating, setCreating] = useState(false)
+  const [error, setError] = useState<string | undefined>(undefined)
 
   async function submit(event: FormEvent): Promise<void> {
     event.preventDefault()
-    if (name.trim().length === 0 || creating) return
+    if (name.trim().length === 0) {
+      setError('请输入 Workspace 名称。')
+      return
+    }
+    if (creating) return
+    setError(undefined)
     setCreating(true)
     try {
       await onCreate(name)
@@ -37,14 +43,21 @@ export default function WorkspaceSidebar({
         <h1 className={styles.title}>Workspaces</h1>
         <span className={styles.version}>{health?.version ?? '…'}</span>
       </div>
-      <form className={styles.create} onSubmit={(event) => void submit(event)}>
+      <form className={styles.create} noValidate onSubmit={(event) => void submit(event)}>
         <Input
+          className={error === undefined ? undefined : styles.invalidInput}
           value={name}
-          onChange={(event) => setName(event.target.value)}
+          onChange={(event) => {
+            setName(event.target.value)
+            if (error !== undefined) setError(undefined)
+          }}
           placeholder="新 Workspace 名称"
           autoComplete="off"
           required
+          aria-invalid={error === undefined ? undefined : true}
+          aria-describedby={error === undefined ? undefined : 'create-workspace-error'}
         />
+        {error === undefined ? null : <p id="create-workspace-error" className={styles.fieldError}>{error}</p>}
         <Button type="submit" variant="primary" size="sm" disabled={creating}>
           {creating ? '创建中…' : '创建'}
         </Button>
