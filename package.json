@@ -10,10 +10,11 @@
   "scripts": {
     "build": "tsc -b tsconfig.json && pnpm --filter @locus/ui build:web",
     "test": "node --test packages/core/test/*.test.mjs packages/application/test/*.test.mjs plugins/filesystem/test/*.test.mjs packages/ui/test/*.test.mjs tests/host.test.mjs tests/cli.test.mjs tests/cli-shell.test.mjs",
-    "test:all": "node --test packages/*/test/*.test.mjs plugins/*/test/*.test.mjs tests/*.test.mjs",
+    "test:all": "node tests/run.mjs all",
+    "e2e": "node tests/run.mjs e2e",
     "test:file": "node --test",
     "verify": "pnpm build && pnpm test && pnpm docs:check",
-    "verify:full": "pnpm build && pnpm test:all && pnpm docs:check && node tests/e2e/workspace-smoke.mjs",
+    "verify:full": "pnpm build && pnpm test:all && pnpm docs:check && pnpm e2e",
     "docs:check": "node scripts/docs.mjs",
     "docs:test": "node --test scripts/docs.test.mjs"
   },

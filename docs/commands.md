@@ -9,10 +9,11 @@
 | `pnpm install` | 安装 workspace 依赖并链接本地包 |
 | `pnpm build` | 编译全部库与 Plugin，并构建浏览器端，退出 0 |
 | `pnpm test` | 快速层测试，退出 0；范围见[测试系统](testing.md#分层与入口) |
-| `pnpm test:all` | 全量进程内测试，退出 0；范围见[测试系统](testing.md#分层与入口) |
+| `pnpm test:all` | 全量进程内测试，经 `tests/run.mjs` 执行并记录，退出 0；范围见[测试系统](testing.md#分层与入口) |
+| `pnpm e2e` | 真实 profile 端到端冒烟，受同类冷却限制；被锁定时退出 3，`--force` 跳过；见[高耗时操作节流](testing.md#高耗时操作节流) |
 | `pnpm test:file <文件>` | 直接运行单个测试文件；可附加 `--test-name-pattern <模式>` 过滤用例 |
 | `pnpm verify` | 快速门禁：`build` + `test` + `docs:check` |
-| `pnpm verify:full` | 完整门禁：`build` + `test:all` + `docs:check` + profile e2e；e2e 属高耗时操作，运行前按[节流约定](testing.md#高耗时操作节流)判断 |
+| `pnpm verify:full` | 完整门禁：`build` + `test:all` + `docs:check` + e2e；e2e 冷却未解除时退出 3，`--force` 跳过 |
 | `pnpm docs:check` | Markdown 结构、链接与 Agent Notes 生命周期检查通过 |
 | `pnpm docs:test` | 文档检查器测试通过；仅修改检查器时要求执行 |
 | `pnpm docs:check --root <目录>` | 在指定真实目录执行相同文档检查 |

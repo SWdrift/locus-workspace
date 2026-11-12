@@ -7,9 +7,9 @@
 | 层级 | 入口 | 运行内容 |
 | --- | --- | --- |
 | 快速层 | `pnpm test` | Core、Application、Filesystem、UI 包测试，以及跨包 Host/CLI/shell；不含 profile e2e |
-| 全量进程内 | `pnpm test:all` | `packages/*/test/`、`plugins/*/test/` 与 `tests/*.test.mjs`；不含 profile e2e |
+| 全量进程内 | `pnpm test:all` | 经 `tests/run.mjs` 运行 `packages/*/test/`、`plugins/*/test/` 与 `tests/*.test.mjs`；不含 profile e2e |
 | 单文件 | `pnpm test:file <文件>` | 直接运行一个 `node --test` 文件，可附加 `--test-name-pattern <模式>` 过滤用例 |
-| profile 冒烟 | `pnpm verify:full` | 构建、全量进程内与文档检查之后运行 `tests/e2e/workspace-smoke.mjs`，使用真实 launcher/profile；受[高耗时操作节流](#高耗时操作节流)约束 |
+| profile 冒烟 | `pnpm e2e` | 经 `tests/run.mjs` 运行 `tests/e2e/workspace-smoke.mjs`，使用真实 launcher/profile；受[高耗时操作节流](#高耗时操作节流)约束 |
 | 快速门禁 | `pnpm verify` | 构建、快速层与文档检查 |
 | 文档检查 | `pnpm docs:check` | Markdown 结构、本地链接与 Agent Notes 生命周期；修改检查器时再运行 `pnpm docs:test` |
 
@@ -19,31 +19,28 @@ e2e 只保留进程内测试无法覆盖的装配、退出码、跨进程恢复�
 
 ## 高耗时操作节流
 
-e2e 执行前查看 `temp/e2e-runs.log` 的最后一条开始记录。该文件被 Git 忽略，仅对当前工作副本生效；没有记录视为从未运行。记录用 UTC 时间，包含用途或理由、结果。
+系统性测试统一经 `tests/run.mjs` 执行。入口在运行前读取 `temp/test-runs.log`，按同类上次开始的冷却窗口决定是否放行，并在运行前后自动追加记录。
 
-最近一次 e2e 开始后 2 小时内，只有满足以下条件之一才执行，否则跳过：
+| 类型 | 命令 | 冷却窗口 |
+| --- | --- | --- |
+| `all` | `pnpm test:all` | 无；只记录 |
+| `e2e` | `pnpm e2e`、`pnpm verify:full` 的 e2e 段 | 2 小时 |
 
-- 当前任务中用户明确要求运行 e2e。
-- e2e 是验证该变更的唯一可行证据，必要性达到 92% 以上。
-
-92% 是人工判断阈值，不自动计算。存在可用的进程内替代、变更只涉及文档或局部逻辑、或只是求稳时，必要性低于阈值。
-
-每次运行前先追加开始记录，结束后追加结果：
-
-```text
-<UTC 时间> start reason=<用户要求或唯一证据的依据>
-<UTC 时间> passed duration=<秒>
-```
-
-失败或中断也保留记录并占用冷却窗口，避免连续重试。跳过不写成功记录，也不构成 e2e 通过证据；需要完整证据时等待窗口结束或记录理由后重跑。
-
-该约定是人工执行规则，不自动阻断命令。`pnpm verify:full` 一旦启动就会执行 e2e，因此运行前同样先判断；无例外时不要调用 `pnpm verify:full`，改用 `pnpm verify` 或 `pnpm test:all`。
+- 上次 `e2e` 开始后 2 小时内再次执行，入口以退出码 3 拒绝，打印上次开始时间与剩余时间，不启动测试。
+- `--force` 跳过冷却检查：`pnpm e2e --force`，可加 `--reason <文本>`；强制运行同样写入记录并占用窗口。
+- 失败、中断与强制运行同样占用窗口，避免连续重试。开始记录写入后进程被杀，冷却也不会解除。
+- 记录为 UTC 单行：`<UTC> suite=e2e start …`、`<UTC> suite=e2e passed duration=<秒>`；文件被 Git 忽略，仅对当前工作副本生效。
+- 历史 `temp/e2e-runs.log` 的 `start` 记录仍计入 e2e 冷却；新记录统一写 `temp/test-runs.log`。
+- 该检查只覆盖系统性入口。`pnpm test`、`pnpm test:file`、包内 `pnpm --dir <包> test` 与 `pnpm docs:test` 不经过入口，也不受冷却限制。
+- `pnpm verify:full` 仍按 `build → test:all → docs:check → e2e` 执行；e2e 被拒绝时命令以退出码 3 结束，已完成的步骤不回滚。
+- e2e 依赖 pnpm 注入的 `npm_execpath`；冷却检查通过后，直接运行 `node tests/run.mjs e2e` 会以退出码 2 拒绝。
 
 ## 目录与形态
 
 - `packages/*/test/` 与 `plugins/*/test/` 是包测试，使用 `node:test`。只有注册了 `test` script 的包可直接运行 `pnpm --dir <包> test`；`packages/contracts`、`packages/host-dsh` 与 `packages/cli` 没有独立 test script。
 - `tests/*.test.mjs` 是跨包进程内测试，当前为 Host、CLI 与 shell。
 - `tests/e2e/workspace-smoke.mjs` 是真实 profile 冒烟，不匹配 `tests/*.test.mjs`，因此不会被快速层或全量层误收集。
+- `tests/run.mjs` 是系统性测试入口，负责文件收集、冷却检查与运行记录；名称不匹配 `*.test.mjs`，不会被自身收集。
 - `scripts/docs.test.mjs` 验证文档检查器自身的通过与失败边界。
 
 ## 夹具与隔离
