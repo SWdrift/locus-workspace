@@ -14,6 +14,13 @@ UI 框架摘抄自 `deepseek-ai/deepseek-harness` 的 `packages/client/ui-theme`
 - 中性边框与分割线统一 0.5px；状态色边框保持 1px。
 - 颜色只使用 `--dsw-alias-*` 语义 token；页面 CSS 不写十六进制或颜色函数字面量。明暗主题由 `body[data-ds-dark-theme]` 选择，启动脚本根据 `prefers-color-scheme` 设置。
 
+## 反馈组件
+
+- Loading 使用 DSH `StateDot` 的 `ongoing` 14px 旋转点，外层 `role="status"` 提供可读文案；不引入整页自绘 spinner。
+- Tooltip 使用 DSH `Tooltip`，只对截断的 Workspace 名称、位置路径与文件路径启用 `onlyWhenClipped`，并 `portal` 到 `body`；颜色走 `--dsw-alias-tooltip-*`。
+- 成功操作使用 DSH `Toast`（顶部居中、默认保持 3 秒），由页面 owner 在动作完成后触发；持久错误仍使用内联错误面板，不用 Toast 承载。
+- 解除关系、取消位置登记使用 DSH `RiskConfirmation`：模态框 + 显式复选框，未勾选时确认按钮禁用；不再使用 `window.confirm`。
+
 ## 交互
 
 - 破坏性动作使用明确的确认文本；确认关系、登记位置与浏览是分离动作。

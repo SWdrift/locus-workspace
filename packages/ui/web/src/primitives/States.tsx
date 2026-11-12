@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react'
+import { StateDot } from '../dsh/primitives/StateDot.tsx'
 import styles from './primitives.module.css'
 
 export function ApiErrorLike(error: unknown): string {
@@ -8,8 +9,8 @@ export function ApiErrorLike(error: unknown): string {
 
 export function Loading({ children = '加载中…' }: { readonly children?: ReactNode }) {
   return (
-    <div className={styles.loading}>
-      <span className={styles.spinner} aria-hidden="true" />
+    <div className={styles.loading} role="status">
+      <StateDot state="ongoing" />
       <span>{children}</span>
     </div>
   )

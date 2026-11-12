@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Button } from '../dsh/primitives/Button'
 import { Tag } from '../dsh/primitives/Tag'
+import { Tooltip } from '../dsh/primitives/Tooltip'
 import {
   confirmResource,
   discoverLocation,
@@ -29,10 +30,12 @@ export default function FilesystemBrowser({
   workspaceId,
   location,
   onChanged,
+  onNotify,
 }: {
   readonly workspaceId: string
   readonly location: FilesystemLocation
   readonly onChanged: () => Promise<void>
+  readonly onNotify: (text: string) => void
 }) {
   const [relative, setRelative] = useState<string | undefined>(undefined)
   const [discovery, setDiscovery] = useState<FilesystemDiscovery | undefined>(undefined)
@@ -76,6 +79,7 @@ export default function FilesystemBrowser({
     try {
       setError(undefined)
       await confirmResource(workspaceId, location.id, target, kind)
+      onNotify('已确认长期关系')
       await onChanged()
     } catch (cause) {
       setError(cause instanceof Error ? cause : new Error(String(cause)))
@@ -148,7 +152,9 @@ export default function FilesystemBrowser({
       {read === undefined ? null : (
         <div className={styles.reader}>
           <div className={styles.readerHead}>
-            <span className={styles.readerPath}>{read.resource.path}</span>
+            <Tooltip label={read.resource.path} onlyWhenClipped portal maxWidth={560}>
+              <span className={styles.readerPath}>{read.resource.path}</span>
+            </Tooltip>
             {read.truncated ? <Tag tone="warning">已截断</Tag> : null}
           </div>
           <CodeBlock>{read.text}</CodeBlock>

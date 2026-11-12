@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react'
-import { Button } from '../dsh/primitives/Button'
-import { Input } from '../dsh/primitives/Input'
-import { Tag } from '../dsh/primitives/Tag'
+import { Button } from '../dsh/primitives/Button.tsx'
+import { Input } from '../dsh/primitives/Input.tsx'
+import { RiskConfirmation } from '../dsh/primitives/RiskConfirmation.tsx'
+import { Tag } from '../dsh/primitives/Tag.tsx'
+import { Tooltip } from '../dsh/primitives/Tooltip.tsx'
 import {
   loadWorkspace,
   registerLocation,
@@ -15,12 +17,22 @@ import type { WorkspaceDetail } from '../types'
 import FilesystemBrowser from './FilesystemBrowser'
 import styles from './WorkspacePage.module.css'
 
+interface PendingAction {
+  readonly title: string
+  readonly description: string
+  readonly acknowledgeLabel: string
+  readonly confirmLabel: string
+  readonly action: () => Promise<void>
+}
+
 export default function WorkspacePage({
   workspaceId,
   onChanged,
+  onNotify,
 }: {
   readonly workspaceId: string
   readonly onChanged: () => Promise<void>
+  readonly onNotify: (text: string) => void
 }) {
   const [detail, setDetail] = useState<WorkspaceDetail | undefined>(undefined)
   const [loading, setLoading] = useState(true)
@@ -28,6 +40,8 @@ export default function WorkspacePage({
   const [name, setName] = useState('')
   const [path, setPath] = useState('')
   const [browseId, setBrowseId] = useState<string | undefined>(undefined)
+  const [pending, setPending] = useState<PendingAction | undefined>(undefined)
+  const [acknowledged, setAcknowledged] = useState(false)
 
   const reload = useCallback(async () => {
     setLoading(true)
@@ -62,6 +76,11 @@ export default function WorkspacePage({
     }
   }
 
+  function ask(action: PendingAction): void {
+    setAcknowledged(false)
+    setPending(action)
+  }
+
   if (loading && detail === undefined) return <Loading>读取 Workspace…</Loading>
   if (error !== undefined && detail === undefined) {
     return <ErrorPanel error={error} onRetry={() => void reload()} />
@@ -75,7 +94,9 @@ export default function WorkspacePage({
         <div>
           <p className={styles.eyebrow}>长期语境</p>
           <h1 className={styles.title}>{workspace.name}</h1>
-          <p className={styles.mono}>{workspace.id}</p>
+          <Tooltip label={workspace.id} onlyWhenClipped portal maxWidth={420}>
+            <p className={styles.mono}>{workspace.id}</p>
+          </Tooltip>
         </div>
         <form
           className={styles.rename}
@@ -83,6 +104,7 @@ export default function WorkspacePage({
             event.preventDefault()
             void run(async () => {
               await renameWorkspace(workspaceId, name)
+              onNotify(`已改名：${name}`)
               await changed()
             })
           }}
@@ -124,13 +146,17 @@ export default function WorkspacePage({
                       variant="ghost"
                       size="sm"
                       className={styles.danger}
-                      onClick={() => {
-                        if (!window.confirm('仅解除这条关系，不删除外部资源。继续？')) return
-                        void run(async () => {
+                      onClick={() => ask({
+                        title: '解除长期关系',
+                        description: '仅解除这条关系，不删除外部资源、其他 Workspace 的归属或原生文件。',
+                        acknowledgeLabel: '我了解解除关系不会删除外部资源',
+                        confirmLabel: '解除关系',
+                        action: async () => {
                           await removeRelation(workspaceId, relation.id)
+                          onNotify('已解除关系')
                           await changed()
-                        })
-                      }}
+                        },
+                      })}
                     >
                       解除
                     </Button>
@@ -156,6 +182,7 @@ export default function WorkspacePage({
               void run(async () => {
                 await registerLocation(workspaceId, path)
                 setPath('')
+                onNotify('已登记位置')
                 await changed()
               })
             }}
@@ -185,7 +212,11 @@ export default function WorkspacePage({
             <tbody>
               {detail.locations.map((location) => (
                 <tr key={location.id}>
-                  <td className={styles.mono}>{location.path}</td>
+                  <td>
+                    <Tooltip label={location.path} onlyWhenClipped portal maxWidth={560}>
+                      <span className={styles.mono}>{location.path}</span>
+                    </Tooltip>
+                  </td>
                   <td className={styles.actionCell}>
                     <div className={styles.actions}>
                       <Button variant="outline" size="sm" onClick={() => setBrowseId(location.id)}>浏览</Button>
@@ -193,14 +224,18 @@ export default function WorkspacePage({
                         variant="ghost"
                         size="sm"
                         className={styles.danger}
-                        onClick={() => {
-                          if (!window.confirm('取消位置登记？文件与已确认关系不会被删除。')) return
-                          void run(async () => {
+                        onClick={() => ask({
+                          title: '取消位置登记',
+                          description: '取消发现入口，不删除文件、目录或此前已确认的长期关系。',
+                          acknowledgeLabel: '我了解文件与长期关系不会被删除',
+                          confirmLabel: '取消登记',
+                          action: async () => {
                             await unregisterLocation(workspaceId, location.id)
                             if (browseId === location.id) setBrowseId(undefined)
+                            onNotify('已取消位置登记')
                             await changed()
-                          })
-                        }}
+                          },
+                        })}
                       >
                         取消登记
                       </Button>
@@ -219,8 +254,27 @@ export default function WorkspacePage({
           workspaceId={workspaceId}
           location={location}
           onChanged={changed}
+          onNotify={onNotify}
         />
       ))}
+
+      <RiskConfirmation
+        open={pending !== undefined}
+        title={pending?.title ?? ''}
+        description={pending?.description ?? ''}
+        acknowledgeLabel={pending?.acknowledgeLabel ?? ''}
+        cancelLabel="取消"
+        closeLabel="关闭"
+        confirmLabel={pending?.confirmLabel ?? '确认'}
+        acknowledged={acknowledged}
+        onAcknowledgedChange={setAcknowledged}
+        onCancel={() => setPending(undefined)}
+        onConfirm={() => {
+          const action = pending
+          setPending(undefined)
+          if (action !== undefined) void run(action.action)
+        }}
+      />
     </div>
   )
 }

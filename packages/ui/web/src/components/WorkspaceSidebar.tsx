@@ -1,6 +1,7 @@
 import { useState, type FormEvent } from 'react'
 import { Button } from '../dsh/primitives/Button'
 import { Input } from '../dsh/primitives/Input'
+import { Tooltip } from '../dsh/primitives/Tooltip.tsx'
 import type { Health, Workspace } from '../types'
 import styles from './WorkspaceSidebar.module.css'
 
@@ -56,7 +57,9 @@ export default function WorkspaceSidebar({
             className={workspace.id === currentId ? styles.itemCurrent : styles.item}
             aria-current={workspace.id === currentId ? 'true' : 'false'}
           >
-            <span className={styles.itemName}>{workspace.name}</span>
+            <Tooltip label={workspace.name} onlyWhenClipped portal maxWidth={260}>
+              <span className={styles.itemName}>{workspace.name}</span>
+            </Tooltip>
             <span className={styles.itemMeta}>{workspace.relations.length} 条关系</span>
           </a>
         ))}

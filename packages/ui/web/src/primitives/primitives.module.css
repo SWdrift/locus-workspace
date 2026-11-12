@@ -147,22 +147,9 @@
 .loading {
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 40px 0;
+  gap: 8px;
+  padding: 32px 0;
   color: var(--dsw-alias-label-secondary);
-}
-
-.spinner {
-  width: 16px;
-  height: 16px;
-  border: 2px solid var(--dsw-alias-border-l2);
-  border-top-color: var(--dsw-alias-brand-primary);
-  border-radius: 50%;
-  animation: spin 700ms linear infinite;
-}
-
-@keyframes spin {
-  to { transform: rotate(360deg); }
 }
 
 .errorPanel {

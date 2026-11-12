@@ -59,7 +59,7 @@ flowchart TD
 | 宿主 | 项目内 DSH `0.2.1-rc.5` + Cordis，既有 `locus` profile，`link:` + patch |
 | 持久化 | 内置 SQLite：Core 与 Filesystem 各自独立库，实验版本 1；不规定后续领域的最终载体 |
 | 领域读取 | Node 文件系统；观察结果不持久化，不取代外部事实权威 |
-| Web | React 18 + Vite + TypeScript + CSS Modules + clsx；`web/src/dsh/theme` 与 `dsh/primitives` 摘抄自 DSH master、目标宿主 `0.2.1-rc.5`（MIT），使用 `--dsw-*` token 与 DSH 圆角/发丝线规则；由 `packages/ui` 在 loopback 提供，无独立 Web Server |
+| Web | React 18 + Vite + TypeScript + CSS Modules + clsx；`web/src/dsh/theme` 与 `dsh/primitives` 摘抄自 DSH master、目标宿主 `0.2.1-rc.5`（MIT），使用 `--dsw-*` token、DSH 圆角/发丝线规则与反馈组件（StateDot/Toast/Tooltip/RiskConfirmation）；由 `packages/ui` 在 loopback 提供，无独立 Web Server |
 | 验证 | 内置 Node 测试 + 真实 DSH profile；不引入额外业务测试框架或用文档检查代替业务证据 |
 
 数据所有权与物理位置独立。Core 保存长期身份、确认关系与不透明引用，Plugin 解释领域规则；外部对象不可达不等于关系不存在。备份在停止全部写者后复制整个数据目录，原生资源和授权不隐含包含；版本、恢复与清除约定见 [Core](../packages/core/README.md#持久化与恢复)与 [Filesystem](../plugins/filesystem/README.md#数据与生命周期)。UI 只读取当前服务结果，不缓存派生事实。

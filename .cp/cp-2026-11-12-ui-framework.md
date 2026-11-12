@@ -26,6 +26,7 @@
 - DSH 对齐以 `packages/ui/web/src/dsh/` 为准：`--dsw-alias-*` 语义 token、`--dsw-radius-*`、0.5px 发丝线、settings-card 材质；页面 CSS 不写颜色字面量或第二套主题。
 - 摘抄新组件前先确认 DSH `ui-primitives` 是否已有实现；按需摘抄并保留来源说明，不整体复制依赖 shiki/katex/simple-icons 的 Markdown/终端/diff 组件。
 - 卡片使用 R20；标准控件 R12，紧凑控件 R8；正圆/胶囊配对 `corner-shape: round`。悬停样式放在 `@media (hover: hover)`。
+- 反馈使用 DSH 组件：Loading 用 `StateDot ongoing`，瞬态成功用 `Toast`，截断文本用 `Tooltip(onlyWhenClipped)`，敏感操作确认用 `RiskConfirmation`；持久错误保留内联面板。
 - UI 传输只绑定 loopback，页面内嵌会话令牌，API 要求 `x-locus-ui-token` 并做同源检查；不提供跨域、写入或执行能力。
 - 浏览器端构建产物在 `web/dist`，运行前执行 `pnpm build`；UI 测试读取构建产物。修改主题/atoms 时同步 `docs/ui-design.md` 与来源说明。
 - UI 与 CLI 的差异只属于交互投影；新增业务语义进入 application 或领域服务，不在页面手写。
@@ -35,6 +36,7 @@
 - [x] sidebar + center 外壳、Workspace 列表/详情/关系/位置/浏览/读取/确认
 - [x] DSH 八张主题样式表与 `Button`/`Input`/`Tag` atoms 摘抄
 - [x] loopback 令牌、同源检查与 UI 冒烟
+- [x] StateDot/Toast/Tooltip/RiskConfirmation 反馈组件与图标 sprite
 - [ ] 在真实浏览器分别检查明暗主题、窄屏布局与键盘焦点，记录未覆盖项
 - [ ] 出现真实需求时按需摘抄 `SegmentedTabs`、`Menu`、`Modal` 等 atoms
 - [ ] DSH 提供稳定 Web Client/Client Plugin 宿主后，评估由 loopback 传输迁移
