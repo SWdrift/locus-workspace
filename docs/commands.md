@@ -7,7 +7,7 @@
 | 命令 | 用途与成功判据 |
 | --- | --- |
 | `pnpm install` | 安装 workspace 依赖并链接本地包 |
-| `pnpm build` | 编译全部库与 Plugin，退出 0 |
+| `pnpm build` | 编译全部库与 Plugin，并构建浏览器端，退出 0 |
 | `pnpm test` | 快速层测试，退出 0；范围见[测试系统](testing.md#分层与入口) |
 | `pnpm test:all` | 全量进程内测试，退出 0；范围见[测试系统](testing.md#分层与入口) |
 | `pnpm test:file <文件>` | 直接运行单个测试文件；可附加 `--test-name-pattern <模式>` 过滤用例 |
@@ -27,6 +27,7 @@
 | 参数 | 行为与成功判据 |
 | --- | --- |
 | `version` | stdout `0.0.0`、退出 0 |
+| `ui [--port <port>]` | 在现有 DSH 进程内启动 loopback Workspace UI 与 JSON 接口；默认 4310，按 Ctrl+C 停止 |
 | `workspace create <name>` | 返回具有稳定 UUID 的新 Workspace，不要求目录 |
 | `workspace list` | 列出长期 Workspace；空集合不是错误 |
 | `workspace show <id>` / `workspace open <id>` | 按 Identity 打开并显示基本信息与长期关系；不设置隐式当前目录 |

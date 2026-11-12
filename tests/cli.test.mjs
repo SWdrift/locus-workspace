@@ -3,13 +3,17 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import test from 'node:test'
+import { createWorkspaceApplication } from '../packages/application/lib/index.js'
 import { createLocusCore } from '../packages/core/lib/index.js'
 import { createFilesystemService } from '../plugins/filesystem/lib/index.js'
 import { createCommands } from '../plugins/cli/lib/commands.js'
 
 /** 复用真实应用命令树，但不启动 launcher；DSH profile 装配由 smoke 覆盖。 */
 async function invoke(services, argv) {
-  const commands = createCommands(services.locus, services.filesystem)
+  const application = createWorkspaceApplication(services.filesystem === undefined
+    ? { locus: services.locus }
+    : { locus: services.locus, filesystem: services.filesystem })
+  const commands = createCommands(application, undefined)
   const silence = (program) => {
     program.exitOverride()
     program.configureOutput({ writeOut() {}, writeErr() {} })
@@ -174,6 +178,13 @@ test('重启恢复 Workspace、关系与位置；缺少 Filesystem 插件时长�
   assert.match(String(withoutPlugin.error?.message), /Filesystem 能力不可用/)
   const stillThere = await invoke({ locus: f.services.locus, filesystem: undefined }, ['workspace', 'show', workspace.id])
   assert.equal(stillThere.value.relations.length, 1)
+})
+
+test('缺少 UI 插件时 ui 命令明确失败', async (t) => {
+  const f = fixture(t)
+  const result = await invoke(f.services, ['ui'])
+  assert.equal(result.exitCode, 2)
+  assert.match(String(result.error?.message), /UI 服务不可用/)
 })
 
 test('无参数与未知命令返回稳定失败', async (t) => {

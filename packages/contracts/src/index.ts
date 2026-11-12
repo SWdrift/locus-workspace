@@ -95,3 +95,9 @@ export interface FilesystemService {
   discover(workspaceId: string, locationId: string, relativePath?: string, limit?: number): Promise<FilesystemDiscovery>
   read(workspaceId: string, locationId: string, relativePath?: string, maxBytes?: number): Promise<FilesystemRead>
 }
+
+/** 本地 UI 传输适配器；只在显式 ui 命令下监听 loopback。 */
+export interface LocusUiLauncher {
+  start(options?: { readonly port?: number }): Promise<{ readonly url: string; readonly port: number }>
+  stop(): Promise<void>
+}

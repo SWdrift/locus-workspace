@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
-import { spawnSync } from 'node:child_process'
+import { spawn, spawnSync } from 'node:child_process'
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { createServer } from 'node:net'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 
@@ -29,6 +30,7 @@ function prepareProfile() {
   const links = [
     join(resolve('.'), 'packages/host-dsh'),
     join(resolve('.'), 'plugins/filesystem'),
+    join(resolve('.'), 'plugins/ui'),
     join(resolve('.'), 'plugins/cli'),
   ]
   const result = spawnSync(process.execPath, [
@@ -54,6 +56,8 @@ function prepareProfile() {
     "      name: '@locus/host-dsh'",
     "    - id: locus-filesystem",
     "      name: '@locus/filesystem'",
+    "    - id: locus-ui",
+    "      name: '@locus/ui'",
     "    - id: locus-cli",
     "      name: '@locus/cli'",
     '',
@@ -104,6 +108,74 @@ function runShell(lines, { directory = data, patch, code = 0 } = {}) {
   return result
 }
 
+function freePort() {
+  return new Promise((resolvePort, reject) => {
+    const probe = createServer()
+    probe.once('error', reject)
+    probe.listen(0, '127.0.0.1', () => {
+      const address = probe.address()
+      probe.close(() => {
+        if (address === null || typeof address === 'string') reject(new Error('无法分配 UI 冒烟端口'))
+        else resolvePort(address.port)
+      })
+    })
+  })
+}
+
+async function uiSmoke() {
+  const port = await freePort()
+  const child = spawn(process.execPath, [
+    pnpm, 'exec', 'dsh', '--profile', 'locus', 'ui', '--port', String(port),
+  ], {
+    cwd: resolve('.'),
+    env: { ...process.env, DSH_HOME: dshHome, LOCUS_HOME: data },
+    stdio: ['ignore', 'ignore', 'pipe'],
+    windowsHide: true,
+  })
+  invocations++
+  const url = await new Promise((resolveUrl, reject) => {
+    const timeout = setTimeout(() => reject(new Error('UI 启动超时')), 20000)
+    let output = ''
+    child.stderr.setEncoding('utf8')
+    child.stderr.on('data', (chunk) => {
+      output += chunk
+      const match = /Locus UI: (http:\/\/[^\s]+)/.exec(output)
+      if (match) {
+        clearTimeout(timeout)
+        resolveUrl(match[1])
+      }
+    })
+    child.once('error', (error) => {
+      clearTimeout(timeout)
+      reject(error)
+    })
+    child.once('exit', (code) => {
+      if (!output.includes('Locus UI:')) {
+        clearTimeout(timeout)
+        reject(new Error(`UI 提前退出：${String(code)} ${output}`))
+      }
+    })
+  })
+  try {
+    const html = await (await fetch(url)).text()
+    const token = /name="locus-ui-token" content="([^"]+)"/.exec(html)?.[1]
+    assert.ok(token, 'UI 页面应内嵌会话令牌')
+    assert.match(html, /<title>Locus Workspace<\/title>/)
+    const health = await fetch(`${url}/api/health`, { headers: { 'x-locus-ui-token': token } })
+    assert.equal(health.status, 200)
+    const body = await health.json()
+    assert.equal(body.filesystemAvailable, true)
+    const unauthorized = await fetch(`${url}/api/health`)
+    assert.equal(unauthorized.status, 403)
+  } finally {
+    if (process.platform === 'win32') {
+      spawnSync('taskkill', ['/pid', String(child.pid), '/T', '/F'], { windowsHide: true })
+    } else {
+      child.kill('SIGTERM')
+    }
+  }
+}
+
 try {
   prepareProfile()
   assert.equal(run(['version'], { json: false }), '0.0.0\n')
@@ -146,6 +218,7 @@ try {
 
   const missing = run(['fs', 'register', workspace.id, join(resources, 'missing')])
   assert.equal(missing.path, join(resources, 'missing'))
+  await uiSmoke()
 
   console.log(`Workspace profile smoke: PASS (${invocations} independent DSH processes)`)
 } finally {

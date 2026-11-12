@@ -18,6 +18,7 @@
     "build": "tsc -b tsconfig.json"
   },
   "dependencies": {
+    "@locus/application": "workspace:*",
     "@locus/contracts": "workspace:*",
     "commander": "^15.0.0"
   },

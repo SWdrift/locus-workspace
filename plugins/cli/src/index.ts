@@ -1,7 +1,8 @@
 import type { Context } from '@deepseek-ai/cordis'
 import { parseCmdline } from '@deepseek-ai/dsh-cmdline'
 import type { AppExit, AppReady } from '@deepseek-ai/dsh-cmdline'
-import type { FilesystemService, LocusService } from '@locus/contracts'
+import { createWorkspaceApplication } from '@locus/application'
+import type { FilesystemService, LocusService, LocusUiLauncher } from '@locus/contracts'
 import { createCommands } from './commands.ts'
 import { runShell } from './shell.ts'
 
@@ -11,6 +12,12 @@ export const name = 'locus-cli'
 /** 能力服务是可选依赖；未加载时 Workspace 仍可操作。 */
 export const inject = ['locus', 'cmdlineArgs', 'appExit', 'appReady']
 
+function applicationOf(ctx: Context) {
+  const locus = ctx.get('locus') as LocusService
+  const filesystem = ctx.get('locusFilesystem') as FilesystemService | undefined
+  return createWorkspaceApplication(filesystem === undefined ? { locus } : { locus, filesystem })
+}
+
 /** 等整棵 profile 完成启动后再选择可用服务，避免装配顺序决定能力可见性。 */
 export function apply(ctx: Context): void {
   const exit = ctx.get('appExit') as AppExit
@@ -19,18 +26,23 @@ export function apply(ctx: Context): void {
   ctx.effect(() => {
     const cancel = ready.onReady(() => {
       const commands = createCommands(
-        ctx.get('locus') as LocusService,
-        ctx.get('locusFilesystem') as FilesystemService | undefined,
+        applicationOf(ctx),
+        ctx.get('locusUi') as LocusUiLauncher | undefined,
       )
       parseCmdline(ctx, commands.program)
       if (commands.shell()) {
         const create = () => {
           const locus = ctx.get('locus') as LocusService
           const filesystem = ctx.get('locusFilesystem') as FilesystemService | undefined
+          const ui = ctx.get('locusUi') as LocusUiLauncher | undefined
           return {
-            commands: createCommands(locus, filesystem),
+            commands: createCommands(
+              createWorkspaceApplication(filesystem === undefined ? { locus } : { locus, filesystem }),
+              ui,
+            ),
             current: () => ctx.get('locus') === locus
-              && ctx.get('locusFilesystem') === filesystem,
+              && ctx.get('locusFilesystem') === filesystem
+              && ctx.get('locusUi') === ui,
           }
         }
         void runShell(create, exit, (dispose) => {

@@ -6,6 +6,9 @@
       "path": "./packages/contracts"
     },
     {
+      "path": "./packages/application"
+    },
+    {
       "path": "./packages/core"
     },
     {
@@ -13,6 +16,9 @@
     },
     {
       "path": "./plugins/filesystem"
+    },
+    {
+      "path": "./plugins/ui"
     },
     {
       "path": "./plugins/cli"

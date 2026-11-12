@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { PassThrough } from 'node:stream'
 import test from 'node:test'
+import { createWorkspaceApplication } from '../packages/application/lib/index.js'
 import { createLocusCore } from '../packages/core/lib/index.js'
 import { createFilesystemService } from '../plugins/filesystem/lib/index.js'
 import { createCommands } from '../plugins/cli/lib/commands.js'
@@ -24,7 +25,7 @@ function fixture(t) {
   return {
     resources,
     core,
-    create: () => ({ commands: createCommands(core, filesystem), current: () => true }),
+    create: () => ({ commands: createCommands(createWorkspaceApplication({ locus: core, filesystem }), undefined), current: () => true }),
   }
 }
 
@@ -103,7 +104,7 @@ test('插件卸载关闭 shell 但不请求进程退出，在途结果不写成�
   const pending = runShell(
     () => ({
       commands: {
-        program: createCommands(f.core, undefined).program,
+        program: createCommands(createWorkspaceApplication({ locus: f.core }), undefined).program,
         parse() {},
         execute: () => new Promise((resolve) => { resolveOperation = resolve }),
         json: () => false,
@@ -137,7 +138,7 @@ test('服务在操作期间重载时丢弃旧结果并继续 shell', async (t) =
       created++
       return {
         commands: {
-          program: createCommands(f.core, undefined).program,
+          program: createCommands(createWorkspaceApplication({ locus: f.core }), undefined).program,
           parse() {},
           execute: () => Promise.resolve({ value: {}, text: '旧结果' }),
           json: () => false,

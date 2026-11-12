@@ -51,10 +51,10 @@ Core 与 Filesystem 仍使用 `user_version=1`。新库不再创建 `capabilitie
 
 ## 后果
 
-仓库从 13 个工作区包降到 5 个，源码与测试显著减少；当前交付面只剩 Workspace、Filesystem 与 CLI。代价是失去已交付但没有真实应用依据的五个领域与 UI/Overview 能力，需要按具体应用重新实现；Capability 选择语义与 Agent 操作发现入口暂时不存在。
+该次精简把仓库从 13 个工作区包降到 5 个，源码与测试显著减少。随后第一版交互面重新引入 `@locus/application` 与 `@locus/ui`（见[交互面决定](../feature/2026-11-12-workspace-filesystem-surfaces.md)），当前交付面为 Workspace、Filesystem、CLI 与 UI。代价是失去已交付但没有真实应用依据的五个领域与 UI/Overview 能力，需要按具体应用重新实现；Capability 选择语义与 Agent 操作发现入口暂时不存在。
 
 精简后 `packages/contracts` 仍包含 Filesystem 类型，未按领域拆分；CLI 仍是单文件但已缩减到 Workspace/FS 两组命令。这些是后续按应用演进时的结构调整点，不在本次移除范围内。
 
 ## 验证
 
-`pnpm build` 编译 5 个工作区包；`pnpm test` 与 `pnpm test:all` 共 46 个用例通过，覆盖 Core 身份/关系/恢复、Filesystem 位置/观察/读取/生命周期、Host 卸载重载、CLI 与 shell；`pnpm docs:check` 验证文档与 Agent Notes 结构。`pnpm verify:full` 的真实 profile 冒烟覆盖 launcher、退出码、跨进程恢复、插件停用与 shell。
+精简后 `pnpm build` 编译 5 个工作区包，`pnpm test` 与 `pnpm test:all` 共 46 个用例通过；第一版交互面完成后共 53 个用例通过，覆盖 Core 身份/关系/恢复、Filesystem 位置/观察/读取/生命周期、Host 卸载重载、CLI 与 shell；`pnpm docs:check` 验证文档与 Agent Notes 结构。`pnpm verify:full` 的真实 profile 冒烟覆盖 launcher、退出码、跨进程恢复、插件停用与 shell。

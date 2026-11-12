@@ -6,7 +6,7 @@
 
 | 层级 | 入口 | 运行内容 |
 | --- | --- | --- |
-| 快速层 | `pnpm test` | Core、Filesystem 包测试，以及跨包 Host/CLI/shell；不含 profile e2e |
+| 快速层 | `pnpm test` | Core、Application、Filesystem、UI 包测试，以及跨包 Host/CLI/shell；不含 profile e2e |
 | 全量进程内 | `pnpm test:all` | `packages/*/test/`、`plugins/*/test/` 与 `tests/*.test.mjs`；不含 profile e2e |
 | 单文件 | `pnpm test:file <文件>` | 直接运行一个 `node --test` 文件，可附加 `--test-name-pattern <模式>` 过滤用例 |
 | profile 冒烟 | `pnpm verify:full` | 构建、全量进程内与文档检查之后运行 `tests/e2e/workspace-smoke.mjs`，使用真实 launcher/profile；受[高耗时操作节流](#高耗时操作节流)约束 |
@@ -50,9 +50,9 @@ e2e 执行前查看 `temp/e2e-runs.log` 的最后一条开始记录。该文件�
 
 每个用例建立自己的临时根目录，把数据目录、原生资源和配置隔离在其中，并在 `t.after` 或 `finally` 中释放服务、删除临时目录、恢复环境变量。测试不写入仓库、真实用户目录或 `~/.dsh`，也不依赖共享的可变状态。
 
-- Core、Filesystem 测试使用真实 SQLite 文件与真实临时目录；Host 测试使用真实 Cordis Context。
-- CLI 测试在进程内复用真实命令树和真实服务，只抑制终端输出，不启动 launcher；launcher 与 profile 装配由 e2e 覆盖。
-- e2e 使用临时 `DSH_HOME` 与 `LOCUS_HOME`、真实临时目录与 loopback 地址，不访问外部服务。
+- Core、Application、Filesystem 测试使用真实 SQLite 文件与真实临时目录；Host 测试使用真实 Cordis Context；UI 测试启动真实 loopback HTTP 服务器并读取 `web/dist` 构建产物，运行前需要构建浏览器端。
+- CLI 测试在进程内复用真实命令树、共享应用用例和真实服务，只抑制终端输出，不启动 launcher；launcher 与 profile 装配由 e2e 覆盖。
+- e2e 使用临时 `DSH_HOME` 与 `LOCUS_HOME`、真实临时目录与 loopback 地址，不访问外部服务；UI 冒烟启动真实 `ui` 命令，验证页面、令牌与健康接口。
 - 测试导入各包 `lib/` 构建产物，因此运行前需要 `pnpm build`；测试不使用运行时 TypeScript 转译。
 
 ## 编写约束
