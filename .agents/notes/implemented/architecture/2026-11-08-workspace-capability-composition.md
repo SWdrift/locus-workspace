@@ -1,4 +1,4 @@
-# 决策记录：能力组合的组件边界与长期数据恢复
+# 决策记录：Workspace 组件边界与长期数据恢复
 
 Status: implemented
 
@@ -12,13 +12,13 @@ DSH/Cordis 已有服务、装配和生命周期。额外建立宿主可替换适
 
 ### 简述与职责
 
-[产品决定](../feature/2026-11-08-workspace-capability-slice.md)通过 Core、薄 host、Filesystem/Git 领域 Plugin 与 CLI 落地。本文记录组件、所有权、恢复和被否决方案的长期理由；实际 API 和操作由源码及模块 README 维护，不重抄接口与表结构。
+[产品决定](../feature/2026-11-08-workspace-capability-slice.md)通过 Core、薄 host、Filesystem 领域 Plugin 与 CLI 落地。本文记录组件、所有权、恢复和被否决方案的长期理由；实际 API 和操作由源码及模块 README 维护，不重抄接口与表结构。
 
 ### 组件与局部协议
 
 Core/contracts 暂无 DSH/Cordis 依赖；领域和应用 Plugin 直接使用所需宿主服务。host 仅创建 Core、提供 `locus` 公开用例、随 fiber 释放，没有领域 I/O、存储规则或能力集中注册。DSH 是当前唯一宿主，不预建 Host 抽象、专用 Host、独立启动器、中央插件总线或第二运行时。
 
-契约只包含当前真实调用需要的 Workspace/关系/能力选择、Filesystem 位置与观察、Git 观察、Session 发现与返回。Core 不依赖具体 Plugin；Filesystem 通过公开 Workspace 用例校验归属/选择，Git 直接消费 Filesystem 的当前路径与来源，Session 直接消费 DSH 的 `sessionQuery`；CLI 只编排并显式确认，不直接扫描、执行 Git、读取 Session 日志或写数据库。服务名随这条真实调用链形成，不冻结未来所有能力的全局树。
+契约只包含当前真实调用需要的 Workspace/关系与 Filesystem 位置/观察。Core 不依赖具体 Plugin；Filesystem 通过公开 Workspace 用例校验归属；CLI 只编排并显式确认，不直接扫描或写数据库。服务名随这条真实调用链形成，不冻结未来所有能力的全局树。
 
 当前仍保留既有 `locus.info` 与 profile 的 `link:` + patch 装配。领域服务随 Cordis fiber 加载/释放，能力缺失不阻止打开 Workspace；不存在把所有服务反向包装进 host 的镜像层。
 
@@ -26,13 +26,12 @@ Core/contracts 暂无 DSH/Cordis 依赖；领域和应用 Plugin 直接使用所
 
 | 数据 | 唯一语义所有者 | 当前物理实现 |
 | --- | --- | --- |
-| Workspace 身份、长期成员/关联、必要来源及能力选择快照 | Core | 独立 `core.sqlite` |
+| Workspace 身份、长期成员/关联与必要来源 | Core | 独立 `core.sqlite` |
 | 主机限定的位置、路径和领域引用配置 | Filesystem | 独立 `filesystem.sqlite` |
-| 文件、仓库、提交、Remote 等原生事实 | 原生文件系统 / Git | 保持原生位置，Locus 不成为权威 |
-| 当前观察 | 对应领域 Plugin | 按需重读，不持久化缓存 |
-| Session 原生日志、执行状态与标题 | DSH | 保持 DSH 位置；Locus 只保存 Workspace 关联 |
+| 文件与目录等原生事实 | 原生文件系统 | 保持原生位置，Locus 不成为权威 |
+| 当前观察 | Filesystem Plugin | 按需重读，不持久化缓存 |
 
-数据库属于同一个明确数据目录，但所有权与物理位置独立：Core 不读写 Plugin 内部模型，领域 Plugin 不写 Core 的表。Core 保存不透明引用，不解释路径等价或 Git 结构；取消关系不拥有外部资源删除权。
+数据库属于同一个明确数据目录，但所有权与物理位置独立：Core 不读写 Plugin 内部模型，领域 Plugin 不写 Core 的表。Core 保存不透明引用，不解释路径等价；取消关系不拥有外部资源删除权。
 
 实际存储采用 Node 内置 SQLite。两份所有者数据库均有版本、原子写和锁等待失败；写入成功返回前提交。关闭数据库与 Plugin 卸载不删除长期数据，未知版本和损坏不自动重建为空库。版本、目录、备份、迁移/清除边界统一由 [Core 恢复说明](../../../../packages/core/README.md#持久化与恢复)及 [Filesystem](../../../../plugins/filesystem/README.md#数据与生命周期)维护。
 
@@ -44,7 +43,7 @@ Core/contracts 暂无 DSH/Cordis 依赖；领域和应用 Plugin 直接使用所
 
 数据库完整性、版本、写锁、路径范围和原生权限属于实际输入/故障边界。Windows ACL 实验发现 `access(R_OK)` 不能代表读取权限，采用实际打开检查；反之，Filesystem 不再重复校验已由 Core 保证的数据目录绝对性。
 
-防御原则由根 [AGENTS](../../../../AGENTS.md#工作约束)维护：没有假想异常的重试、静默空结果或新抽象。成熟边界交给 SQLite、Node、Git 和 Cordis，不为它们建设第二层运行时。
+防御原则由根 [AGENTS](../../../../AGENTS.md#工作约束)维护：没有假想异常的重试、静默空结果或新抽象。成熟边界交给 SQLite、Node 和 Cordis，不为它们建设第二层运行时。
 
 ## 备选方案
 
@@ -56,14 +55,14 @@ Core/contracts 暂无 DSH/Cordis 依赖；领域和应用 Plugin 直接使用所
 
 **JSON/Manifest/Git 优先或先建通用存储接口。** JSON 并非不能正确实现，但本轮无锁读改写实验实际丢更新，要自行补齐锁、提交和恢复协议。内置 SQLite 已通过竞争写、未提交退出和关闭复制恢复实验，不需要额外依赖。此决定只覆盖当前 Core/Filesystem 数据，不规定未来所有 Plugin 的存储分工。
 
-**CLI 直接执行领域 I/O。** 会让 Web 复用变成重写。当前共享用例有真实非 CLI 调用证据，命令处理器只做语法、确认、编排、渲染与退出。
+**CLI 直接执行领域 I/O。** 会让其他消费端复用变成重写。命令处理器只做语法、确认、编排、渲染与退出。
 
 ## 验证
 
-真实数据库中断/并发/损坏、Filesystem 权限/链接、Git 原生只读、Cordis 卸载/重载及完整 profile 恢复由测试与 smoke 覆盖；验证入口见[开发与验证](../../../../docs/testing.md#分层与入口)。源码依赖不包含第二运行时或无实现候选包。
+真实数据库中断/并发/损坏、Filesystem 权限/链接、Cordis 卸载/重载及完整 profile 恢复由测试与 smoke 覆盖；验证入口见[开发与验证](../../../../docs/testing.md#分层与入口)。源码依赖不包含第二运行时或无实现候选包。
 
 ## 后果
 
 长期身份与自有关系不随观察失败或 Plugin 卸载丢失，领域能力可以不经过 Core 转发互操作。代价是当前离线备份需停止所有写者，分库不提供在线一致快照；本机地址不自动升级为全局对象身份。
 
-多提供方自动替换、Blueprint 执行、联邦身份、权限继承和多设备冲突均未交付，保留于[后续提案](../../proposed/feature/2026-11-08-workspace-capability-evolution.md)。它们不能反向成为当前实现的空抽象。
+多提供方自动替换、Blueprint 执行、联邦身份、权限继承和多设备冲突均未交付；重新引入条件由[精简决定](../simplification/2026-11-12-prune-plugin-machinery.md)维护。

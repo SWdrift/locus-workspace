@@ -19,8 +19,7 @@
   },
   "dependencies": {
     "@locus/contracts": "workspace:*",
-    "@locus/core": "workspace:*",
-    "@locus/operations": "workspace:*"
+    "@locus/core": "workspace:*"
   },
   "devDependencies": {
     "@deepseek-ai/cordis": "~4.0.5"

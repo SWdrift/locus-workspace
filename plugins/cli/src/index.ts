@@ -1,17 +1,8 @@
 import type { Context } from '@deepseek-ai/cordis'
 import { parseCmdline } from '@deepseek-ai/dsh-cmdline'
 import type { AppExit, AppReady } from '@deepseek-ai/dsh-cmdline'
-import type {
-  ConnectivityService,
-  FilesystemService,
-  GiteaService,
-  GitService,
-  LocusService,
-  OperationCatalogService,
-  RemoteMachineService,
-  SessionService,
-} from '@locus/contracts'
-import { createCommands, type UiLauncher } from './commands.ts'
+import type { FilesystemService, LocusService } from '@locus/contracts'
+import { createCommands } from './commands.ts'
 import { runShell } from './shell.ts'
 
 /** 稳定的 Cordis 插件名。 */
@@ -30,37 +21,16 @@ export function apply(ctx: Context): void {
       const commands = createCommands(
         ctx.get('locus') as LocusService,
         ctx.get('locusFilesystem') as FilesystemService | undefined,
-        ctx.get('locusGit') as GitService | undefined,
-        ctx.get('locusSession') as SessionService | undefined,
-        ctx.get('locusRemoteMachine') as RemoteMachineService | undefined,
-        ctx.get('locusConnectivity') as ConnectivityService | undefined,
-        ctx.get('locusGitea') as GiteaService | undefined,
-        ctx.get('locusOperations') as OperationCatalogService | undefined,
-        ctx.get('locusUi') as UiLauncher | undefined,
       )
       parseCmdline(ctx, commands.program)
       if (commands.shell()) {
         const create = () => {
           const locus = ctx.get('locus') as LocusService
           const filesystem = ctx.get('locusFilesystem') as FilesystemService | undefined
-          const git = ctx.get('locusGit') as GitService | undefined
-          const session = ctx.get('locusSession') as SessionService | undefined
-          const remoteMachine = ctx.get('locusRemoteMachine') as RemoteMachineService | undefined
-          const connectivity = ctx.get('locusConnectivity') as ConnectivityService | undefined
-          const gitea = ctx.get('locusGitea') as GiteaService | undefined
-          const operations = ctx.get('locusOperations') as OperationCatalogService | undefined
-          const ui = ctx.get('locusUi') as UiLauncher | undefined
           return {
-            commands: createCommands(locus, filesystem, git, session, remoteMachine, connectivity, gitea, operations, ui),
+            commands: createCommands(locus, filesystem),
             current: () => ctx.get('locus') === locus
-              && ctx.get('locusFilesystem') === filesystem
-              && ctx.get('locusGit') === git
-              && ctx.get('locusSession') === session
-              && ctx.get('locusRemoteMachine') === remoteMachine
-              && ctx.get('locusConnectivity') === connectivity
-              && ctx.get('locusGitea') === gitea
-              && ctx.get('locusOperations') === operations
-              && ctx.get('locusUi') === ui,
+              && ctx.get('locusFilesystem') === filesystem,
           }
         }
         void runShell(create, exit, (dispose) => {

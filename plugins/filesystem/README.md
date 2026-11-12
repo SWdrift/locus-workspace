@@ -2,13 +2,13 @@
 
 ## 简述与职责
 
-首个实际领域 Capability：显式登记本机位置、查询资源状态、单层发现与有界文件读取。Plugin 自有位置配置和原生 I/O；Core 只保存用户确认的长期关系，不解释路径、扫描或权限规则。观察不持久化，不自动创建成员、复制文件或修改原生目录结构。
+首个领域模块：显式登记本机位置、查询资源状态、单层发现与有界文件读取。Plugin 自有位置配置和原生 I/O；Core 只保存用户确认的长期关系，不解释路径、扫描或权限规则。观察不持久化，不自动创建成员、复制文件或修改原生目录结构。
 
 ## 装配与使用
 
-按[开发与验证](../../docs/development.md#宿主运行)将本包链接到项目内 `locus` profile 并合入插件行。Plugin 注入 `locus`，提供 `locusFilesystem`；其 Capability 标识为 `locus.filesystem`，提供方为 `@locus/filesystem`，Tag `environment` 仅用于分类。
+按[开发与验证](../../docs/development.md#宿主运行)将本包链接到项目内 `locus` profile 并合入插件行。Plugin 注入 `locus`，提供 `locusFilesystem`。
 
-Workspace 必须先选择本提供方，才能登记或使用观察/发现/读取。取消能力选择后仍可列出和取消位置登记；卸载 Plugin 不删除配置或 Core 关系。CLI 语法由[命令手册](../../docs/commands.md#workspace-操作)维护，非终端调用使用 `createFilesystemService(locus)` 与 [contracts](../../packages/contracts/README.md) 中的实际局部协议。
+加载 Plugin 即可登记或使用观察/发现/读取；卸载 Plugin 不删除配置或 Core 关系。CLI 语法由[命令手册](../../docs/commands.md#workspace-操作)维护，非终端调用使用 `createFilesystemService(locus)` 与 [contracts](../../packages/contracts/README.md) 中的实际局部协议。
 
 ## 位置与引用
 
@@ -20,7 +20,7 @@ Workspace 必须先选择本提供方，才能登记或使用观察/发现/读�
 
 ## 读取与失败语义
 
-- `inspect` 每次进行真实 I/O，区分 `accessible`、`missing`、`denied`、`unavailable`、`error`，并返回资源种类和观察时间。权限检查以具体操作为准，不从能力选择或 Tag 推定。
+- `inspect` 每次进行真实 I/O，区分 `accessible`、`missing`、`denied`、`unavailable`、`error`，并返回资源种类和观察时间。权限检查以具体操作为准，不从 Plugin 声明推定。
 - `discover` 只枚举指定目录一层，默认最多 200、上限 1000；多读一个目录项判断截断，不先收集完整目录。仅排序选中的有界原生枚举前缀，不承诺目录快照或跨调用的全局顺序。非目录返回其自身观察和空条目，不递归扫描。
 - `read` 只读取普通文件，默认 65536 字节、最多 1MiB；UTF-8 截断保留完整字符前缀。读取失败明确抛错，不把拒绝读取当成空文件。
 - 相对路径不得是绝对路径或越过登记范围；符号链接/junction 可以观察但不遍历，包括登记在链接下的路径。普通 Node 路径检查不构成对恶意并发替换的 OS 沙箱。

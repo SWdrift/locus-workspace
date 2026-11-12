@@ -2,18 +2,20 @@
   "extends": "./tsconfig.base.json",
   "files": [],
   "references": [
-    { "path": "./packages/contracts" },
-    { "path": "./packages/operations" },
-    { "path": "./packages/application" },
-    { "path": "./packages/core" },
-    { "path": "./packages/host-dsh" },
-    { "path": "./plugins/filesystem" },
-    { "path": "./plugins/git" },
-    { "path": "./plugins/remote-machine" },
-    { "path": "./plugins/connectivity" },
-    { "path": "./plugins/gitea" },
-    { "path": "./plugins/session" },
-    { "path": "./plugins/cli" },
-    { "path": "./plugins/ui" }
+    {
+      "path": "./packages/contracts"
+    },
+    {
+      "path": "./packages/core"
+    },
+    {
+      "path": "./packages/host-dsh"
+    },
+    {
+      "path": "./plugins/filesystem"
+    },
+    {
+      "path": "./plugins/cli"
+    }
   ]
 }

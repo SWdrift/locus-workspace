@@ -3,7 +3,6 @@ import { mkdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import type {
-  CapabilityDescriptor,
   RelationSource,
   ResourceReference,
   Workspace,
@@ -27,12 +26,6 @@ interface RelationRow {
   created_at: string
 }
 
-interface CapabilityRow {
-  id: string
-  provider: string
-  tags: string
-}
-
 const SCHEMA_VERSION = 1
 const SCHEMA = `
   CREATE TABLE workspaces (
@@ -51,13 +44,6 @@ const SCHEMA = `
     created_at TEXT NOT NULL,
     UNIQUE (workspace_id, kind, target_namespace, target_id)
   ) STRICT;
-  CREATE TABLE capabilities (
-    workspace_id TEXT NOT NULL REFERENCES workspaces(id),
-    id TEXT NOT NULL,
-    provider TEXT NOT NULL,
-    tags TEXT NOT NULL CHECK (json_valid(tags) AND json_type(tags) = 'array'),
-    PRIMARY KEY (workspace_id, id)
-  ) STRICT;
   PRAGMA user_version = ${SCHEMA_VERSION};
 `
 
@@ -67,13 +53,6 @@ function requireText(value: unknown, field: string): asserts value is string {
   }
   if (value.includes('\0')) {
     throw new Error(`${field} 不能包含 NUL 字符`)
-  }
-}
-
-function requireIdentifier(value: unknown, field: string): asserts value is string {
-  requireText(value, field)
-  if (/[\s\p{Cc}]/u.test(value)) {
-    throw new Error(`${field} 不能包含空白或控制字符`)
   }
 }
 
@@ -97,20 +76,6 @@ function validateRelation(
     throw new Error(`无效关系 source.kind：${String(source.kind)}，必须是 manual 或 discovery`)
   }
   requireText(source.detail, '关系 source.detail')
-}
-
-function validateCapability(capability: CapabilityDescriptor): void {
-  if (capability === null || typeof capability !== 'object') {
-    throw new Error('Capability 必须包含 id、provider 和 tags')
-  }
-  requireIdentifier(capability.id, 'Capability id')
-  requireIdentifier(capability.provider, 'Capability provider')
-  if (!Array.isArray(capability.tags)) {
-    throw new Error('Capability tags 必须是字符串数组')
-  }
-  for (const tag of capability.tags) {
-    requireIdentifier(tag, 'Capability tag')
-  }
 }
 
 /** 读取使用同一快照，写入先取得写锁；提交失败也不能报告成功。 */
@@ -207,19 +172,11 @@ function workspaceFromRow(database: DatabaseSync, row: WorkspaceRow): Workspace 
        FROM relations WHERE workspace_id = ? ORDER BY rowid`,
     )
     .all(row.id) as unknown as RelationRow[]
-  const capabilities = database
-    .prepare('SELECT id, provider, tags FROM capabilities WHERE workspace_id = ? ORDER BY rowid')
-    .all(row.id) as unknown as CapabilityRow[]
   return {
     id: row.id,
     name: row.name,
     createdAt: row.created_at,
     relations: relations.map(relationFromRow),
-    capabilities: capabilities.map((capability) => ({
-      id: capability.id,
-      provider: capability.provider,
-      tags: JSON.parse(capability.tags) as string[],
-    })),
   }
 }
 
@@ -338,35 +295,6 @@ export function createWorkspaceStore(dataDirectory: string) {
         if (result.changes === 0) {
           throw new Error(`找不到 Workspace ${id} 的关系：${relationId}`)
         }
-      })
-    },
-    configureCapability(id, capability) {
-      assertActive()
-      requireText(id, 'Workspace id')
-      validateCapability(capability)
-      const database = getDatabase()
-      return transaction(database, true, () => {
-        requireWorkspace(database, id)
-        database
-          .prepare(
-            `INSERT INTO capabilities (workspace_id, id, provider, tags) VALUES (?, ?, ?, ?)
-             ON CONFLICT (workspace_id, id) DO UPDATE SET provider = excluded.provider, tags = excluded.tags`,
-          )
-          .run(id, capability.id, capability.provider, JSON.stringify(capability.tags))
-        return workspaceFromRow(database, requireWorkspace(database, id))
-      })
-    },
-    removeCapability(id, capabilityId) {
-      assertActive()
-      requireText(id, 'Workspace id')
-      requireIdentifier(capabilityId, 'Capability id')
-      const database = getDatabase()
-      return transaction(database, true, () => {
-        requireWorkspace(database, id)
-        database
-          .prepare('DELETE FROM capabilities WHERE workspace_id = ? AND id = ?')
-          .run(id, capabilityId)
-        return workspaceFromRow(database, requireWorkspace(database, id))
       })
     },
   }

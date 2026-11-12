@@ -1,7 +1,7 @@
 import { hostname } from 'node:os'
 import { resolve } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
-import type { CapabilityDescriptor, FilesystemService, LocusService } from '@locus/contracts'
+import type { FilesystemService, LocusService } from '@locus/contracts'
 import { LocationStore } from './locations.ts'
 import { FilesystemObserver } from './observations.ts'
 
@@ -10,13 +10,6 @@ export const name = 'locus-filesystem'
 
 /** Filesystem 只依赖公开的 Locus 用例，不要求 Core 装配领域插件。 */
 export const inject = ['locus']
-
-/** 提供方声明；Tag 只用于分类，不代表权限或当前可达性。 */
-export const capability: CapabilityDescriptor = Object.freeze({
-  id: 'locus.filesystem',
-  provider: '@locus/filesystem',
-  tags: Object.freeze(['environment']),
-})
 
 /** 创建独立可调用的 Filesystem 用例，首次访问配置时才打开自身数据库。 */
 export function createFilesystemService(locus: LocusService): FilesystemService & { dispose(): Promise<void> } {
@@ -31,13 +24,6 @@ export function createFilesystemService(locus: LocusService): FilesystemService 
     if (disposed) throw new Error('Filesystem 服务已释放')
   }
 
-  function requireConfigured(workspaceId: string): void {
-    const workspace = locus.workspaces.get(workspaceId)
-    if (!workspace.capabilities.some(value => value.id === capability.id && value.provider === capability.provider)) {
-      throw new Error(`Workspace ${workspace.name} (${workspaceId}) 尚未启用能力 ${capability.id}；请先为该 Workspace 配置提供方 ${capability.provider}。`)
-    }
-  }
-
   async function run<T>(action: () => Promise<T>): Promise<T> {
     assertActive()
     const operation = action()
@@ -50,10 +36,9 @@ export function createFilesystemService(locus: LocusService): FilesystemService 
   }
 
   return {
-    capability,
     register(workspaceId, path) {
       assertActive()
-      requireConfigured(workspaceId)
+      locus.workspaces.get(workspaceId)
       if (path.length === 0 || path.includes('\0')) throw new Error('登记路径不能为空或包含空字符')
       return store.register(workspaceId, resolve(path), localHostname)
     },
@@ -69,19 +54,19 @@ export function createFilesystemService(locus: LocusService): FilesystemService 
     },
     inspect(workspaceId, locationId, relativePath) {
       return run(async () => {
-        requireConfigured(workspaceId)
+        locus.workspaces.get(workspaceId)
         return observer.inspect(store.get(workspaceId, locationId), relativePath)
       })
     },
     discover(workspaceId, locationId, relativePath, limit) {
       return run(async () => {
-        requireConfigured(workspaceId)
+        locus.workspaces.get(workspaceId)
         return observer.discover(store.get(workspaceId, locationId), relativePath, limit)
       })
     },
     read(workspaceId, locationId, relativePath, maxBytes) {
       return run(async () => {
-        requireConfigured(workspaceId)
+        locus.workspaces.get(workspaceId)
         return observer.read(store.get(workspaceId, locationId), relativePath, maxBytes)
       })
     },

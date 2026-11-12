@@ -18,4 +18,4 @@
 |---|---|
 |  |  |
 
-类型定义与各子系统语义见 [subsystems/](../subsystems/README.md)；本目录承载规则，语义页承载类型的含义。在评审（pull request等）时读本目录，日常修改经 AGENTS.md 路由到同一张表。
+模块语义见各模块 README 与[项目架构](../architecture.md)；本目录承载规则，模块页承载类型的含义。在评审（pull request等）时读本目录，日常修改经 AGENTS.md 路由到同一张表。

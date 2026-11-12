@@ -2,7 +2,7 @@
 
 ## 简述与职责
 
-Core、领域 Plugin、Host 与应用之间实际使用的 TypeScript 类型与必要协议常量，不含运行逻辑、版本值或 DSH/Cordis 依赖。没有通用资源协议、Plugin SDK 或运行时注册器；契约只随真实生产者和消费者演进。
+Core、领域 Plugin、Host 与 CLI 之间实际使用的 TypeScript 类型与必要协议常量，不含运行逻辑、版本值或 DSH/Cordis 依赖。没有通用资源协议、Plugin SDK 或运行时注册器；契约只随真实生产者和消费者演进。
 
 ## 使用
 
@@ -21,19 +21,11 @@ function workspaceNames(locus: LocusService): readonly string[] {
 | 交互 | 生产者与消费者 | 语义所有者 |
 | --- | --- | --- |
 | `LocusService` / Workspace 用例 | Core → host 的 `locus` → Plugin、CLI | [Core](../core/README.md) |
-| Filesystem 位置与观察 | Filesystem → CLI、Git | [Filesystem](../../plugins/filesystem/README.md) |
-| Git 只读观察 | Git → CLI | [Git](../../plugins/git/README.md) |
-| Session 发现、引用与原生入口 | Session → CLI | [Session](../../plugins/session/README.md) |
-| Remote Machine 资料、地址与观察 | Remote Machine → CLI | [Remote Machine](../../plugins/remote-machine/README.md) |
-| Connection Profile、检查与验证 | Connectivity → CLI | [Connectivity](../../plugins/connectivity/README.md) |
-| Gitea 实例、来源限定仓库、Run 与候选 | Gitea → CLI | [Gitea](../../plugins/gitea/README.md) |
-| Operation Definition、Provider 与 Catalog 接口 | 领域契约 → Host、CLI、UI、Agent | [Operations](../operations/README.md) |
+| Filesystem 位置与观察 | Filesystem → CLI | [Filesystem](../../plugins/filesystem/README.md) |
 
-具体字段与方法由[源码](src/index.ts)维护，不在 README 重抄类型清单。Core 的领域引用对其自身是不透明的；Plugin 返回当前观察，应用显式确认后才调用长期关系用例。提供方声明、保存的选择、加载与可用性不是同一事实，Tag 不能解释为依赖或授权。
+具体字段与方法由[源码](src/index.ts)维护，不在 README 重抄类型清单。Core 的领域引用对其自身是不透明的；Plugin 返回当前观察，应用显式确认后才调用长期关系用例。
 
-Filesystem、Git、Session、Gitea 与 Remote Machine 的引用命名空间前缀由本包导出，应用层组合不应复制这些字符串或自行解析领域引用。
-
-Operation 类型只定义公共机制：操作身份、JSON Schema、能力依赖、Provider 绑定与调用结果。具体操作（例如 `machine.observe`）由领域自己的 `contract` 导出，不加入本包；公共包不因新增领域而增长领域知识。
+Filesystem 的引用命名空间前缀由本包导出，应用层组合不应复制字符串或自行解析领域引用。后续领域只在出现真实生产者与消费者后再加入契约，不预建空类型或占位服务。
 
 ## 修改与验证
 

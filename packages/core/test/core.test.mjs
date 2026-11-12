@@ -7,12 +7,6 @@ import { DatabaseSync } from 'node:sqlite'
 import test from 'node:test'
 import { createLocusCore, LOCUS_VERSION } from '../lib/index.js'
 
-const filesystemCapability = {
-  id: 'locus.filesystem',
-  provider: '@locus/filesystem',
-  tags: ['environment'],
-}
-
 function fixture(t) {
   const root = mkdtempSync(join(tmpdir(), 'locus-core-'))
   const dataDirectory = join(root, 'data')
@@ -89,7 +83,7 @@ test('LOCUS_HOME 采用绝对位置，显式选项优先，默认目录与工作
   }
 })
 
-test('零目录 Workspace 的身份、改名、关系来源和能力快照跨重开及备份恢复保持稳定', async (t) => {
+test('零目录 Workspace 的身份、改名与关系来源跨重开及备份恢复保持稳定', async (t) => {
   const setup = fixture(t)
   const core = setup.open()
   const created = core.workspaces.create('  长期语境  ')
@@ -97,16 +91,11 @@ test('零目录 Workspace 的身份、改名、关系来源和能力快照跨重
   assert.equal(created.name, '长期语境')
   assert.equal(Number.isNaN(Date.parse(created.createdAt)), false)
   assert.deepEqual(created.relations, [])
-  assert.deepEqual(created.capabilities, [])
 
   core.workspaces.rename(created.id, '继续工作')
   const target = { namespace: 'example.resource', id: '不透明引用，不需要目录存在' }
   core.workspaces.link(created.id, 'member', target, { kind: 'manual', detail: '用户明确输入' })
   core.workspaces.link(created.id, 'association', target, { kind: 'discovery', detail: '发现批次：first' })
-  const capability = { ...filesystemCapability, tags: [...filesystemCapability.tags] }
-  core.workspaces.configureCapability(created.id, capability)
-  capability.tags.push('development')
-  assert.deepEqual(core.workspaces.get(created.id).capabilities, [filesystemCapability])
   const expected = core.workspaces.get(created.id)
   await core.dispose()
 
@@ -138,7 +127,6 @@ test('共享目标与嵌套 Workspace 各自独立，取消一处关系不删除
   const parentRelation = core.workspaces.link(parent.id, 'member', target, source)
   const otherRelation = core.workspaces.link(other.id, 'member', target, source)
   const childRelation = core.workspaces.link(child.id, 'association', target, source)
-  core.workspaces.configureCapability(child.id, filesystemCapability)
   const nested = core.workspaces.link(
     parent.id,
     'member',
@@ -146,7 +134,6 @@ test('共享目标与嵌套 Workspace 各自独立，取消一处关系不删除
     { kind: 'manual', detail: '明确嵌套，不继承' },
   )
   assert.equal(core.workspaces.get(parent.id).relations.length, 2)
-  assert.deepEqual(core.workspaces.get(parent.id).capabilities, [])
   assert.deepEqual(core.workspaces.get(child.id).relations, [childRelation])
 
   core.workspaces.unlink(parent.id, parentRelation.id)
@@ -154,7 +141,6 @@ test('共享目标与嵌套 Workspace 各自独立，取消一处关系不删除
   assert.deepEqual(core.workspaces.get(parent.id).relations, [])
   assert.deepEqual(core.workspaces.get(other.id).relations, [otherRelation])
   assert.deepEqual(core.workspaces.get(child.id).relations, [childRelation])
-  assert.deepEqual(core.workspaces.get(child.id).capabilities, [filesystemCapability])
   assert.equal(readFileSync(nativePath, 'utf8'), '原生内容')
   assert.deepEqual(
     core.workspaces.list().map((workspace) => workspace.id),
@@ -194,30 +180,6 @@ test('同 kind 与目标重复确认幂等，成员和关联并存且保留首�
   assert.deepEqual(core.workspaces.get(workspace.id).relations, [association])
 })
 
-test('能力选择按 id 更新提供方声明快照，移除不影响关系或其他 Workspace', (t) => {
-  const core = fixture(t).open()
-  const first = core.workspaces.create('已配置')
-  const second = core.workspaces.create('独立配置')
-  const relation = core.workspaces.link(
-    first.id,
-    'association',
-    { namespace: 'locus.filesystem', id: '没有加载提供方也应保留' },
-    { kind: 'manual', detail: '用户长期意图' },
-  )
-  core.workspaces.configureCapability(first.id, filesystemCapability)
-  core.workspaces.configureCapability(second.id, filesystemCapability)
-  const replacement = {
-    id: filesystemCapability.id,
-    provider: '@example/other-filesystem',
-    tags: ['environment', 'development'],
-  }
-  assert.deepEqual(core.workspaces.configureCapability(first.id, replacement).capabilities, [replacement])
-  assert.deepEqual(core.workspaces.get(second.id).capabilities, [filesystemCapability])
-  assert.deepEqual(core.workspaces.removeCapability(first.id, replacement.id).capabilities, [])
-  assert.deepEqual(core.workspaces.get(first.id).relations, [relation])
-  assert.deepEqual(core.workspaces.get(second.id).capabilities, [filesystemCapability])
-})
-
 test('无效输入在打开数据库前拒绝，已有数据库不写入无效状态', (t) => {
   const setup = fixture(t)
   const core = setup.open()
@@ -239,15 +201,6 @@ test('无效输入在打开数据库前拒绝，已有数据库不写入无效�
     () => service.link('id', 'member', target, { kind: 'automatic', detail: '来源' }),
     () => service.link('id', 'member', target, { kind: 'manual', detail: ' ' }),
     () => service.unlink('id', ''),
-    () => service.configureCapability('id', null),
-    () => service.configureCapability('id', { ...filesystemCapability, id: '' }),
-    () => service.configureCapability('id', { ...filesystemCapability, id: 'two words' }),
-    () => service.configureCapability('id', { ...filesystemCapability, provider: ' ' }),
-    () => service.configureCapability('id', { ...filesystemCapability, provider: 'two providers' }),
-    () => service.configureCapability('id', { ...filesystemCapability, tags: 'environment' }),
-    () => service.configureCapability('id', { ...filesystemCapability, tags: [''] }),
-    () => service.configureCapability('id', { ...filesystemCapability, tags: [42] }),
-    () => service.removeCapability('id', ' '),
   ]
   for (const operation of invalidOperations) assert.throws(operation)
   assert.equal(existsSync(setup.dataDirectory), false)
@@ -291,14 +244,6 @@ test('缺失 Workspace、关系或嵌套目标给出可定位错误，不改变�
   assert.throws(
     () => core.workspaces.unlink(other.id, relation.id),
     (error) => error.message.includes(other.id) && error.message.includes(relation.id),
-  )
-  assert.throws(
-    () => core.workspaces.configureCapability('missing-workspace', filesystemCapability),
-    /missing-workspace/,
-  )
-  assert.throws(
-    () => core.workspaces.removeCapability('missing-workspace', filesystemCapability.id),
-    /missing-workspace/,
   )
   assert.deepEqual(core.workspaces.get(workspace.id).relations, [relation])
   assert.deepEqual(readFileSync(join(setup.dataDirectory, 'core.sqlite')), before)
@@ -366,14 +311,13 @@ test('完整性检查拒绝结构有效但约束已经损坏的现有库，不�
   assert.deepEqual(readFileSync(filename), before)
 })
 
-test('多个连接始终读取最新提交，不会用旧快照覆盖其他连接的关系和能力', (t) => {
+test('多个连接始终读取最新提交，不会用旧快照覆盖其他连接的关系', (t) => {
   const setup = fixture(t)
   const first = setup.open()
   const workspace = first.workspaces.create('初始名称')
   const second = setup.open()
   const staleSnapshot = second.workspaces.get(workspace.id)
   first.workspaces.rename(workspace.id, '第一次改名')
-  second.workspaces.configureCapability(workspace.id, filesystemCapability)
   const relation = first.workspaces.link(
     workspace.id,
     'member',
@@ -385,7 +329,6 @@ test('多个连接始终读取最新提交，不会用旧快照覆盖其他连�
   const current = first.workspaces.get(workspace.id)
   assert.equal(current.name, '第二次改名')
   assert.deepEqual(current.relations, [relation])
-  assert.deepEqual(current.capabilities, [filesystemCapability])
   assert.deepEqual(second.workspaces.get(workspace.id), current)
 })
 
@@ -428,8 +371,6 @@ test('dispose 关闭已打开的连接并阻止捕获的服务继续使用，重
         { kind: 'manual', detail: '来源' },
       ),
     () => service.unlink(workspace.id, 'relation-id'),
-    () => service.configureCapability(workspace.id, filesystemCapability),
-    () => service.removeCapability(workspace.id, filesystemCapability.id),
   ]
   for (const operation of operations) assert.throws(operation, /已释放/)
   assert.deepEqual(setup.open().workspaces.get(workspace.id), workspace)

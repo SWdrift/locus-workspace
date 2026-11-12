@@ -25,7 +25,7 @@ HMR 复用 `@deepseek-ai/dsh-hmr`。开发 profile 覆盖 `hmr` 行，把 `base`
 
 ## 实测
 
-同一 shell 进程内连续 10 次操作约 6.4 秒，单发同机约 50 秒；Filesystem、Git、Core/host、CLI 四类修改均由 HMR 生效，整棵 DSH 重启 0 次。环境与验证入口见[开发与验证](../../../../docs/testing.md#分层与入口)。
+同一 shell 进程内连续 10 次操作约 6.4 秒，单发同机约 50 秒；Filesystem、Core/host、CLI 三类修改均由 HMR 生效，整棵 DSH 重启 0 次。环境与验证入口见[开发与验证](../../../../docs/testing.md#分层与入口)。
 
 ## 备选方案
 
@@ -43,7 +43,7 @@ HMR 复用 `@deepseek-ai/dsh-hmr`。开发 profile 覆盖 `hmr` 行，把 `base`
 
 - 连续操作不再为每条命令支付 4–5 秒启动；本轮同机约 8 倍提速。一次性 CLI 仍保留，适合脚本和单命令。
 - Shell 不提供隐式当前 Workspace，长命令仍需显式传 ID；这是有意的，避免隐藏状态。
-- Core/host 或 CLI 重载会重建 shell 实例，命令历史与未完成输入丢失；同一进程与持久数据保持。Filesystem/Git 重载不影响 shell。
+- Core/host 或 CLI 重载会重建 shell 实例，命令历史与未完成输入丢失；同一进程与持久数据保持。Filesystem 重载不影响 shell。
 - HMR 依赖构建产物，源码到行为仍有约 1.5–2 秒构建窗口；不把它当成 TypeScript 编译器或迁移机制。持久化 schema、Node 加载器或 `dsh` 本体变化仍应重启。
 - HMR 只监听 profile patch、home patch 与 manifest，不监听命令行 `--patch` overlay；开发配置应合入 profile patch。
 - 仍未提供 Agent 无交互批处理入口；shell 是交互式 stdin 循环，不作为常驻服务协议。

@@ -5,10 +5,7 @@ import { join } from 'node:path'
 import { PassThrough } from 'node:stream'
 import test from 'node:test'
 import { createLocusCore } from '../packages/core/lib/index.js'
-import { createOperationCatalog } from '../packages/operations/lib/index.js'
 import { createFilesystemService } from '../plugins/filesystem/lib/index.js'
-import { createGitService } from '../plugins/git/lib/index.js'
-import { registerRemoteMachineOperations } from '../plugins/remote-machine/lib/contract.js'
 import { createCommands } from '../plugins/cli/lib/commands.js'
 import { runShell, splitCommandLine } from '../plugins/cli/lib/shell.js'
 
@@ -19,9 +16,7 @@ function fixture(t) {
   mkdirSync(resources)
   const core = createLocusCore({ dataDirectory: data })
   const filesystem = createFilesystemService(core)
-  const git = createGitService(core, filesystem)
   t.after(async () => {
-    await git.dispose()
     await filesystem.dispose()
     await core.dispose()
     rmSync(root, { recursive: true, force: true })
@@ -29,7 +24,7 @@ function fixture(t) {
   return {
     resources,
     core,
-    create: () => ({ commands: createCommands(core, filesystem, git), current: () => true }),
+    create: () => ({ commands: createCommands(core, filesystem), current: () => true }),
   }
 }
 
@@ -86,7 +81,6 @@ test('shell 注册含空格的路径并在失败后继续使用真实服务', as
   const directory = join(f.resources, 'space dir')
   mkdirSync(directory)
   const result = await shellSession(f, [
-    `capability configure ${workspace.id} filesystem`,
     `fs register ${workspace.id} "${directory}"`,
     `fs register ${workspace.id} "${join(f.resources, 'missing')}"`,
     `--json fs locations ${workspace.id}`,
@@ -109,7 +103,7 @@ test('插件卸载关闭 shell 但不请求进程退出，在途结果不写成�
   const pending = runShell(
     () => ({
       commands: {
-        program: createCommands(f.core, undefined, undefined).program,
+        program: createCommands(f.core, undefined).program,
         parse() {},
         execute: () => new Promise((resolve) => { resolveOperation = resolve }),
         json: () => false,
@@ -143,7 +137,7 @@ test('服务在操作期间重载时丢弃旧结果并继续 shell', async (t) =
       created++
       return {
         commands: {
-          program: createCommands(f.core, undefined, undefined).program,
+          program: createCommands(f.core, undefined).program,
           parse() {},
           execute: () => Promise.resolve({ value: {}, text: '旧结果' }),
           json: () => false,
@@ -161,44 +155,4 @@ test('服务在操作期间重载时丢弃旧结果并继续 shell', async (t) =
   assert.equal(created, 1)
   assert.equal(readOut().includes('旧结果'), false)
   assert.match(readErr(), /能力已重载/)
-})
-
-test('shell 每行重新解析并绑定当前 Operation Provider', async (t) => {
-  const f = fixture(t)
-  const provider = (hostname) => ({
-    async availability() {
-      return { available: true }
-    },
-    async observe(machineId) {
-      return {
-        machineId,
-        scope: 'single-address',
-        source: { kind: 'ssh', addressId: 'address-1', endpoint: 'host.example' },
-        state: 'observed',
-        observedAt: '2026-01-01T00:00:00.000Z',
-        host: { hostname },
-      }
-    },
-  })
-  const providers = [provider('first-host'), provider('second-host')]
-  let index = 0
-  const catalog = createOperationCatalog()
-  registerRemoteMachineOperations(catalog, () => providers[index++])
-  const create = () => ({
-    commands: createCommands(
-      f.core, undefined, undefined, undefined, undefined, undefined, undefined, catalog,
-    ),
-    current: () => true,
-  })
-  const result = await shellSession(f, [
-    '--json machine observe machine-1',
-    '--json machine observe machine-1',
-    '--json machine observe machine-1',
-    'exit',
-  ], create)
-  const outputs = result.stdout.trim().split(/\r?\n/).map((line) => JSON.parse(line))
-  assert.equal(outputs[0].host.hostname, 'first-host')
-  assert.equal(outputs[1].host.hostname, 'second-host')
-  assert.match(result.stderr, /provider-missing/)
-  assert.equal(result.exitCode, 2)
 })

@@ -27,7 +27,6 @@ test('领域 Plugin 卸载不清除 Core 身份或长期关系，重启重新恢
     const plugin = ctx.plugin(filesystem)
     await plugin
     const files = ctx.get('locusFilesystem')
-    locus.workspaces.configureCapability(workspace.id, files.capability)
     const location = files.register(workspace.id, directory)
     const observed = await files.inspect(workspace.id, location.id, 'note.txt')
     const relation = locus.workspaces.link(workspace.id, 'member', observed.reference, { kind: 'discovery', detail: directory })

@@ -7,7 +7,7 @@ import { DatabaseSync } from 'node:sqlite'
 import test from 'node:test'
 import { pathToFileURL } from 'node:url'
 import { createLocusCore } from '../../../packages/core/lib/index.js'
-import { capability, createFilesystemService } from '../lib/index.js'
+import { createFilesystemService } from '../lib/index.js'
 
 async function fixture(t) {
   const root = await realpath(await mkdtemp(join(tmpdir(), 'locus-filesystem-')))
@@ -37,9 +37,7 @@ async function fixture(t) {
 }
 
 function workspace(f, name = '文件工作空间') {
-  const value = f.core.workspaces.create(name)
-  f.core.workspaces.configureCapability(value.id, f.filesystem.capability)
-  return value
+  return f.core.workspaces.create(name)
 }
 
 test('Filesystem 延迟建立独立数据库，多位置、共享位置和父子位置重启后保持独立', async t => {
@@ -88,14 +86,11 @@ test('Filesystem 延迟建立独立数据库，多位置、共享位置和父子
   }
 })
 
-test('登记和观察要求显式选择匹配提供方，停用保留配置且取消登记不删除原生文件或 Core 关系', async t => {
+test('登记要求 Workspace 存在，取消登记不删除原生文件或 Core 关系', async t => {
   const f = await fixture(t)
   const value = f.core.workspaces.create('配置与确认分离')
   await writeFile(join(f.nativeDirectory, 'kept.txt'), '保留原生内容')
-  assert.throws(() => f.filesystem.register(value.id, f.nativeDirectory), /尚未启用能力 locus\.filesystem/)
   assert.throws(() => f.filesystem.register('unknown-workspace', f.nativeDirectory))
-  assert.deepEqual(f.filesystem.locations(value.id), [])
-  f.core.workspaces.configureCapability(value.id, capability)
   const location = f.filesystem.register(value.id, f.nativeDirectory)
   const candidate = await f.filesystem.inspect(value.id, location.id, 'kept.txt')
   assert.deepEqual(f.core.workspaces.get(value.id).relations, [])
@@ -103,16 +98,6 @@ test('登记和观察要求显式选择匹配提供方，停用保留配置且�
     kind: 'discovery', detail: `位置 ${location.id} 的显式选择`,
   })
 
-  f.core.workspaces.removeCapability(value.id, capability.id)
-  await f.restart()
-  assert.deepEqual(f.filesystem.locations(value.id), [location])
-  assert.throws(() => f.filesystem.register(value.id, f.nativeDirectory), /尚未启用能力 locus\.filesystem/)
-  await assert.rejects(f.filesystem.inspect(value.id, location.id), /尚未启用能力 locus\.filesystem/)
-  await assert.rejects(f.filesystem.discover(value.id, location.id), /尚未启用能力 locus\.filesystem/)
-  await assert.rejects(f.filesystem.read(value.id, location.id, 'kept.txt'), /尚未启用能力 locus\.filesystem/)
-  f.core.workspaces.configureCapability(value.id, { ...capability, provider: '@other/filesystem' })
-  await assert.rejects(f.filesystem.inspect(value.id, location.id), /尚未启用能力 locus\.filesystem/)
-  f.core.workspaces.removeCapability(value.id, capability.id)
   f.filesystem.unregister(value.id, location.id)
   assert.deepEqual(f.filesystem.locations(value.id), [])
   assert.equal(await readFile(join(f.nativeDirectory, 'kept.txt'), 'utf8'), '保留原生内容')

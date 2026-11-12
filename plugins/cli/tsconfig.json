@@ -5,9 +5,12 @@
     "outDir": "lib",
     "tsBuildInfoFile": "lib/.tsbuildinfo"
   },
-  "include": ["src"],
+  "include": [
+    "src"
+  ],
   "references": [
-    { "path": "../../packages/contracts" },
-    { "path": "../../packages/application" }
+    {
+      "path": "../../packages/contracts"
+    }
   ]
 }
