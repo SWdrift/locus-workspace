@@ -29,7 +29,24 @@
 .create {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 6px;
+}
+
+.fieldMessage {
+  min-height: 18px;
+  margin: 0;
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 12px;
+  line-height: 18px;
+}
+
+.fieldError {
+  color: var(--dsw-alias-state-error-primary);
+}
+
+.invalidInput,
+.invalidInput:focus-within {
+  border-color: var(--dsw-alias-state-error-primary);
 }
 
 .list {

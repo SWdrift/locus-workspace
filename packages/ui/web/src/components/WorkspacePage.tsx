@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState, type FormEvent } from 'react'
+import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react'
 import { Button } from '../dsh/primitives/Button.tsx'
 import { Input } from '../dsh/primitives/Input.tsx'
 import { RiskConfirmation } from '../dsh/primitives/RiskConfirmation.tsx'
@@ -42,6 +42,12 @@ export default function WorkspacePage({
   const [browseId, setBrowseId] = useState<string | undefined>(undefined)
   const [pending, setPending] = useState<PendingAction | undefined>(undefined)
   const [acknowledged, setAcknowledged] = useState(false)
+  const [renameAttempted, setRenameAttempted] = useState(false)
+  const [pathAttempted, setPathAttempted] = useState(false)
+  const renameRef = useRef<HTMLInputElement>(null)
+  const pathRef = useRef<HTMLInputElement>(null)
+  const renameInvalid = renameAttempted && name.trim().length === 0
+  const pathInvalid = pathAttempted && path.trim().length === 0
 
   const reload = useCallback(async () => {
     setLoading(true)
@@ -103,7 +109,11 @@ export default function WorkspacePage({
           noValidate
           onSubmit={(event: FormEvent) => {
             event.preventDefault()
-            if (name.trim().length === 0) return
+            if (name.trim().length === 0) {
+              setRenameAttempted(true)
+              renameRef.current?.focus()
+              return
+            }
             void run(async () => {
               await renameWorkspace(workspaceId, name)
               onNotify(`已改名：${name}`)
@@ -111,12 +121,25 @@ export default function WorkspacePage({
             })
           }}
         >
-          <Input
-            value={name}
-            onChange={(event) => setName(event.target.value)}
-            required
-          />
-          <Button type="submit" variant="outline" size="sm" disabled={name.trim().length === 0}>改名</Button>
+          <div className={styles.renameField}>
+            <Input
+              ref={renameRef}
+              className={renameInvalid ? styles.invalidInput : undefined}
+              value={name}
+              onChange={(event) => setName(event.target.value)}
+              required
+              aria-invalid={renameInvalid || undefined}
+              aria-describedby="rename-workspace-message"
+            />
+            <p
+              id="rename-workspace-message"
+              className={renameInvalid ? `${styles.fieldMessage} ${styles.fieldError}` : styles.fieldMessage}
+              aria-live="polite"
+            >
+              {renameInvalid ? '请输入 Workspace 名称。' : 'Identity 不随改名变化。'}
+            </p>
+          </div>
+          <Button type="submit" variant="outline" size="sm">改名</Button>
         </form>
       </header>
 
@@ -187,24 +210,41 @@ export default function WorkspacePage({
             noValidate
             onSubmit={(event: FormEvent) => {
               event.preventDefault()
-              if (path.trim().length === 0) return
+              if (path.trim().length === 0) {
+                setPathAttempted(true)
+                pathRef.current?.focus()
+                return
+              }
               void run(async () => {
                 await registerLocation(workspaceId, path)
                 setPath('')
+                setPathAttempted(false)
                 onNotify('已登记位置')
                 await changed()
               })
             }}
           >
-            <Input
-              className={styles.grow}
-              value={path}
-              onChange={(event) => setPath(event.target.value)}
-              placeholder="要登记的本机绝对路径"
-              required
-            />
+            <div className={styles.fieldGrow}>
+              <Input
+                ref={pathRef}
+                className={pathInvalid ? styles.invalidInput : undefined}
+                value={path}
+                onChange={(event) => setPath(event.target.value)}
+                placeholder="要登记的本机绝对路径"
+                required
+                aria-invalid={pathInvalid || undefined}
+                aria-describedby="register-location-message"
+              />
+              <p
+                id="register-location-message"
+                className={pathInvalid ? `${styles.fieldMessage} ${styles.fieldError}` : styles.fieldMessage}
+                aria-live="polite"
+              >
+                {pathInvalid ? '请输入本机绝对路径。' : '路径可暂不存在；登记不确认成员。'}
+              </p>
+            </div>
             <Tooltip label="只建立发现入口，不确认成员" delayMs={300}>
-              <Button type="submit" variant="primary" size="sm" disabled={path.trim().length === 0}>登记位置</Button>
+              <Button type="submit" variant="primary" size="sm">登记位置</Button>
             </Tooltip>
           </form>
         ) : (

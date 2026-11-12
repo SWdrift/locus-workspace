@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from 'react'
+import { useRef, useState, type FormEvent } from 'react'
 import { Button } from '../dsh/primitives/Button'
 import { Input } from '../dsh/primitives/Input'
 import { Tooltip } from '../dsh/primitives/Tooltip.tsx'
@@ -18,10 +18,19 @@ export default function WorkspaceSidebar({
 }) {
   const [name, setName] = useState('')
   const [creating, setCreating] = useState(false)
+  const [attempted, setAttempted] = useState(false)
+  const inputRef = useRef<HTMLInputElement>(null)
+
+  const invalid = attempted && name.trim().length === 0
 
   async function submit(event: FormEvent): Promise<void> {
     event.preventDefault()
-    if (name.trim().length === 0 || creating) return
+    if (name.trim().length === 0) {
+      setAttempted(true)
+      inputRef.current?.focus()
+      return
+    }
+    if (creating) return
     setCreating(true)
     try {
       await onCreate(name)
@@ -39,13 +48,24 @@ export default function WorkspaceSidebar({
       </div>
       <form className={styles.create} noValidate onSubmit={(event) => void submit(event)}>
         <Input
+          ref={inputRef}
+          className={invalid ? styles.invalidInput : undefined}
           value={name}
           onChange={(event) => setName(event.target.value)}
           placeholder="新 Workspace 名称"
           autoComplete="off"
           required
+          aria-invalid={invalid || undefined}
+          aria-describedby="create-workspace-message"
         />
-        <Button type="submit" variant="primary" size="sm" disabled={creating || name.trim().length === 0}>
+        <p
+          id="create-workspace-message"
+          className={invalid ? `${styles.fieldMessage} ${styles.fieldError}` : styles.fieldMessage}
+          aria-live="polite"
+        >
+          {invalid ? '请输入 Workspace 名称。' : '可无目录；创建后可改名。'}
+        </p>
+        <Button type="submit" variant="primary" size="sm" disabled={creating}>
           {creating ? '创建中…' : '创建'}
         </Button>
       </form>

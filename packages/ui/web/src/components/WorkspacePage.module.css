@@ -41,16 +41,47 @@
 .rename {
   display: flex;
   gap: 8px;
-  align-items: center;
-  flex-wrap: wrap;
+  align-items: flex-start;
+}
+
+.renameField {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 190px;
 }
 
 .register {
   display: flex;
   gap: 8px;
-  align-items: center;
+  align-items: flex-start;
   flex-wrap: wrap;
   margin-bottom: 10px;
+}
+
+.fieldGrow {
+  flex: 1;
+  min-width: 220px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.fieldMessage {
+  min-height: 18px;
+  margin: 0;
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 12px;
+  line-height: 18px;
+}
+
+.fieldError {
+  color: var(--dsw-alias-state-error-primary);
+}
+
+.invalidInput,
+.invalidInput:focus-within {
+  border-color: var(--dsw-alias-state-error-primary);
 }
 
 .grow {
