@@ -6,7 +6,7 @@
  *
  *   suite  window   内容
  *   all    0        全量进程内测试；只记录，不锁定
- *   e2e    7200 s   profile 端到端冒烟；分钟级
+ *   e2e    7200 s   CLI 端到端场景；跨进程
  *
  * 每次运行自动写入 temp/test-runs.log。历史 temp/e2e-runs.log 的 start
  * 记录仍计入 e2e 冷却，升级入口后不会立即解锁。
@@ -128,19 +128,23 @@ function runNode(argumentsList) {
   return result.status ?? 1
 }
 
-function testFiles() {
+function collectPackageTests(group) {
   const files = []
-  for (const group of ['packages', 'plugins']) {
-    const base = join(REPO, group)
-    for (const entry of readdirSync(base, { withFileTypes: true })) {
-      if (!entry.isDirectory()) continue
-      const directory = join(base, entry.name, 'test')
-      if (!existsSync(directory)) continue
-      for (const file of readdirSync(directory)) {
-        if (file.endsWith('.test.mjs')) files.push(join(directory, file))
-      }
+  const base = join(REPO, group)
+  if (!existsSync(base)) return files
+  for (const entry of readdirSync(base, { withFileTypes: true })) {
+    if (!entry.isDirectory()) continue
+    const directory = join(base, entry.name, 'test')
+    if (!existsSync(directory)) continue
+    for (const file of readdirSync(directory)) {
+      if (file.endsWith('.test.mjs')) files.push(join(directory, file))
     }
   }
+  return files
+}
+
+function testFiles() {
+  const files = [...collectPackageTests('packages'), ...collectPackageTests('apps')]
   const tests = join(REPO, 'tests')
   for (const file of readdirSync(tests)) {
     if (file.endsWith('.test.mjs')) files.push(join(tests, file))
@@ -158,12 +162,30 @@ function runAll() {
   return runNode(['--test', ...files])
 }
 
+function e2eScripts() {
+  const directory = join(REPO, 'tests', 'e2e')
+  if (!existsSync(directory)) return []
+  return readdirSync(directory)
+    .filter((file) => file.endsWith('.mjs'))
+    .sort()
+    .map((file) => join(directory, file))
+}
+
 function runE2E() {
   if (!process.env.npm_execpath) {
-    console.error('e2e 需要 pnpm 注入 npm_execpath：请使用 `pnpm e2e`。')
+    console.error('e2e 需要 pnpm 注入 npm_execpath：请使用 `pnpm e2e` 或 `pnpm verify:full`。')
     return 2
   }
-  return runNode([join(REPO, 'tests', 'e2e', 'workspace-smoke.mjs')])
+  const scripts = e2eScripts()
+  if (scripts.length === 0) {
+    console.error('未发现 tests/e2e/*.mjs')
+    return 1
+  }
+  for (const script of scripts) {
+    const code = runNode([script])
+    if (code !== 0) return code
+  }
+  return 0
 }
 
 function runSuite(suite, options) {
@@ -196,7 +218,7 @@ function main(argv) {
   const lock = remainingLock(suite)
   if (lock !== null && !force) {
     console.error(`${suite} 冷却中：上次开始 ${iso(lock.last)}，剩余 ${formatRemaining(lock.remaining)}。`)
-    console.error(`使用 \`pnpm ${suite === 'all' ? 'test:all' : suite} -- --force\` 强制执行。`)
+    console.error(`使用 \`pnpm ${suite === 'all' ? 'test:all' : suite} --force\` 强制执行。`)
     return 3
   }
   return runSuite(suite, { force, reason })

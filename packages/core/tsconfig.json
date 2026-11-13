@@ -5,6 +5,5 @@
     "outDir": "lib",
     "tsBuildInfoFile": "lib/.tsbuildinfo"
   },
-  "include": ["src"],
-  "references": [{ "path": "../contracts" }]
+  "include": ["src"]
 }

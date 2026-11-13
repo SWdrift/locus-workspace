@@ -8,19 +8,18 @@
     "node": ">=24"
   },
   "scripts": {
-    "build": "tsc -b tsconfig.json && pnpm --filter @locus/dsh-surface build:client && pnpm --filter @locus/ui build:web",
-    "test": "node --test packages/core/test/*.test.mjs packages/application/test/*.test.mjs packages/dsh-surface/test/*.test.mjs plugins/filesystem/test/*.test.mjs packages/ui/test/*.test.mjs tests/host.test.mjs tests/cli.test.mjs tests/cli-shell.test.mjs",
+    "build": "tsc -b tsconfig.json",
+    "test": "node --test packages/core/test/*.test.mjs tests/*.test.mjs",
     "test:all": "node tests/run.mjs all",
     "e2e": "node tests/run.mjs e2e",
     "test:file": "node --test",
     "verify": "pnpm build && pnpm test && pnpm docs:check",
     "verify:full": "pnpm build && pnpm test:all && pnpm docs:check && pnpm e2e",
+    "locus": "node apps/cli/lib/index.js",
     "docs:check": "node scripts/docs.mjs",
-  "patch:dsh": "node scripts/patch-dsh-rightbar.mjs",
     "docs:test": "node --test scripts/docs.test.mjs"
   },
   "devDependencies": {
-    "@deepseek-ai/dsh": "0.2.2-rc.1",
     "@types/node": "^24.19.2",
     "typescript": "^5.9.3"
   }

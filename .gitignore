@@ -1,8 +1,7 @@
 .agents/skills
-.dsh/
 packages/*/lib/
-plugins/*/lib/
-packages/*/web/dist/
+apps/*/lib/
+.locus-data/
 temp/*
 node_modules/
 

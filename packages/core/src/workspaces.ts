@@ -8,7 +8,7 @@ import type {
   Workspace,
   WorkspaceRelation,
   WorkspaceService,
-} from '@locus/contracts'
+} from './types.ts'
 
 interface WorkspaceRow {
   id: string

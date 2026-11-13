@@ -254,7 +254,7 @@ Connector 扩展 Locus 能接触的现实系统，领域生成扩展 Locus 能�
 
 ## 参考
 
-当前组件与依赖见[项目架构](../../../../docs/architecture.md)，概念与实现状态见领域生成与应用投影，命令与投影规则见 [CLI 模块](../../../../packages/cli/README.md)，共享类型范围见 [contracts](../../../../packages/contracts/README.md)，已交付切片见 Operation Catalog 切片决定与 Application Composition 与 UI 决定。已交付的组件边界与宿主选择见[能力组合决定](../../implemented/architecture/2026-11-08-workspace-capability-composition.md)，已交付的跨领域组合基线见 Workspace Overview 决定，未交付能力候选见后续提案。
+当前组件与依赖见[项目架构](../../../../docs/architecture.md)，概念与实现状态见领域生成与应用投影，命令与投影规则见 [CLI 模块](../../../../apps/cli/README.md)，共享类型范围见 [Core](../../../../packages/core/README.md)，已交付切片见 Operation Catalog 切片决定与 Application Composition 与 UI 决定。已交付的组件边界与宿主选择见[能力组合决定](../../archived/architecture/2026-11-08-workspace-capability-composition.md)，已交付的跨领域组合基线见 Workspace Overview 决定，未交付能力候选见后续提案。
 
 外部参考按其解决的问题区分，接口 Schema 规范不构成完整的领域契约规范：
 

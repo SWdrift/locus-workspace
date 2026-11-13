@@ -1,6 +1,6 @@
 # 决策记录：CLI 优先与领域模块的自上而下推导
 
-Status: rejected — CLI 先定六域命令再推导模型的方案由[产品切片](../../implemented/feature/2026-11-08-workspace-capability-slice.md)与[组件设计](../../implemented/architecture/2026-11-08-workspace-capability-composition.md)取代，薄交互层原则继续保留
+Status: rejected — CLI 先定六域命令再推导模型的方案由[产品切片](../../archived/feature/2026-11-08-workspace-capability-slice.md)与[组件设计](../../archived/architecture/2026-11-08-workspace-capability-composition.md)取代，薄交互层原则继续保留
 
 ## 问题
 

@@ -1,0 +1,19 @@
+{
+  "name": "@locus/cli",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "locus": "./lib/index.js"
+  },
+  "files": [
+    "lib"
+  ],
+  "scripts": {
+    "build": "tsc -b tsconfig.json"
+  },
+  "dependencies": {
+    "@locus/core": "workspace:*",
+    "commander": "^15.0.0"
+  }
+}

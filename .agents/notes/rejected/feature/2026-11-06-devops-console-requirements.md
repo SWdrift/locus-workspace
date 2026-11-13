@@ -1,6 +1,6 @@
 # 决策记录：首版 DevOps 工作控制台需求
 
-Status: rejected — 六域 DevOps 首版门槛由[长期 Workspace 切片](../../implemented/feature/2026-11-08-workspace-capability-slice.md)取代，不再指导下一版本范围
+Status: rejected — 六域 DevOps 首版门槛由[长期 Workspace 切片](../../archived/feature/2026-11-08-workspace-capability-slice.md)取代，不再指导下一版本范围
 
 ## 问题
 
