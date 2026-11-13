@@ -15,6 +15,9 @@
       "path": "./packages/host-dsh"
     },
     {
+      "path": "./packages/dsh-surface"
+    },
+    {
       "path": "./plugins/filesystem"
     },
     {

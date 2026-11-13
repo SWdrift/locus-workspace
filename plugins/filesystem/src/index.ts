@@ -70,6 +70,24 @@ export function createFilesystemService(locus: LocusService): FilesystemService 
         return observer.read(store.get(workspaceId, locationId), relativePath, maxBytes)
       })
     },
+    createFile(workspaceId, locationId, relativePath) {
+      return run(async () => {
+        locus.workspaces.get(workspaceId)
+        return observer.createFile(store.get(workspaceId, locationId), relativePath)
+      })
+    },
+    createDirectory(workspaceId, locationId, relativePath) {
+      return run(async () => {
+        locus.workspaces.get(workspaceId)
+        return observer.createDirectory(store.get(workspaceId, locationId), relativePath)
+      })
+    },
+    rename(workspaceId, locationId, fromRelativePath, toRelativePath) {
+      return run(async () => {
+        locus.workspaces.get(workspaceId)
+        return observer.rename(store.get(workspaceId, locationId), fromRelativePath, toRelativePath)
+      })
+    },
     dispose() {
       if (!disposal) {
         disposed = true

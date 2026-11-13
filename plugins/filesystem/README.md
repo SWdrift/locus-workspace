@@ -26,6 +26,15 @@
 - 相对路径不得是绝对路径或越过登记范围；符号链接/junction 可以观察但不遍历，包括登记在链接下的路径。普通 Node 路径检查不构成对恶意并发替换的 OS 沙箱。
 - 原生错误保留错误类别，不回显可能包含敏感内容的原生异常正文；未知状态不伪装成缺失或成功。
 
+## 写入与失败语义
+
+`createFile`、`createDirectory` 和 `rename` 返回操作后的真实观察，不写入 Core 关系。写目标必须位于登记范围内，父路径逐段检查；父路径中的符号链接或 junction 一律拒绝，不在链接目标下创建。
+
+- `createFile` 建立空文件，`createDirectory` 只建立单层目录；父目录必须存在，目标已存在时失败，不提供覆盖或递归创建。
+- `rename` 仅在同一位置内重命名普通文件或目录，不接受位置根、符号链接或已存在的其他目标；Windows 大小写改名视为同一文件。跨位置移动不是重命名。
+- 写失败抛出带 `code` 的 `FilesystemFailure`：`invalid`、`outside-location`、`not-found`、`exists`、`not-directory`、`symlink`、`unavailable`、`denied`、`io`。消息沿用原生错误类别，不回显可能含敏感内容的异常正文。
+- 每个操作是独立原生调用，不是跨操作事务；先检查后写入存在竞态窗口，不能当作对恶意并发替换的 OS 沙箱。失败不自动回滚此前已成功的其他操作。
+
 ## 数据与生命周期
 
 本 Plugin 独占 `locus.dataDirectory/filesystem.sqlite`，实验版本 `user_version=1`；Core 不读写其中的领域数据。位置写入使用 SQLite 原子语句及 DELETE/FULL 配置，锁等待 1000ms 后失败；未知版本或损坏库不自动重建。0 字节库按初始化中断后的空库处理并建立当前结构；已有结构却无版本则拒绝覆盖。完整备份与恢复要求见 [Core 恢复说明](../../packages/core/README.md#持久化与恢复)。

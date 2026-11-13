@@ -42,7 +42,39 @@ UI 由 `@locus/ui` 在现有 DSH 进程内提供，与 CLI 读取同一 Core、F
 DSH_HOME="$PWD/.dsh" LOCUS_HOME="$PWD/.locus-data" pnpm exec dsh --profile locus ui
 ```
 
-默认访问 `http://127.0.0.1:4310/`；`--port <port>` 可改端口。服务只绑定 loopback，不自动打开浏览器，按 Ctrl+C 停止；关闭 UI 不删除任何长期关系与配置。页面是 React 18 + Vite + TypeScript + CSS Modules 的浏览器应用，源码在 `packages/ui/web`，主题与 `Button`/`Input`/`Tag` atoms 摘抄自 DSH master、目标宿主 `0.2.1-rc.5`（`web/src/dsh/`），构建到 `packages/ui/web/dist`；根 `pnpm build` 会编译传输层并执行 `vite build` 与浏览器端类型检查。单独构建使用 `pnpm --filter @locus/ui build:web`。修改 `web/src` 后必须重新构建再刷新。组件使用 `--dsw-*` 主题变量、CSS Modules 与 `clsx`，不引入 Tailwind 或额外组件库；新增共享控件优先从 DSH atoms 按需摘抄，不自行重写主题值。
+默认访问 `http://127.0.0.1:4310/`；`--port <port>` 可改端口。服务只绑定 loopback，不自动打开浏览器，按 Ctrl+C 停止；关闭 UI 不删除任何长期关系与配置。页面是 React 18 + Vite + TypeScript + CSS Modules 的浏览器应用，源码在 `packages/ui/web`，主题与 `Button`/`Input`/`Tag` atoms 摘抄自 DSH master（`web/src/dsh/`，摘抄时为 `0.2.1-rc.5`，当前宿主 `0.2.2-rc.1` 未逐项重校），构建到 `packages/ui/web/dist`；根 `pnpm build` 会编译传输层并执行 `vite build` 与浏览器端类型检查。单独构建使用 `pnpm --filter @locus/ui build:web`。修改 `web/src` 后必须重新构建再刷新。组件使用 `--dsw-*` 主题变量、CSS Modules 与 `clsx`，不引入 Tailwind 或额外组件库；新增共享控件优先从 DSH atoms 按需摘抄，不自行重写主题值。
+
+## DSH Web 原生表面（实验）
+
+`@locus/dsh-surface` 在含 `@deepseek-ai/dsh-web-app` 的 profile 中提供 `/locus/api` 观察投影、Workspace 创建/改名、位置配置写与工作区关联，并注册独立 Locus Main Panel、左侧菜单、Session header 入口与 Hash URL。Header 为 `Locus` + `DSH` 返回 chip；tab 行为概览/文件/工作区，不嵌入 Chat/Trajectory。原生 rightbar 需要先运行 `pnpm patch:dsh`（两处 sidebar-right 门控补丁）；关联时提交 DSH 工作区路径，Host 自动登记为 Locus 位置。先构建，再从 shipped `web` 模板建立独立 profile；profile 位于 `.dsh/`，不进 Git：
+
+```sh
+pnpm build
+cp -r .dsh/profiles/web .dsh/profiles/locus-web
+DSH_HOME="$PWD/.dsh" pnpm exec dsh plugin --profile locus-web add link:"$PWD/packages/host-dsh" link:"$PWD/plugins/filesystem" link:"$PWD/packages/dsh-surface"
+```
+
+将以下行合入 `.dsh/profiles/locus-web/cordis.patch.yml`：
+
+```yaml
+- insert:
+    - id: locus-host
+      name: '@locus/host-dsh'
+    - id: locus-filesystem
+      name: '@locus/filesystem'
+    - id: locus-dsh-surface
+      name: '@locus/dsh-surface'
+```
+
+启动后使用终端打印的带 token URL：
+
+```sh
+DSH_HOME="$PWD/.dsh" pnpm exec dsh --profile locus-web --no-open --port 4320
+```
+
+该 profile 不接收 `web` 位置参数；`@locus/dsh-surface` 的 Host 半边依赖 `webServer`，在普通 `locus` CLI profile 中保持未激活。`/locus/api` 只接受 loopback，存在 `Origin` 时要求同源，并要求页面注入的 `x-locus-api-token`；不发送 CORS 头。写操作限于 Workspace 创建/改名、位置登记/取消与显式 DSH 工作区关联；不要把它暴露到非 loopback 绑定。
+
+打开带 token 的 URL 后，可从左侧 `Locus` 菜单或 Session header 入口进入；`#/locus` 默认当前 Session，`#/locus/workspaces` 是 Workspace 管理页。原生 rightbar 由 `pnpm patch:dsh` 启用。反向代理可把 DSH 挂载在子路径（例如 `/ui/`）；Locus API 以 `document.baseURI` 解析为 `/ui/locus/api/...`，代理把该前缀映射到 Host 的 `/locus/api/...` 即可。浏览器端源码在 `packages/dsh-surface/client/client.js`，由根 `pnpm build` 复制到 `lib/client.js`；修改后需重新构建并刷新页面。**修改 Host 半边后必须重启 DSH 进程**；仅刷新页面不会加载新增的 `/locus/api` 端点，页面会通过 `capabilities.workspaceManagement` 提示版本不匹配。
 
 ## 数据与恢复
 

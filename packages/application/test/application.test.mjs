@@ -58,6 +58,18 @@ test('确认前执行真实观察，缺失资源明确失败', async (t) => {
   assert.equal(f.app.getWorkspace(workspace.id).relations.length, 0)
 })
 
+test('应用层把新建与重命名用例交给 Filesystem 服务', async (t) => {
+  const f = fixture(t)
+  const workspace = f.app.createWorkspace('写入用例')
+  const location = f.app.registerLocation(workspace.id, f.files)
+  const created = await f.app.createFile(workspace.id, location.id, 'created.txt')
+  assert.equal(created.kind, 'file')
+  assert.equal((await f.app.createDirectory(workspace.id, location.id, 'folder')).kind, 'directory')
+  const renamed = await f.app.renameEntry(workspace.id, location.id, 'created.txt', 'folder/renamed.txt')
+  assert.equal(renamed.kind, 'file')
+  assert.equal(f.app.getWorkspace(workspace.id).relations.length, 0)
+})
+
 test('缺少 Filesystem 时 Workspace 用例仍可用，位置用例明确失败', async (t) => {
   const f = fixture(t)
   const app = createWorkspaceApplication({ locus: f.core })

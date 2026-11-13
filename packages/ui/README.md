@@ -16,7 +16,7 @@ pnpm exec dsh --profile locus ui
 
 ## DSH UI 框架
 
-`web/src/dsh/` 摘抄自 DSH master 的 `packages/client/ui-theme` 与 `ui-primitives`（MIT）；目标宿主为 `0.2.1-rc.5`：
+`web/src/dsh/` 摘抄自 DSH master 的 `packages/client/ui-theme` 与 `ui-primitives`（MIT）；摘抄时为 `0.2.1-rc.5`，当前宿主 `0.2.2-rc.1` 未逐项重校：
 
 - `theme/`：八张 `--dsw-*` token 与全局样式表（base、design-platform、gradient-shadow-text、corner-shape、focus、scrollbar、onboarding、shiki），原样保留；
 - `primitives/`：当前页面使用的 `Button`、`Input`、`Tag` 与 CSS Modules。

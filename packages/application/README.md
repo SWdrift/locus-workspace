@@ -12,9 +12,10 @@ import { createWorkspaceApplication } from '@locus/application'
 const app = createWorkspaceApplication({ locus, filesystem })
 const workspace = app.createWorkspace('研究')
 const location = app.registerLocation(workspace.id, 'D:/Projects')
+await app.createFile(workspace.id, location.id, 'notes.md')
 ```
 
-`filesystem` 可省略：Workspace 用例仍可用，调用 Filesystem 用例时明确失败。`confirmResource` 先执行一次真实观察，再把可访问引用交给 Core；发现结果不会自动成为长期关系。
+`filesystem` 可省略：Workspace 用例仍可用，调用 Filesystem 用例时明确失败。新建、重命名与读取、发现共用同一 `FilesystemService`；`renameEntry` 只是用例命名，避免与 Workspace 改名混淆。`confirmResource` 先执行一次真实观察，再把可访问引用交给 Core；发现、读取和写入都不会自动成为长期关系。
 
 ## 边界
 

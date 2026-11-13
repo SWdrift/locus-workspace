@@ -2,7 +2,7 @@
 
 ## 范围
 
-本文概括 DSH（DeepSeek Harness）插件的形态、生命周期、常用扩展点，以及本地调试、打包安装的路径，并汇总官方文档入口。内容按 dsh 0.2.1-rc.5 与官方 develop 文档核对；Cordis 完整 API、具体服务的契约和版本差异以官方页面为准。Locus 的组件划分与宿主适配边界见[项目架构](../architecture.md)，本文不定义 Locus 自身的服务契约。
+本文概括 DSH（DeepSeek Harness）插件的形态、生命周期、常用扩展点，以及本地调试、打包安装的路径，并汇总官方文档入口。内容按 dsh 0.2.2-rc.1 的实际包与官方 develop 文档核对；标注 `0.2.1-rc.5` 的实测条目保留其版本限定。Cordis 完整 API、具体服务的契约和版本差异以官方页面为准。Locus 的组件划分与宿主适配边界见[项目架构](../architecture.md)，本文不定义 Locus 自身的服务契约。
 
 ## 术语
 
@@ -103,6 +103,33 @@ export default class MetricsService extends Service {
 ```
 
 消费方把服务名写进 `inject`，或在调用点用 `ctx.get('metrics')` 做可选查询。需要隔离实例时，在 `cordis.yml` 的插件组上声明 `isolate`。
+
+### Main Panel 与全局入口
+
+DSH Web 的中央区域是 `main` keyed slot（root scope），全局侧栏入口是 `sidebar.panellist` list slot（root scope）。二者以同一个 `MainPanelId` 关联；`ctx.layout.selectPanel(id)` 切换面板，`ctx.layout.panelInfo` 暴露当前选中。`main` 不绑定 Session：除保留的 `conversation` 外，面板不获得 Session 文件权限。`ctx.layout.selectPanel(null)` 返回 Conversation。
+
+在 client 插件中同时注册面板与入口（0.2.2-rc.1 实测）：
+
+```ts
+import type { MainPanelId } from '@deepseek-ai/dsh-client-ui-layout/client'
+
+const PANEL_ID = 'locus' as MainPanelId
+
+ctx.effect(() => ctx.slots.inject('main', () =>
+  ctx.slots.register({ name: 'main', key: PANEL_ID }, Page)), 'panel')
+
+ctx.effect(() => ctx.slots.inject('sidebar.panellist', () =>
+  ctx.slots.register({
+    name: 'sidebar.panellist',
+    id: PANEL_ID,
+    order: 10,
+    label: () => 'Locus',
+  }, Icon)), 'entry')
+```
+
+侧栏条目的组件收到 `{ size, active }`；点击后的 `selectPanel` 由侧栏 shell 完成，注册方不写导航。面板 body 获得标准 slot props（`renderSlot`、`renderFactorySlot` 等），因此 root-scoped Factory（如 `sidebar.files.tree`）可直接在主面板使用，不需要访问 DSH 内部 store。注册随 `ctx.effect` 释放；重复 `id` 或同一 slot 的冲突注册会抛出。
+
+Session header 的扩展座位：`conversation.session.header.actions` 是标题旁的 list（agent preset 为 `order:-10`），`conversation.session.header.utilities` 是右侧 list，`conversation.session.header.corner` 是 single 且已被右侧栏展开按钮占用。要添加贴近标题的入口，用 actions 并给一个大于 `-10` 的 `order`；要复用模式 chip 的外观，对齐 `--dsw-alias-fill-tsp-secondary`、`--dsw-radius-xs`、`--dsw-alias-label-tertiary` 与 22px 高度。
 
 ### 事件
 

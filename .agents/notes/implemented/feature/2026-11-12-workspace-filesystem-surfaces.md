@@ -19,7 +19,7 @@ Status: implemented
 - CLI 保留 `version`、`shell`、`workspace`、`fs`，新增 `ui [--port]`；命令树只做参数、确认与文本/JSON 渲染。
 - `@locus/ui` 在现有 DSH 进程内提供 loopback HTTP、静态资源与 JSON API；只在显式 `ui` 命令下监听，默认 `127.0.0.1:4310`。页面每次启动生成会话令牌并注入 HTML，API 要求 `x-locus-ui-token`，存在 `Origin` 时只接受本机同源。
 - CLI 与 UI 作为 Core 交互包放在 `packages/cli`、`packages/ui`，不再作为领域插件目录；两者仍是 DSH/Cordis 的装配入口，但归属核心交互层。
-- 浏览器端采用 React 18 + Vite + TypeScript + CSS Modules + clsx；`web/src/dsh/theme` 的八张样式表与 `Button`/`Input`/`Tag`/`StateDot`/`Toast`/`Tooltip`/`RiskConfirmation` 等 atoms 摘抄自 DSH master、目标宿主 `0.2.1-rc.5`，沿用 `--dsw-*` token、圆角、发丝线与反馈规则；根 `pnpm build` 同时编译传输层与浏览器端。
+- 浏览器端采用 React 18 + Vite + TypeScript + CSS Modules + clsx；`web/src/dsh/theme` 的八张样式表与 `Button`/`Input`/`Tag`/`StateDot`/`Toast`/`Tooltip`/`RiskConfirmation` 等 atoms 摘抄自 DSH master、摘抄时为 `0.2.1-rc.5`（当前宿主 `0.2.2-rc.1` 未逐项重校），沿用 `--dsw-*` token、圆角、发丝线与反馈规则；根 `pnpm build` 同时编译传输层与浏览器端。
 - 页面提供 Workspace 列表/创建/改名、关系查看与解除、位置登记/取消、单层浏览、文件读取与显式确认；所有动作调用共享用例。
 
 ### 暂不引入

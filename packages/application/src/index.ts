@@ -43,6 +43,14 @@ export interface WorkspaceApplication {
     relativePath?: string,
     maxBytes?: number,
   ): Promise<FilesystemRead>
+  createFile(workspaceId: string, locationId: string, relativePath: string): Promise<FilesystemObservation>
+  createDirectory(workspaceId: string, locationId: string, relativePath: string): Promise<FilesystemObservation>
+  renameEntry(
+    workspaceId: string,
+    locationId: string,
+    fromRelativePath: string,
+    toRelativePath: string,
+  ): Promise<FilesystemObservation>
   confirmResource(
     workspaceId: string,
     locationId: string,
@@ -87,6 +95,12 @@ export function createWorkspaceApplication(services: WorkspaceApplicationService
       requireFilesystem().discover(workspaceId, locationId, relativePath, limit),
     readLocation: (workspaceId, locationId, relativePath, maxBytes) =>
       requireFilesystem().read(workspaceId, locationId, relativePath, maxBytes),
+    createFile: (workspaceId, locationId, relativePath) =>
+      requireFilesystem().createFile(workspaceId, locationId, relativePath),
+    createDirectory: (workspaceId, locationId, relativePath) =>
+      requireFilesystem().createDirectory(workspaceId, locationId, relativePath),
+    renameEntry: (workspaceId, locationId, fromRelativePath, toRelativePath) =>
+      requireFilesystem().rename(workspaceId, locationId, fromRelativePath, toRelativePath),
     async confirmResource(workspaceId, locationId, kind, relativePath) {
       const resource = await requireFilesystem().inspect(workspaceId, locationId, relativePath)
       if (resource.state !== 'accessible') {

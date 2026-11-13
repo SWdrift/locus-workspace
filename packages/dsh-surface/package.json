@@ -1,0 +1,45 @@
+{
+  "name": "@locus/dsh-surface",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "main": "./lib/index.js",
+  "types": "./lib/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./lib/index.d.ts",
+      "default": "./lib/index.js"
+    },
+    "./client": {
+      "types": "./lib/client.d.ts",
+      "default": "./lib/client.js"
+    }
+  },
+  "files": [
+    "lib"
+  ],
+  "scripts": {
+    "build": "tsc -b tsconfig.json && node scripts/build-client.mjs",
+    "build:client": "node scripts/build-client.mjs"
+  },
+  "dependencies": {
+    "@locus/application": "workspace:*",
+    "@locus/contracts": "workspace:*"
+  },
+  "devDependencies": {
+    "@deepseek-ai/cordis": "~4.0.5"
+  },
+  "dsh": {
+    "client": {
+      "platform": "web",
+      "inject": [
+        "slots",
+        "sessions",
+        "workspaces",
+        "layout",
+        "uiWorkspace",
+        "sidebarRight"
+      ]
+    }
+  }
+}

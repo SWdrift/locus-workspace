@@ -21,7 +21,7 @@ function workspaceNames(locus: LocusService): readonly string[] {
 | 交互 | 生产者与消费者 | 语义所有者 |
 | --- | --- | --- |
 | `LocusService` / Workspace 用例 | Core → host 的 `locus` → Plugin、CLI | [Core](../core/README.md) |
-| Filesystem 位置与观察 | Filesystem → CLI、UI | [Filesystem](../../plugins/filesystem/README.md) |
+| Filesystem 位置、观察与文件操作 | Filesystem → CLI、UI | [Filesystem](../../plugins/filesystem/README.md) |
 | `LocusUiLauncher` | UI Plugin → CLI | [UI](../../packages/ui/README.md) |
 
 具体字段与方法由[源码](src/index.ts)维护，不在 README 重抄类型清单。Core 的领域引用对其自身是不透明的；Plugin 返回当前观察，应用显式确认后才调用长期关系用例。

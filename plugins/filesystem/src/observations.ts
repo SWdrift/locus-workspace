@@ -1,11 +1,13 @@
 import { constants } from 'node:fs'
 import type { Dir, Stats } from 'node:fs'
-import { access, lstat, open, opendir } from 'node:fs/promises'
+import { access, lstat, mkdir, open, opendir, rename, writeFile } from 'node:fs/promises'
 import { isAbsolute, join, parse, relative, resolve, sep } from 'node:path'
 import { StringDecoder } from 'node:string_decoder'
 import { pathToFileURL } from 'node:url'
 import type {
   FilesystemDiscovery,
+  FilesystemErrorCode,
+  FilesystemFailure,
   FilesystemObservation,
   FilesystemRead,
   ResourceReference,
@@ -42,6 +44,23 @@ function errorDetails(error: unknown): { state: FilesystemObservation['state']; 
 
 function nativeError(action: string, error: unknown): Error {
   return new Error(`${action}失败：${errorDetails(error).message}`)
+}
+
+function failure(code: FilesystemErrorCode, message: string): FilesystemFailure {
+  return Object.assign(new Error(message), { code })
+}
+
+function stateCode(state: FilesystemObservation['state']): FilesystemErrorCode {
+  if (state === 'missing') return 'not-found'
+  if (state === 'denied') return 'denied'
+  if (state === 'unavailable') return 'unavailable'
+  return 'io'
+}
+
+function failureFor(action: string, error: unknown): FilesystemFailure {
+  const value = error instanceof Error && 'code' in error ? error.code : undefined
+  if (value === 'EEXIST') return failure('exists', `${action}失败：目标已存在 (EEXIST)`)
+  return failure(stateCode(errorDetails(error).state), `${action}失败：${errorDetails(error).message}`)
 }
 
 function observe(
@@ -83,14 +102,16 @@ export class FilesystemObserver {
     if (stored.hostname !== this.hostname) {
       return { path: location.path, reference: location.reference, anchor: '', parts: [], local: false }
     }
-    if (!isAbsolute(location.path)) throw new Error('保存的本机 Filesystem 位置不是绝对路径，拒绝重新绑定')
+    if (!isAbsolute(location.path)) {
+      throw failure('invalid', '保存的本机 Filesystem 位置不是绝对路径，拒绝重新绑定')
+    }
     if (relativePath.includes('\0') || isAbsolute(relativePath)) {
-      throw new Error('relativePath 必须是登记范围内的相对路径，不能包含空字符或绝对路径')
+      throw failure('invalid', 'relativePath 必须是登记范围内的相对路径，不能包含空字符或绝对路径')
     }
     const path = resolve(location.path, relativePath)
     const child = relative(location.path, path)
     if (child === '..' || child.startsWith(`..${sep}`) || isAbsolute(child)) {
-      throw new Error('relativePath 不能越过登记位置的范围')
+      throw failure('outside-location', 'relativePath 不能越过登记位置的范围')
     }
     const anchor = parse(path).root
     const fromAnchor = relative(anchor, path)
@@ -103,6 +124,43 @@ export class FilesystemObserver {
       anchor,
       parts: fromAnchor === '' ? [] : fromAnchor.split(sep),
       local: true,
+    }
+  }
+
+  private assertLocal(target: Target): void {
+    if (!target.local) {
+      throw failure('unavailable', '位置属于其他主机，不会自动绑定到本机同名路径')
+    }
+  }
+
+  /** 从绝对路径根逐段确认写目标父路径；链接只拒绝，不在链接下创建。 */
+  private async ensureWriteParent(target: Target): Promise<void> {
+    this.assertLocal(target)
+    let path = target.anchor
+    for (let index = 0; index < target.parts.length - 1; index++) {
+      const next = join(path, target.parts[index]!)
+      let stats: Stats
+      try {
+        stats = await lstat(next)
+      } catch (error) {
+        throw failureFor('检查目标父路径', error)
+      }
+      if (stats.isSymbolicLink()) {
+        throw failure('symlink', '不允许穿过登记范围中的符号链接或 junction')
+      }
+      if (!stats.isDirectory()) throw failure('not-directory', '目标父路径不是目录')
+      path = next
+    }
+  }
+
+  /** 只区分“存在”与“不存在”；父路径不是目录留给原生操作报告失败。 */
+  private async existingStats(target: Target): Promise<Stats | undefined> {
+    try {
+      return await lstat(target.path)
+    } catch (error) {
+      const value = error instanceof Error && 'code' in error ? error.code : undefined
+      if (value === 'ENOENT' || value === 'ENOTDIR') return undefined
+      throw failureFor('检查目标路径', error)
     }
   }
 
@@ -225,5 +283,67 @@ export class FilesystemObserver {
     } finally {
       await handle.close().catch(error => { throw nativeError('关闭文件', error) })
     }
+  }
+
+  async createFile(stored: StoredLocation, relativePath: string): Promise<FilesystemObservation> {
+    const target = this.target(stored, relativePath)
+    if (target.path === resolve(stored.location.path)) {
+      throw failure('invalid', '不能在位置根新建文件，请指定子路径')
+    }
+    await this.ensureWriteParent(target)
+    if (await this.existingStats(target)) {
+      throw failure('exists', '目标已存在，新建文件不会覆盖')
+    }
+    await writeFile(target.path, '', { flag: 'wx' }).catch(error => { throw failureFor('新建文件', error) })
+    return (await this.probe(target)).observation
+  }
+
+  async createDirectory(stored: StoredLocation, relativePath: string): Promise<FilesystemObservation> {
+    const target = this.target(stored, relativePath)
+    if (target.path === resolve(stored.location.path)) {
+      throw failure('invalid', '不能在位置根新建目录，请指定子路径')
+    }
+    await this.ensureWriteParent(target)
+    if (await this.existingStats(target)) {
+      throw failure('exists', '目标已存在，新建目录不会覆盖')
+    }
+    await mkdir(target.path).catch(error => { throw failureFor('新建目录', error) })
+    return (await this.probe(target)).observation
+  }
+
+  async rename(
+    stored: StoredLocation,
+    fromRelativePath: string,
+    toRelativePath: string,
+  ): Promise<FilesystemObservation> {
+    const source = this.target(stored, fromRelativePath)
+    const destination = this.target(stored, toRelativePath)
+    this.assertLocal(source)
+    this.assertLocal(destination)
+    const rootPath = resolve(stored.location.path)
+    if (
+      source.path === rootPath || destination.path === rootPath ||
+      source.parts.length === 0 || destination.parts.length === 0
+    ) {
+      throw failure('invalid', '不能重命名位置根目录')
+    }
+    if (source.path === destination.path) throw failure('invalid', '源路径与目标路径相同')
+
+    const { observation, stats } = await this.probe(source)
+    if (observation.state !== 'accessible') {
+      throw failure(stateCode(observation.state), `重命名失败：源路径${observation.state}`)
+    }
+    if (observation.kind === 'symlink') throw failure('symlink', '不重命名符号链接或 junction')
+    if (!stats || (observation.kind !== 'file' && observation.kind !== 'directory')) {
+      throw failure('invalid', '只重命名普通文件或目录')
+    }
+    await this.ensureWriteParent(destination)
+    const existing = await this.existingStats(destination)
+    // Windows 的大小写重命名会命中同一文件；其余已存在目标一律拒绝覆盖。
+    if (existing && (existing.dev !== stats.dev || existing.ino !== stats.ino)) {
+      throw failure('exists', '目标已存在，重命名不会覆盖')
+    }
+    await rename(source.path, destination.path).catch(error => { throw failureFor('重命名', error) })
+    return (await this.probe(destination)).observation
   }
 }

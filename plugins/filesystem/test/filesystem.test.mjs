@@ -434,3 +434,147 @@ test('释放服务等待正在进行的有界 I/O，之后拒绝新调用且重�
   await assert.rejects(f.filesystem.inspect(value.id, location.id), /已释放/)
   assert.equal(await readFile(join(f.nativeDirectory, 'active.txt'), 'utf8'), 'a'.repeat(65537))
 })
+
+test('新建文件与目录留在位置范围内，冲突不覆盖，链接下不创建', async t => {
+  const f = await fixture(t)
+  const value = workspace(f)
+  const location = f.filesystem.register(value.id, f.nativeDirectory)
+
+  const file = await f.filesystem.createFile(value.id, location.id, 'notes.txt')
+  assert.equal(file.state, 'accessible')
+  assert.equal(file.kind, 'file')
+  assert.equal((await f.filesystem.read(value.id, location.id, 'notes.txt')).text, '')
+  const directory = await f.filesystem.createDirectory(value.id, location.id, 'docs')
+  assert.equal(directory.kind, 'directory')
+  assert.equal((await f.filesystem.createFile(value.id, location.id, 'docs/page.md')).kind, 'file')
+  const discovered = await f.filesystem.discover(value.id, location.id)
+  assert.deepEqual(discovered.entries.map(entry => basename(entry.path)), ['docs', 'notes.txt'])
+
+  await assert.rejects(f.filesystem.createFile(value.id, location.id, 'notes.txt'), { code: 'exists' })
+  await assert.rejects(f.filesystem.createDirectory(value.id, location.id, 'docs'), { code: 'exists' })
+  await assert.rejects(f.filesystem.createFile(value.id, location.id, 'docs'), { code: 'exists' })
+  await assert.rejects(f.filesystem.createFile(value.id, location.id, ''), { code: 'invalid' })
+  await assert.rejects(f.filesystem.createDirectory(value.id, location.id, ''), { code: 'invalid' })
+  await assert.rejects(f.filesystem.createFile(value.id, location.id, 'missing/new.txt'), { code: 'not-found' })
+  await assert.rejects(f.filesystem.createDirectory(value.id, location.id, 'missing/child'), { code: 'not-found' })
+  await assert.rejects(f.filesystem.createFile(value.id, location.id, join(f.root, 'outside.txt')), {
+    code: 'invalid',
+  })
+  await assert.rejects(f.filesystem.createFile(value.id, location.id, 'bad\0name'), { code: 'invalid' })
+  await assert.rejects(f.filesystem.createFile(value.id, location.id, '../outside.txt'), {
+    code: 'outside-location',
+  })
+
+  const other = workspace(f, '另一工作空间')
+  const otherLocation = f.filesystem.register(other.id, join(f.root, 'other'))
+  await assert.rejects(f.filesystem.createFile(value.id, otherLocation.id, 'x.txt'), /不存在 Filesystem 位置/)
+  assert.equal(f.filesystem.locations(other.id).length, 1)
+  assert.deepEqual(f.core.workspaces.get(value.id).relations, [])
+
+  const outside = join(f.root, 'outside-write')
+  await mkdir(outside)
+  const shortcut = join(f.nativeDirectory, 'shortcut')
+  try {
+    await symlink(outside, shortcut, process.platform === 'win32' ? 'junction' : 'dir')
+  } catch (error) {
+    if (['EPERM', 'EACCES', 'ENOSYS', 'ENOTSUP'].includes(error.code)) {
+      t.diagnostic(`当前环境不允许创建测试链接：${error.code}`)
+      return
+    }
+    throw error
+  }
+  await assert.rejects(f.filesystem.createFile(value.id, location.id, 'shortcut/escape.txt'), {
+    code: 'symlink',
+  })
+  await assert.rejects(f.filesystem.createDirectory(value.id, location.id, 'shortcut/nested'), {
+    code: 'symlink',
+  })
+  await assert.rejects(stat(join(outside, 'escape.txt')), { code: 'ENOENT' })
+  await assert.rejects(stat(join(outside, 'nested')), { code: 'ENOENT' })
+})
+
+test('重命名限于同一位置，冲突不覆盖，拒绝位置根与符号链接', async t => {
+  const f = await fixture(t)
+  const value = workspace(f)
+  const location = f.filesystem.register(value.id, f.nativeDirectory)
+  await writeFile(join(f.nativeDirectory, 'draft.txt'), '重命名前的内容')
+  await f.filesystem.createDirectory(value.id, location.id, 'old')
+  await f.filesystem.createFile(value.id, location.id, 'old/page.md')
+
+  const moved = await f.filesystem.rename(value.id, location.id, 'draft.txt', 'final.txt')
+  assert.equal(moved.kind, 'file')
+  assert.equal((await f.filesystem.read(value.id, location.id, 'final.txt')).text, '重命名前的内容')
+  await assert.rejects(f.filesystem.read(value.id, location.id, 'draft.txt'), /无法读取文件/)
+  const renamed = await f.filesystem.rename(value.id, location.id, 'old', 'new')
+  assert.equal(renamed.kind, 'directory')
+  assert.equal((await f.filesystem.read(value.id, location.id, 'new/page.md')).text, '')
+
+  await writeFile(join(f.nativeDirectory, 'taken.txt'), '不可覆盖')
+  await assert.rejects(f.filesystem.rename(value.id, location.id, 'final.txt', 'taken.txt'), { code: 'exists' })
+  assert.equal(await readFile(join(f.nativeDirectory, 'taken.txt'), 'utf8'), '不可覆盖')
+  await assert.rejects(f.filesystem.rename(value.id, location.id, 'absent.txt', 'x.txt'), { code: 'not-found' })
+  await assert.rejects(f.filesystem.rename(value.id, location.id, 'final.txt', 'missing/x.txt'), {
+    code: 'not-found',
+  })
+  await assert.rejects(f.filesystem.rename(value.id, location.id, '', 'moved'), { code: 'invalid' })
+  await assert.rejects(f.filesystem.rename(value.id, location.id, 'final.txt', ''), { code: 'invalid' })
+  await assert.rejects(f.filesystem.rename(value.id, location.id, 'final.txt', 'final.txt'), { code: 'invalid' })
+  await assert.rejects(f.filesystem.rename(value.id, location.id, 'final.txt', '../outside.txt'), {
+    code: 'outside-location',
+  })
+
+  const outside = join(f.root, 'outside-rename.txt')
+  await writeFile(outside, '链接目标')
+  const link = join(f.nativeDirectory, 'file-link.txt')
+  try {
+    await symlink(outside, link, 'file')
+  } catch (error) {
+    if (['EPERM', 'EACCES', 'ENOSYS', 'ENOTSUP'].includes(error.code)) {
+      t.diagnostic(`当前环境不允许创建测试链接：${error.code}`)
+      return
+    }
+    throw error
+  }
+  await assert.rejects(f.filesystem.rename(value.id, location.id, 'file-link.txt', 'renamed-link.txt'), {
+    code: 'symlink',
+  })
+  assert.equal(await readFile(outside, 'utf8'), '链接目标')
+  assert.deepEqual(f.core.workspaces.get(value.id).relations, [])
+})
+
+test('写操作遇到原生权限拒绝报告 denied，不留下部分结果', async t => {
+  const f = await fixture(t)
+  const value = workspace(f)
+  const directory = join(f.nativeDirectory, 'locked')
+  await mkdir(directory)
+  const location = f.filesystem.register(value.id, directory)
+  try {
+    if (process.platform === 'win32') {
+      const denied = spawnSync('icacls', [directory, '/deny', `${process.env.USERNAME}:(W)`], { encoding: 'utf8' })
+      assert.equal(denied.status, 0, denied.stderr || denied.stdout)
+    } else {
+      await chmod(directory, 0o500)
+    }
+    if (process.platform === 'win32') {
+      await assert.rejects(f.filesystem.createFile(value.id, location.id, 'blocked.txt'), { code: 'denied' })
+    } else {
+      try {
+        await f.filesystem.createFile(value.id, location.id, 'blocked.txt')
+        t.skip('当前用户可绕过目录权限，不能制造真实 EACCES')
+        return
+      } catch (error) {
+        assert.equal(error.code, 'denied')
+      }
+    }
+    await assert.rejects(f.filesystem.createDirectory(value.id, location.id, 'blocked'), { code: 'denied' })
+    await assert.rejects(stat(join(directory, 'blocked.txt')), { code: 'ENOENT' })
+    await assert.rejects(stat(join(directory, 'blocked')), { code: 'ENOENT' })
+  } finally {
+    if (process.platform === 'win32') {
+      const restored = spawnSync('icacls', [directory, '/remove:d', process.env.USERNAME], { encoding: 'utf8' })
+      assert.equal(restored.status, 0, restored.stderr || restored.stdout)
+    } else {
+      await chmod(directory, 0o700)
+    }
+  }
+})

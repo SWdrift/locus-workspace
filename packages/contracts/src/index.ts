@@ -86,6 +86,23 @@ export interface FilesystemRead {
   readonly truncated: boolean
 }
 
+/** 写操作的业务失败分类；诊断文本不包含原生异常的路径或内容。 */
+export type FilesystemErrorCode =
+  | 'invalid'
+  | 'outside-location'
+  | 'not-found'
+  | 'exists'
+  | 'not-directory'
+  | 'symlink'
+  | 'unavailable'
+  | 'denied'
+  | 'io'
+
+/** Filesystem 写用例的失败；`code` 供交互面映射，不替代错误消息。 */
+export interface FilesystemFailure extends Error {
+  readonly code: FilesystemErrorCode
+}
+
 /** Filesystem 与 CLI 的实际局部协议，不是通用资源系统。 */
 export interface FilesystemService {
   register(workspaceId: string, path: string): FilesystemLocation
@@ -94,6 +111,17 @@ export interface FilesystemService {
   inspect(workspaceId: string, locationId: string, relativePath?: string): Promise<FilesystemObservation>
   discover(workspaceId: string, locationId: string, relativePath?: string, limit?: number): Promise<FilesystemDiscovery>
   read(workspaceId: string, locationId: string, relativePath?: string, maxBytes?: number): Promise<FilesystemRead>
+  /** 在已存在的位置范围内新建空文件；目标已存在时不覆盖。 */
+  createFile(workspaceId: string, locationId: string, relativePath: string): Promise<FilesystemObservation>
+  /** 在已存在的位置范围内新建单层目录；父目录必须存在，目标已存在时不覆盖。 */
+  createDirectory(workspaceId: string, locationId: string, relativePath: string): Promise<FilesystemObservation>
+  /** 同一位置内重命名普通文件或目录；不跨位置、不覆盖、不处理符号链接。 */
+  rename(
+    workspaceId: string,
+    locationId: string,
+    fromRelativePath: string,
+    toRelativePath: string,
+  ): Promise<FilesystemObservation>
 }
 
 /** 本地 UI 传输适配器；只在显式 ui 命令下监听 loopback。 */
