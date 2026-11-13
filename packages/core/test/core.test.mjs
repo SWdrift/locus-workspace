@@ -352,17 +352,20 @@ test('dispose 关闭已打开的连接并阻止捕获的服务继续使用，重
   const setup = fixture(t)
   const core = setup.open()
   const service = core.workspaces
+  const mounts = core.mounts
   const workspace = service.create('释放资源')
   await core.dispose()
   await core.dispose()
   assert.throws(() => core.info, /已释放/)
   assert.throws(() => core.dataDirectory, /已释放/)
   assert.throws(() => core.workspaces, /已释放/)
+  assert.throws(() => core.mounts, /已释放/)
   const operations = [
     () => service.create('新对象'),
     () => service.list(),
     () => service.get(workspace.id),
     () => service.rename(workspace.id, '改名'),
+    () => service.remove(workspace.id),
     () =>
       service.link(
         workspace.id,
@@ -371,7 +374,132 @@ test('dispose 关闭已打开的连接并阻止捕获的服务继续使用，重
         { kind: 'manual', detail: '来源' },
       ),
     () => service.unlink(workspace.id, 'relation-id'),
+    () => mounts.list(workspace.id),
+    () => mounts.add(workspace.id, join(setup.root, 'another')),
   ]
   for (const operation of operations) assert.throws(operation, /已释放/)
   assert.deepEqual(setup.open().workspaces.get(workspace.id), workspace)
+})
+
+test('挂载名称与路径在 Workspace 内唯一，删除 Workspace 级联自有记录', (t) => {
+  const setup = fixture(t)
+  const core = setup.open()
+  const workspace = core.workspaces.create('挂载语境')
+  const other = core.workspaces.create('其他语境')
+
+  const alpha = core.mounts.add(workspace.id, join(setup.root, 'alpha'))
+  assert.equal(alpha.name, 'alpha')
+  assert.equal(alpha.path, join(setup.root, 'alpha'))
+  assert.equal(alpha.workspaceId, workspace.id)
+
+  const beta = core.mounts.add(workspace.id, join(setup.root, 'beta'), { name: 'beta' })
+  assert.deepEqual(
+    core.workspaces.get(workspace.id).mounts.map((mount) => mount.name),
+    ['alpha', 'beta'],
+  )
+
+  assert.throws(
+    () => core.mounts.add(workspace.id, join(setup.root, 'alpha')),
+    /路径已挂载/,
+  )
+  assert.throws(
+    () => core.mounts.add(workspace.id, join(setup.root, 'gamma'), { name: 'ALPHA' }),
+    /挂载名称已存在/,
+  )
+  assert.throws(
+    () => core.mounts.add(workspace.id, join(setup.root, 'gamma'), { name: 'bad name' }),
+    /挂载名称/,
+  )
+  assert.throws(() => core.mounts.add(workspace.id, 'relative-path'), /绝对路径/)
+
+  core.workspaces.link(
+    workspace.id,
+    'member',
+    { namespace: 'example.resource', id: 'mounted' },
+    { kind: 'manual', detail: '挂载测试' },
+  )
+  core.workspaces.link(
+    other.id,
+    'association',
+    { namespace: 'locus.workspace', id: workspace.id },
+    { kind: 'manual', detail: '指向待删除 Workspace' },
+  )
+  core.mounts.remove(workspace.id, 'ALPHA')
+  assert.deepEqual(
+    core.workspaces.get(workspace.id).mounts.map((mount) => mount.name),
+    ['beta'],
+  )
+
+  core.workspaces.remove(workspace.id)
+  assert.throws(() => core.workspaces.get(workspace.id), /找不到 Workspace/)
+  assert.deepEqual(core.workspaces.list().map((item) => item.id), [other.id])
+  assert.deepEqual(core.workspaces.get(other.id).relations, [])
+  assert.deepEqual(core.mounts.list(other.id), [])
+})
+
+test('v1 数据库迁移保留 Workspace 与关系并加入 mounts 表', async (t) => {
+  const setup = fixture(t)
+  mkdirSync(setup.dataDirectory, { recursive: true })
+  const filename = join(setup.dataDirectory, 'core.sqlite')
+  const workspaceId = '11111111-1111-4111-8111-111111111111'
+  const relationId = '22222222-2222-4222-8222-222222222222'
+  const database = new DatabaseSync(filename)
+  database.exec(`
+    CREATE TABLE workspaces (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      created_at TEXT NOT NULL
+    ) STRICT;
+    CREATE TABLE relations (
+      id TEXT PRIMARY KEY,
+      workspace_id TEXT NOT NULL,
+      kind TEXT NOT NULL,
+      target_namespace TEXT NOT NULL,
+      target_id TEXT NOT NULL,
+      source_kind TEXT NOT NULL,
+      source_detail TEXT NOT NULL,
+      created_at TEXT NOT NULL
+    ) STRICT;
+    PRAGMA user_version = 1;
+  `)
+  database
+    .prepare('INSERT INTO workspaces (id, name, created_at) VALUES (?, ?, ?)')
+    .run(workspaceId, '旧身份', '2026-11-13T00:00:00.000Z')
+  database
+    .prepare(
+      `INSERT INTO relations
+       (id, workspace_id, kind, target_namespace, target_id, source_kind, source_detail, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    )
+    .run(
+      relationId,
+      workspaceId,
+      'member',
+      'example.resource',
+      'legacy',
+      'manual',
+      '迁移前确认',
+      '2026-11-13T00:00:00.000Z',
+    )
+  database.close()
+
+  const core = setup.open()
+  const workspace = core.workspaces.get(workspaceId)
+  assert.equal(workspace.name, '旧身份')
+  assert.deepEqual(workspace.relations.map((relation) => relation.id), [relationId])
+  assert.deepEqual(workspace.mounts, [])
+
+  const mount = core.mounts.add(workspaceId, join(setup.root, 'legacy-workspace'), {
+    name: 'legacy',
+  })
+  assert.equal(mount.name, 'legacy')
+  await core.dispose()
+
+  const migrated = new DatabaseSync(filename)
+  assert.equal(migrated.prepare('PRAGMA user_version').get().user_version, 2)
+  migrated.close()
+  assert.deepEqual(
+    setup.open().workspaces.get(workspaceId).mounts.map((item) => item.name),
+    ['legacy'],
+  )
 })

@@ -6,7 +6,7 @@
 
 | 层级 | 入口 | 运行内容 |
 | --- | --- | --- |
-| 快速层 | `pnpm test` | Core 包测试与 `tests/*.test.mjs` 跨包测试；不含 e2e |
+| 快速层 | `pnpm test` | Core 包测试、CLI/Skill 跨包测试；不含 e2e |
 | 全量进程内 | `pnpm test:all` | 经 `tests/run.mjs` 运行 `packages/*/test/`、`apps/*/test/` 与 `tests/*.test.mjs`；不含 e2e |
 | 单文件 | `pnpm test:file <文件>` | 直接运行一个 `node --test` 文件，可附加 `--test-name-pattern <模式>` 过滤用例 |
 | CLI 端到端 | `pnpm e2e` | 经 `tests/run.mjs` 运行 `tests/e2e/*.mjs`，使用真实构建产物与独立进程；受[高耗时操作节流](#高耗时操作节流)约束 |
@@ -39,7 +39,7 @@ e2e 只保留进程内测试无法覆盖的组合：真实 `apps/cli/lib/index.j
 ## 目录与形态
 
 - `packages/*/test/` 与 `apps/*/test/` 是包测试，使用 `node:test`。当前 Core 注册了独立 `test` script；CLI 的功能测试位于跨包层。
-- `tests/*.test.mjs` 是跨包测试，当前为 CLI 子进程用例。
+- `tests/*.test.mjs` 是跨包测试，当前为 CLI 子进程与 Skill 脚本用例。
 - `tests/e2e/*.mjs` 是端到端脚本，当前为 `cli-workflow.mjs`；不匹配 `*.test.mjs`，因此不会被快速层或全量层误收集。
 - `tests/run.mjs` 是系统性测试入口，负责文件收集、冷却检查与运行记录；名称不匹配 `*.test.mjs`，不会被自身收集。
 - `scripts/docs.test.mjs` 验证文档检查器自身的通过与失败边界。
@@ -51,6 +51,7 @@ e2e 只保留进程内测试无法覆盖的组合：真实 `apps/cli/lib/index.j
 - Core 测试使用真实 SQLite 文件与真实临时目录，覆盖身份、关系、重开、备份、锁与损坏恢复。
 - CLI 跨包测试通过 `spawnSync` 启动构建后的 bin；每次命令都是独立进程，跨进程恢复由真实 SQLite 与文件系统承担。
 - CLI e2e 使用临时绝对 `LOCUS_HOME`、真实构建产物与 `pnpm locus` 包装，验证完整命令链、退出码与冷却入口；不访问外部服务。
+- Skill 用例设置 `LOCUS_CLI` 与临时 `LOCUS_HOME`，通过真实 CLI 创建 Workspace/挂载，再运行 `workspace-pick`、`workspace-summary` 与 `shell-context`。
 - 测试导入 `lib/` 构建产物，因此运行前需要 `pnpm build`；测试不使用运行时 TypeScript 转译。
 
 ## 编写约束

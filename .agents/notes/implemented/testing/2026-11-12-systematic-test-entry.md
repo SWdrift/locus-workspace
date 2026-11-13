@@ -32,13 +32,12 @@ Status: implemented
 
 冷却只对当前工作副本的 `temp/` 生效，不同克隆、不同机器之间互不影响；日志被 Git 忽略，不能作为跨环境证据。入口不处理并发运行同一类型，两个进程同时通过检查时仍可能重叠，这是有意保留的简单性，因为系统性测试默认串行执行。
 
-`all` 只记录不锁定，因为实测约 2 秒；如果后续新增分钟级系统性测试，需要在 `SUITES` 中配置窗口并同步本文与测试文档。
+`all` 只记录不锁定，因为实测约 6 秒；如果后续新增分钟级系统性测试，需要在 `SUITES` 中配置窗口并同步本文与测试文档。
 
 ## 测试
 
-- `pnpm test:all`：20 个用例通过；入口写入 `suite=all start` 与 `passed duration=2.0`。
-- `pnpm test:all --force --reason "verify force logging"`：20 个用例通过；记录带 `forced=true reason=verify force logging`。
-- `pnpm e2e`：20 次真实 CLI 调用、3.3 秒通过；入口写入 `suite=e2e start` 与 `passed duration=3.3`。
-- 紧接着再次执行 `pnpm e2e`：以退出码 3 拒绝，打印上次开始时间与剩余时间，未启动 e2e。
-- `pnpm verify:full`：构建、20 个用例、37 个 Markdown 文档检查与 e2e 全部通过，总计约 9 秒。
-- `pnpm docs:check`：37 个 Markdown 文件通过。
+- `pnpm test:all`：24 个用例通过；入口写入 `suite=all start` 与 `passed duration=6.3`。
+- `pnpm test:all --force --reason "verify force logging"`：强制记录路径已通过；记录带 `forced=true reason=...`。
+- `node tests/e2e/cli-workflow.mjs`：25 次真实 CLI 调用通过；覆盖挂载、shell 上下文、跨进程恢复与删除。
+- `pnpm e2e`：冷却入口在已有 `suite=e2e` 记录未过期时以退出码 3 拒绝，打印上次开始时间与剩余时间，未启动 e2e。
+- `pnpm docs:check`：39 个 Markdown 文件通过；`pnpm docs:test`：51 个检查器用例通过。

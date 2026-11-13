@@ -1,4 +1,6 @@
-.agents/skills
+# 产品 Skill 入库；其他本机 Skill 保持私有。
+.agents/skills/*
+!.agents/skills/locus/
 packages/*/lib/
 apps/*/lib/
 .locus-data/

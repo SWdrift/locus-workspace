@@ -24,11 +24,21 @@ export interface WorkspaceRelation {
   readonly createdAt: string
 }
 
+/** Workspace 挂载的本机目录；名称用于 CLI 与 shell 环境变量。 */
+export interface Mount {
+  readonly id: string
+  readonly workspaceId: string
+  readonly name: string
+  readonly path: string
+  readonly createdAt: string
+}
+
 export interface Workspace {
   readonly id: string
   readonly name: string
   readonly createdAt: string
   readonly relations: readonly WorkspaceRelation[]
+  readonly mounts: readonly Mount[]
 }
 
 /** 长期工作语境用例；同步成功返回即完成本地持久写入。 */
@@ -44,6 +54,15 @@ export interface WorkspaceService {
     source: RelationSource,
   ): WorkspaceRelation
   unlink(id: string, relationId: string): void
+  /** 删除 Workspace 及其长期关系与挂载，不删除外部目录。 */
+  remove(id: string): void
+}
+
+/** Workspace 内的本机目录挂载；同一 Workspace 内名称与路径都唯一。 */
+export interface MountService {
+  add(workspaceId: string, path: string, options?: { readonly name?: string }): Mount
+  list(workspaceId: string): readonly Mount[]
+  remove(workspaceId: string, mountIdOrName: string): void
 }
 
 /** 本地 Core 句柄；释放后捕获的服务不可继续调用。 */
@@ -52,5 +71,6 @@ export interface LocusCore {
   /** Core 自有 SQLite 与后续领域数据的根目录。 */
   readonly dataDirectory: string
   readonly workspaces: WorkspaceService
+  readonly mounts: MountService
   dispose(): Promise<void>
 }

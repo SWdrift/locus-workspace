@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { existsSync, mkdtempSync, rmSync, statSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, rmSync, statSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -56,6 +56,7 @@ try {
   for (const workspace of [alpha, beta]) {
     assert.match(workspace.id, /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/)
     assert.deepEqual(workspace.relations, [])
+    assert.deepEqual(workspace.mounts, [])
   }
 
   const listed = json(['--json', 'workspace', 'list'])
@@ -65,6 +66,22 @@ try {
   const renamed = json(['--json', 'workspace', 'rename', alpha.id, '研究二'])
   assert.equal(renamed.name, '研究二')
   assert.equal(renamed.id, alpha.id)
+
+  const mountPath = join(root, 'files')
+  mkdirSync(mountPath)
+  const mounted = json([
+    '--json', 'workspace', 'mount', alpha.id, mountPath, '--name', 'files',
+  ])
+  assert.equal(mounted.name, 'files')
+  assert.equal(mounted.path, mountPath)
+  assert.equal(json(['--json', 'workspace', 'mounts', alpha.id]).length, 1)
+
+  const context = json(['shell', alpha.id, '--print-env'])
+  assert.equal(context.cwd, mountPath)
+  assert.equal(context.environment.LOCUS_WORKSPACE_ID, alpha.id)
+  assert.equal(context.environment.LOCUS_MOUNT_FILES, mountPath)
+  assert.equal(JSON.parse(context.environment.LOCUS_MOUNTS).length, 1)
+  assert.equal(text(['shell', alpha.id, '--command', 'locus version']), '0.0.0')
 
   const association = json([
     '--json', 'workspace', 'link', alpha.id, 'locus.workspace', beta.id,
@@ -89,6 +106,7 @@ try {
 
   const beforeUnlink = json(['--json', 'workspace', 'show', alpha.id])
   assert.equal(beforeUnlink.relations.length, 2)
+  assert.equal(beforeUnlink.mounts.length, 1)
 
   const unconfirmed = run(['workspace', 'unlink', alpha.id, association.id], { code: 1 })
   assert.equal(unconfirmed.stdout, '')
@@ -98,6 +116,12 @@ try {
 
   assert.equal(json(['--json', 'workspace', 'list']).length, 2)
   assert.ok(statSync(join(data, 'core.sqlite')).size > 0)
+
+  run(['workspace', 'remove', beta.id, '--yes'])
+  assert.deepEqual(
+    json(['--json', 'workspace', 'list']).map((workspace) => workspace.id),
+    [alpha.id],
+  )
 
   const noCommand = run([], { code: 1 })
   assert.equal(noCommand.stdout, '')

@@ -31,3 +31,7 @@ pnpm locus workspace list
 - 文档：修改 Markdown 后执行 `pnpm docs:check`；修改检查器时再执行 `pnpm docs:test`。
 
 Web 当前只有占位，不参与构建与测试。新增 app 时再补构建与验证入口，不为占位建立空服务。
+
+## Skill 与脚本
+
+Agent 入口是 [.agents/skills/locus/SKILL.md](../.agents/skills/locus/SKILL.md)，按 Workspace、Shell 与脚本分层索引。脚本只调用 CLI 的 JSON 输出，不直接访问 SQLite；在 `locus shell` 内 `LOCUS_CLI` 与 `locus` 已注入，仓库外使用时设置 `LOCUS_CLI` 指向构建后的 `apps/cli/lib/index.js`。脚本测试已包含在 `pnpm test`。

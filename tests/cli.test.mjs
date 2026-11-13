@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { existsSync, mkdtempSync, rmSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -118,4 +118,68 @@ test('无参数、未知命令与相对数据目录给出稳定失败', (t) => {
   assert.equal(relative.code, 2)
   assert.equal(relative.stdout, '')
   assert.match(relative.stderr, /LOCUS_HOME 必须是非空绝对路径/)
+})
+
+test('挂载目录、注入 shell 上下文，并在删除 Workspace 时清理自有记录', (t) => {
+  const f = fixture(t)
+  const workspace = parseJson(f.run(['--json', 'workspace', 'create', '挂载语境']).stdout)
+  const appPath = join(f.root, 'app')
+  const dataPath = join(f.root, 'data-folder')
+  mkdirSync(appPath)
+  mkdirSync(dataPath)
+
+  const app = parseJson(
+    f.run(['--json', 'workspace', 'mount', workspace.id, appPath, '--name', 'app']).stdout,
+  )
+  assert.equal(app.name, 'app')
+  assert.equal(app.path, appPath)
+
+  const data = parseJson(
+    f.run(['--json', 'workspace', 'mount', workspace.id, dataPath]).stdout,
+  )
+  assert.equal(data.name, 'data-folder')
+
+  const duplicate = f.run(['workspace', 'mount', workspace.id, appPath])
+  assert.equal(duplicate.code, 2)
+  assert.match(duplicate.stderr, /路径已挂载/)
+
+  const mounted = parseJson(f.run(['--json', 'workspace', 'mounts', workspace.id]).stdout)
+  assert.deepEqual(mounted.map((mount) => mount.name), ['app', 'data-folder'])
+  assert.equal(parseJson(f.run(['--json', 'workspace', 'show', '挂载语境']).stdout).mounts.length, 2)
+
+  const context = parseJson(f.run(['shell', '挂载语境', '--print-env']).stdout)
+  assert.equal(context.cwd, appPath)
+  assert.equal(context.environment.LOCUS_WORKSPACE_ID, workspace.id)
+  assert.equal(context.environment.LOCUS_WORKSPACE_NAME, '挂载语境')
+  assert.equal(context.environment.LOCUS_WORKSPACE_ROOT, appPath)
+  assert.equal(context.environment.LOCUS_MOUNT_APP, appPath)
+  assert.equal(parseJson(context.environment.LOCUS_MOUNTS).length, 2)
+  const pathValue = Object.entries(context.environment)
+    .find(([key]) => key.toLowerCase() === 'path')?.[1] ?? ''
+  assert.match(pathValue, /locus-shell-/)
+  assert.match(context.environment.LOCUS_CLI, /index\.js$/)
+  assert.deepEqual(context.missing, [])
+
+  const shellVersion = f.run(['shell', workspace.id, '--command', 'locus version'])
+  assert.equal(shellVersion.code, 0)
+  assert.equal(shellVersion.stdout, '0.0.0')
+  const shellExit = f.run(['shell', workspace.id, '--command', 'exit 7'])
+  assert.equal(shellExit.code, 7)
+
+  const unconfirmed = f.run(['workspace', 'unmount', workspace.id, 'app'])
+  assert.equal(unconfirmed.code, 1)
+  const unmounted = f.run(['workspace', 'unmount', workspace.id, 'app', '--yes'])
+  assert.equal(unmounted.code, 0)
+  assert.deepEqual(
+    parseJson(f.run(['--json', 'workspace', 'mounts', workspace.id]).stdout).map((mount) => mount.name),
+    ['data-folder'],
+  )
+
+  const removeUnconfirmed = f.run(['workspace', 'remove', workspace.id])
+  assert.equal(removeUnconfirmed.code, 1)
+  const removed = f.run(['workspace', 'remove', workspace.id, '--yes'])
+  assert.equal(removed.code, 0)
+  assert.deepEqual(parseJson(f.run(['--json', 'workspace', 'list']).stdout), [])
+  assert.equal(existsSync(appPath), true)
+  assert.equal(existsSync(dataPath), true)
 })

@@ -6,6 +6,8 @@ import type { LocusCore, LocusInfo } from './types.ts'
 export type {
   LocusCore,
   LocusInfo,
+  Mount,
+  MountService,
   RelationSource,
   ResourceReference,
   Workspace,
@@ -45,6 +47,10 @@ export function createLocusCore(options?: { dataDirectory?: string }): LocusCore
     get workspaces() {
       store.assertActive()
       return store.workspaces
+    },
+    get mounts() {
+      store.assertActive()
+      return store.mounts
     },
     async dispose() {
       store.dispose()

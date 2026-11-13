@@ -11,7 +11,7 @@ async function main(argv: readonly string[]): Promise<number> {
     const program = createProgram(locus)
     program.exitOverride()
     await program.parseAsync([...argv], { from: 'user' })
-    return 0
+    return typeof process.exitCode === 'number' ? process.exitCode : 0
   } catch (error) {
     if (error instanceof CommanderError) {
       return error.exitCode
