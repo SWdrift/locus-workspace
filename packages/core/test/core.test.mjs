@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
 import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { homedir, tmpdir } from 'node:os'
-import { isAbsolute, join } from 'node:path'
+import { isAbsolute, join, resolve } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import test from 'node:test'
 import { createLocusCore, LOCUS_VERSION } from '../lib/index.js'
@@ -57,9 +57,10 @@ test('版本查询不创建数据目录，数据目录必须是绝对路径', as
   assert.throws(() => createLocusCore({ dataDirectory: null }), /dataDirectory.*绝对路径/)
 })
 
-test('LOCUS_HOME 采用绝对位置，显式选项优先，默认目录与工作目录无关', async (t) => {
+test('数据目录由 LOCUS_HOME 与 LOCUS_FOLDER_NAME 决定，显式选项优先', async (t) => {
   const setup = fixture(t)
   const previous = process.env.LOCUS_HOME
+  const previousFolder = process.env.LOCUS_FOLDER_NAME
   const cores = []
   try {
     process.env.LOCUS_HOME = join(setup.root, 'environment-home')
@@ -68,18 +69,46 @@ test('LOCUS_HOME 采用绝对位置，显式选项优先，默认目录与工作
     assert.equal(environmentCore.dataDirectory, process.env.LOCUS_HOME)
     assert.equal(existsSync(environmentCore.dataDirectory), false)
 
+    process.env.LOCUS_FOLDER_NAME = '.locus'
+    const folderCore = createLocusCore()
+    cores.push(folderCore)
+    assert.equal(folderCore.dataDirectory, join(process.env.LOCUS_HOME, '.locus'))
+
     process.env.LOCUS_HOME = 'relative-home'
-    assert.throws(() => createLocusCore(), /LOCUS_HOME.*绝对路径/)
+    const relativeCore = createLocusCore()
+    cores.push(relativeCore)
+    assert.equal(relativeCore.dataDirectory, resolve('relative-home', '.locus'))
     assert.equal(setup.open().dataDirectory, setup.dataDirectory)
 
     delete process.env.LOCUS_HOME
     const defaultCore = createLocusCore()
     cores.push(defaultCore)
-    assert.equal(defaultCore.dataDirectory, join(homedir(), '.locus-workspace'))
+    assert.equal(defaultCore.dataDirectory, join(homedir(), '.locus'))
+
+    delete process.env.LOCUS_FOLDER_NAME
+    const legacyCore = createLocusCore()
+    cores.push(legacyCore)
+    assert.equal(legacyCore.dataDirectory, join(homedir(), '.locus-workspace'))
+
+    process.env.LOCUS_HOME = '   '
+    assert.throws(() => createLocusCore(), /LOCUS_HOME 必须是非空路径/)
+
+    delete process.env.LOCUS_HOME
+    for (const folder of ['', ' ', '.', '..', 'a/b', 'a\\b', 'C:', 'a:b']) {
+      process.env.LOCUS_FOLDER_NAME = folder
+      assert.throws(() => createLocusCore(), /LOCUS_FOLDER_NAME 必须是非空文件夹名/)
+    }
+
+    delete process.env.LOCUS_FOLDER_NAME
+    delete process.env.LOCUS_HOME
+    const explicitCore = setup.open()
+    assert.equal(explicitCore.dataDirectory, setup.dataDirectory)
   } finally {
     for (const core of cores) await core.dispose()
     if (previous === undefined) delete process.env.LOCUS_HOME
     else process.env.LOCUS_HOME = previous
+    if (previousFolder === undefined) delete process.env.LOCUS_FOLDER_NAME
+    else process.env.LOCUS_FOLDER_NAME = previousFolder
   }
 })
 

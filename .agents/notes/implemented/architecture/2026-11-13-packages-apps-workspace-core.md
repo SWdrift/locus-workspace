@@ -21,7 +21,7 @@ Locus 作为项目内 DSH profile 插件运行后，CLI 不是可直接调用的
 - 删除 DSH 依赖与对应的 Host/UI/shell 测试，保留 `tests/run.mjs` 分层入口、`test:all`、`e2e`、`verify:full` 与 2 小时 e2e 冷却。收集范围改为 `packages/*/test`、`apps/*/test` 与 `tests/*.test.mjs`，e2e 改为真实 CLI 场景。
 - `core.sqlite`、`user_version=1`、Workspace 身份与关系表不变；本次不迁移或删除用户数据。
 
-CLI 每次进程启动直接创建 Core，命令完成后 `dispose()`；`--json` 输出单一 JSON，诊断写 stderr，退出码保持 0 成功、1 参数/帮助拒绝、2 业务或持久化失败。数据目录仍由 `LOCUS_HOME` 或默认 `~/.locus-workspace` 决定，必须是绝对路径。
+CLI 每次进程启动直接创建 Core，命令完成后 `dispose()`；`--json` 输出单一 JSON，诊断写 stderr，退出码保持 0 成功、1 参数/帮助拒绝、2 业务或持久化失败。数据目录的配置契约由 [2026-11-14 数据目录配置](2026-11-14-data-directory-configuration.md) 维护。
 
 ## 保留的 Workspace 语义
 

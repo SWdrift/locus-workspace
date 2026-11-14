@@ -20,7 +20,7 @@ if (!existsSync(CLI)) {
 
 function run(args, { code = 0, environment = {} } = {}) {
   const result = spawnSync(process.execPath, [CLI, ...args], {
-    cwd: REPO,
+    cwd: root,
     env: { ...process.env, LOCUS_HOME: data, ...environment },
     encoding: 'utf8',
     timeout: 30000,
@@ -133,11 +133,15 @@ try {
   assert.equal(noCommand.stdout, '')
   const unknown = run(['bogus'], { code: 1 })
   assert.match(unknown.stderr, /未知命令：bogus/)
-  const relativeHome = run(['version'], {
-    code: 2,
+  run(['workspace', 'create', '相对数据目录'], {
     environment: { LOCUS_HOME: 'relative-data' },
   })
-  assert.match(relativeHome.stderr, /LOCUS_HOME 必须是非空绝对路径/)
+  assert.ok(statSync(join(root, 'relative-data', 'core.sqlite')).size > 0)
+  const emptyHome = run(['version'], {
+    code: 2,
+    environment: { LOCUS_HOME: '   ' },
+  })
+  assert.match(emptyHome.stderr, /LOCUS_HOME 必须是非空路径/)
 
   const pnpm = process.env.npm_execpath
   if (pnpm) {

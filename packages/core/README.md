@@ -8,7 +8,7 @@
 
 ## 使用
 
-Node.js 24 或更高、ESM；构建后使用 `createLocusCore({ dataDirectory })`。`dataDirectory` 为绝对路径，可省略并采用绝对 `LOCUS_HOME`，否则使用用户主目录下 `.locus-workspace/`。目录与进程 CWD 分离；不要让多个设备把同一地址自动视为同一外部资源。
+Node.js 24 或更高、ESM；构建后使用 `createLocusCore({ dataDirectory })`。`dataDirectory` 为绝对路径并完整决定数据目录；省略时由 `LOCUS_HOME` 与 `LOCUS_FOLDER_NAME` 决定：`LOCUS_HOME` 是基目录（相对值按进程 CWD 解析），`LOCUS_FOLDER_NAME` 是其下文件夹；未设置 `LOCUS_HOME` 时基目录为用户主目录，`LOCUS_FOLDER_NAME` 缺省为 `.locus-workspace/`。默认目录与 CWD 分离，只有显式使用相对 `LOCUS_HOME` 才依赖 CWD；不要让多个设备把同一地址自动视为同一外部资源。
 
 ```ts
 import { createLocusCore } from '@locus/core'
@@ -45,4 +45,4 @@ Core 唯一拥有 `dataDirectory/core.sqlite`，实验格式版本为 SQLite `us
 
 ## 验证与入口
 
-`pnpm test` 覆盖身份/关系/挂载重开、共享与嵌套、幂等确认、v1 迁移、删除级联、备份恢复、锁定、未知版本/损坏和释放边界；真实 CLI 链路由 `tests/cli.test.mjs` 以独立进程验证。验证入口见[测试系统](../../docs/testing.md#分层与入口)，命令见 [CLI](../../apps/cli/README.md)。
+`pnpm test` 覆盖身份/关系/挂载重开、共享与嵌套、幂等确认、v1 迁移、删除级联、备份恢复、锁定、未知版本/损坏和释放边界；真实 CLI 链路由 `apps/cli/test/cli.test.mjs` 以独立进程验证。验证入口见[测试系统](../../docs/testing.md#分层与入口)，命令见 [CLI](../../apps/cli/README.md)。

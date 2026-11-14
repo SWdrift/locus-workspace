@@ -2,11 +2,22 @@
 import { CommanderError } from 'commander'
 import { createLocusCore } from '@locus/core'
 import type { LocusCore } from '@locus/core'
+import { resolve } from 'node:path'
 import { createProgram } from './commands.ts'
+
+/** 读取工作目录的 `.env`；已存在的环境变量优先，缺少文件不算失败。 */
+function loadEnvironment(): void {
+  try {
+    process.loadEnvFile(resolve('.env'))
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
+  }
+}
 
 async function main(argv: readonly string[]): Promise<number> {
   let locus: LocusCore | undefined
   try {
+    loadEnvironment()
     locus = createLocusCore()
     const program = createProgram(locus)
     program.exitOverride()

@@ -18,20 +18,53 @@ export type {
 /** Locus 产品版本，也是唯一来源。 */
 export const LOCUS_VERSION = '0.0.0'
 
+/** 数据目录的文件夹名不能为空、不能是路径，也不能逃出基目录。 */
+function assertFolderName(value: string): void {
+  if (
+    typeof value !== 'string' ||
+    value.trim().length === 0 ||
+    value !== value.trim() ||
+    value === '.' ||
+    value === '..' ||
+    /[\\/:\u0000]/.test(value)
+  ) {
+    throw new Error('LOCUS_FOLDER_NAME 必须是非空文件夹名')
+  }
+}
+
+/**
+ * 解析数据目录：显式 `dataDirectory` 完整决定位置；否则 `LOCUS_HOME` 为基目录，
+ * `LOCUS_FOLDER_NAME` 为其下文件夹；两者都缺省时使用用户主目录下的 `.locus-workspace/`。
+ * 相对 `LOCUS_HOME` 按进程 CWD 解析。
+ */
+function resolveDataDirectory(explicit: string | undefined): string {
+  if (explicit !== undefined) {
+    if (typeof explicit !== 'string' || explicit.trim().length === 0 || !isAbsolute(explicit)) {
+      throw new Error('dataDirectory 必须是非空绝对路径')
+    }
+    return resolve(explicit)
+  }
+
+  const folderName = process.env.LOCUS_FOLDER_NAME
+  if (folderName !== undefined) {
+    assertFolderName(folderName)
+  }
+
+  const home = process.env.LOCUS_HOME
+  if (home !== undefined && (typeof home !== 'string' || home.trim().length === 0)) {
+    throw new Error('LOCUS_HOME 必须是非空路径')
+  }
+
+  const base = home === undefined ? homedir() : resolve(home)
+  if (folderName !== undefined) {
+    return join(base, folderName)
+  }
+  return home === undefined ? join(base, '.locus-workspace') : base
+}
+
 /** 创建 Locus core；首次调用 Workspace 用例时才打开自有数据库。 */
 export function createLocusCore(options?: { dataDirectory?: string }): LocusCore {
-  const configuredDirectory =
-    options?.dataDirectory !== undefined ? options.dataDirectory : process.env.LOCUS_HOME
-  const directorySource = options?.dataDirectory !== undefined ? 'dataDirectory' : 'LOCUS_HOME'
-  if (
-    configuredDirectory !== undefined &&
-    (typeof configuredDirectory !== 'string' ||
-      configuredDirectory.trim().length === 0 ||
-      !isAbsolute(configuredDirectory))
-  ) {
-    throw new Error(`${directorySource} 必须是非空绝对路径`)
-  }
-  const dataDirectory = resolve(configuredDirectory ?? join(homedir(), '.locus-workspace'))
+  const dataDirectory = resolveDataDirectory(options?.dataDirectory)
   const info: LocusInfo = Object.freeze({ version: LOCUS_VERSION })
   const store = createWorkspaceStore(dataDirectory)
 
