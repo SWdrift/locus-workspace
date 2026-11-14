@@ -7,8 +7,8 @@
 | 命令 | 用途与成功判据 |
 | --- | --- |
 | `pnpm install` | 安装 workspace 依赖并链接本地包 |
-| `pnpm build` | 编译 Core、Templates 与 CLI，退出 0 |
-| `pnpm test` | 运行 Core、Templates、CLI 与 Skill 脚本测试，退出 0；范围见[测试系统](testing.md#分层与入口) |
+| `pnpm build` | 编译 Core、Remote Targets、Templates 与 CLI，退出 0 |
+| `pnpm test` | 运行 Core、Remote Targets、Templates、CLI 与 Skill 脚本测试，退出 0；范围见[测试系统](testing.md#分层与入口) |
 | `pnpm test:all` | 全量进程内测试，经 `tests/run.mjs` 收集并记录，退出 0 |
 | `pnpm e2e` | 真实 CLI 端到端测试，经 `tests/run.mjs` 执行；2 小时冷却未解除时退出 3 |
 | `pnpm test:file <文件>` | 直接运行单个测试文件；可附加 `--test-name-pattern <模式>` |
@@ -61,8 +61,24 @@
 
 完整格式、排除规则与失败见 [Templates](../packages/templates/README.md)。
 
+## 远程目标
+
+目标定义保存在 `<dataDirectory>/remote-targets/targets.yaml`，探测结果保存在同目录 `state.sqlite`；`dataDirectory` 由 `LOCUS_HOME` / `LOCUS_FOLDER_NAME` 决定，见 [Core](../packages/core/README.md#持久化与恢复)。`remote-targets` 可缩写为 `rt`；`<target>` 接受 id、唯一前缀或唯一标签，歧义时失败并列出候选。`--json` 输出单行 JSON。
+
+| 参数 | 行为与成功判据 |
+| --- | --- |
+| `remote-targets add <id> --spec <file\|-> [--dry-run]` | 校验并写入目标，创建 `credentials/<id>/` 空目录；`-` 从 stdin 读取 YAML 或 JSON；dry-run 不落盘 |
+| `remote-targets list` | 列出目标；空集合不是错误 |
+| `remote-targets show <target>` | 显示身份、能力、连接与最近探测；不输出凭据值 |
+| `remote-targets remove <target> --yes` | 只移除定义，不删除外部目标 |
+| `remote-targets probe <target>` | 执行 `whoami` 并记录结果；成功退出 0，失败退出 1 |
+| `remote-targets exec <target> [command...]` | 执行远端命令；远端退出码原样返回；命令选项放在 `--` 之后 |
+| `remote-targets shell <target>` | 进入交互 Shell；退出码取客户端退出码 |
+
+字段、默认值与失败码见 [Remote Targets](../packages/remote-targets/README.md#配置与契约)。
+
 ## 输出与退出码
 
-默认输出人类可读文本；`--json` 输出独立 JSON，诊断写 stderr。单次命令不隐式等待输入；删除 Workspace、取消挂载与解除关系必须显式携带 `--yes`。
+默认输出人类可读文本；`--json` 输出独立 JSON，诊断写 stderr。单次命令不隐式等待输入；删除 Workspace、取消挂载、解除关系与移除远程目标必须显式携带 `--yes`。
 
-退出码：0 表示调用成功；1 表示参数/帮助树拒绝，包括未知命令、缺参数、无效选项值与缺少 `--yes`；2 表示业务前置条件或持久化失败；`shell --command` 的子 shell 非零退出码原样返回。
+退出码：0 表示调用成功；1 表示参数/帮助树拒绝，包括未知命令、缺参数、无效选项值与缺少 `--yes`，以及 `remote-targets probe` 探测失败；2 表示业务前置条件或持久化失败；`shell --command`、`remote-targets exec` 与 `remote-targets shell` 的子进程退出码原样返回。

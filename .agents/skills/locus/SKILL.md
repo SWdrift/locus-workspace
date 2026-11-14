@@ -1,6 +1,6 @@
 ---
 name: locus
-description: 管理 Locus Workspace、挂载本机目录，并在注入 Workspace 上下文的统一 shell 中工作。
+description: 管理 Locus Workspace、挂载本机目录，在注入 Workspace 上下文的统一 shell 中工作，并访问声明式登记的远程目标。
 ---
 
 # Locus Workspace
@@ -14,6 +14,7 @@ Locus 用稳定的 Workspace Identity 组织长期工作语境。Workspace 可�
 | 创建、查看、改名、删除 Workspace；挂载/取消挂载 | [reference/workspace.md](reference/workspace.md) |
 | 启动统一 shell、读取注入的 `LOCUS_*` 环境 | [reference/shell.md](reference/shell.md) |
 | 复制项目模板、查看 `.template.json` 来源记录 | [reference/templates.md](reference/templates.md) |
+| 登记并访问远程 SSH 目标、读取探测结果 | [reference/remote-targets.md](reference/remote-targets.md) |
 | 可复用脚本 | [scripts/README.md](scripts/README.md) |
 
 ## 快速流程
@@ -23,6 +24,7 @@ locus --json workspace create 研究
 locus --json workspace mount <workspace> /absolute/project --name project
 locus --json workspace show <workspace>
 locus template create minimal my-app
+locus --json remote-targets list
 locus shell <workspace>
 ```
 
@@ -35,4 +37,5 @@ locus shell <workspace>
 - `workspace remove`、`workspace unmount`、`workspace unlink` 必须显式带 `--yes`，且不会删除外部目录或文件。
 - 挂载路径必须是绝对路径；同一 Workspace 内名称与路径都唯一。
 - `locus shell` 注入的是环境与命令，不是权限沙箱；不会提升系统权限。
+- 远程目标只经 `locus remote-targets` 访问；不得直接调用 `ssh`/`plink`，不得读取或输出凭据文件内容。
 - 需要跨进程恢复或脚本组合时，先用 `locus --json workspace show <workspace>` 读取当前事实，不缓存派生状态。

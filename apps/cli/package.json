@@ -10,10 +10,12 @@
     "lib"
   ],
   "scripts": {
-    "build": "tsc -b tsconfig.json"
+    "build": "tsc -b tsconfig.json",
+    "test": "node --test test/*.test.mjs"
   },
   "dependencies": {
     "@locus/core": "workspace:*",
+    "@locus/remote-targets": "workspace:*",
     "@locus/templates": "workspace:*",
     "commander": "^15.0.0"
   }

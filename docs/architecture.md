@@ -4,18 +4,19 @@
 
 ## 当前交付与方向
 
-当前交付 Workspace：具有持久 UUID 的工作语境、`member` / `association` 两类显式长期关系、多个本机目录挂载、注入 Workspace 上下文的统一 shell，以及独立的本机项目模板复制。Workspace 可以没有目录，关系目标是领域解释的 `namespace` / `id` 不透明引用；挂载只保存绝对路径与名称，不检查目录是否存在。挂载与 shell 的取舍见 [Workspace 挂载与统一 Shell](../.agents/notes/implemented/feature/2026-11-13-workspace-mounts-and-shell.md)，模板设计见[项目模板子系统](subsystems/project-templates.md)，模板取舍见 [项目模板](../.agents/notes/implemented/feature/2026-11-13-project-templates.md)。
+当前交付 Workspace：具有持久 UUID 的工作语境、`member` / `association` 两类显式长期关系、多个本机目录挂载、注入 Workspace 上下文的统一 shell、独立的本机项目模板复制，以及声明式登记并按需访问的远程 SSH 目标。Workspace 可以没有目录，关系目标是领域解释的 `namespace` / `id` 不透明引用；挂载只保存绝对路径与名称，不检查目录是否存在。挂载与 shell 的取舍见 [Workspace 挂载与统一 Shell](../.agents/notes/implemented/feature/2026-11-13-workspace-mounts-and-shell.md)，模板设计见[项目模板子系统](subsystems/templates.md)，模板取舍见 [项目模板](../.agents/notes/implemented/feature/2026-11-13-project-templates.md)，远程目标的边界与流程见[远程目标子系统](subsystems/remote-targets.md)。
 
 仓库采用 packages + apps 结构，不采用宿主插件模式。`packages/core` 是唯一领域内核与公开面，`apps/cli` 是独立可执行程序，`apps/web` 仅保留占位，`.agents/skills/locus` 是 Agent 使用 CLI 的分层 Skill。没有 DSH/Cordis 依赖、profile 装配、插件加载器、Operation Catalog 或能力注册表；回退理由与保留语义见 [packages/apps 决定](../.agents/notes/implemented/architecture/2026-11-13-packages-apps-workspace-core.md)。
 
 ## 组件与依赖
 
 | 路径 | 当前职责 |
-| --- | --- |
+|---|---|
 | `packages/core/` | Workspace 身份、长期成员/关联、来源、SQLite 持久化与公开服务；无 HTTP、CLI 或宿主依赖 |
 | `apps/cli/` | 独立 `locus` bin：参数解析、调用 Core、人类/JSON 渲染、统一 shell 与退出码；不重新实现领域规则 |
 | `apps/web/` | 占位，无可运行入口；等真实接口消费需求再实现 |
 | `packages/templates/` | 复制模板文件夹、计算 digest、写实例 `.template.json`；只依赖 Node 文件系统，不接触 Core |
+| `packages/remote-targets/` | 声明式登记 SSH 目标、校验身份/能力/连接、调用系统 OpenSSH/Plink 执行；YAML 定义，SQLite 只存探测结果 |
 | `.agents/skills/locus/` | 分层索引、Workspace/Shell 参考与只读脚本；通过 CLI JSON 契约工作，不直接访问数据库 |
 
 下图表示编译期依赖；CLI 通过 `createLocusCore()` 使用 Core，Core 不反向依赖任何 app。
@@ -27,10 +28,14 @@ flowchart LR
     CORE --> SQLITE["node:sqlite"]
     CLI --> TPL["packages/templates"]
     TPL --> FS["node:fs/promises"]
+    CLI --> RT["packages/remote-targets"]
+    RT --> YAML["yaml"]
+    RT --> SQLITE
+    RT --> SSH["ssh / plink"]
     WEB["apps/web（占位）"] -.->|"未来消费公开面"| CORE
 ```
 
-编译依赖：Core 与 Templates 只依赖 Node 内置模块；CLI 依赖 Core、Templates 与 Commander。没有共享 contracts 包：Workspace 类型随 Core 的公开入口导出，等出现第二个真实消费端时再抽取同构契约。
+编译依赖：Core 与 Templates 只依赖 Node 内置模块；Remote Targets 额外依赖 YAML 解析库并沿用 `node:sqlite`；CLI 依赖 Core、Remote Targets、Templates 与 Commander。没有共享 contracts 包：Workspace 类型随 Core 的公开入口导出，等出现第二个真实消费端时再抽取同构契约。
 
 ## 边界
 
@@ -39,16 +44,18 @@ flowchart LR
 - `locus shell` 由 CLI 拥有：注入 Workspace 上下文、不修改 shell profile、不是权限沙箱；注入清单见 [CLI](../apps/cli/README.md#统一-shell)。
 - `.agents/skills/locus` 只通过 CLI 的 JSON 输出与 `shell --print-env` 读取事实，不复制领域规则或直接写 SQLite。
 - `packages/templates` 只复制文件与写实例 `.template.json`，不创建 Workspace、不挂载目录、不执行模板脚本；模板源可以是内置 ID 或本地目录。
+- `packages/remote-targets` 以 `targets.yaml` 为唯一可编辑真源，`state.sqlite` 只存最近探测结果；只构造 `ssh`/`plink` 调用，不实现协议，也不创建或读取凭据内容。凭据必须是目标根内的相对路径引用，缺失时在连接前失败。
+- `remote-targets` 命令域只拥有参数、spec 读取与渲染；解析、校验、能力检查与调用由 Remote Targets 服务完成。`exec` 与 `shell` 的远端退出码原样返回。
 - 不预建插件加载、动态注册、Provider 仲裁或通用能力抽象。新增能力时建立普通 package，在 Core 或 app 的组合根显式接入；需要修改代码与构建，这是刻意选择。
 - Web 当前没有服务器、路由或前端依赖。首个实现应复用 Core 的公开面，并在浏览器需要 DTO 时再抽取同构契约，不提前建立空框架。
 - 领域观察与长期关系分离。外部事实由所属能力按需读取，只有用户显式确认后才写入 Workspace 关系。
 
 ## 数据与恢复
 
-Core 独占 `dataDirectory/core.sqlite`，是 Workspace、挂载与关系的唯一写入所有者。数据目录位置、格式版本与迁移、事务与锁参数、备份与损坏恢复由 [Core](../packages/core/README.md#持久化与恢复)维护。
+Core 独占 `dataDirectory/core.sqlite`，是 Workspace、挂载与关系的唯一写入所有者。Remote Targets 独占 `dataDirectory/remote-targets/` 下的 `targets.yaml` 与 `state.sqlite`，两者都不进入 `core.sqlite`。数据目录位置、格式版本与迁移、事务与锁参数、备份与损坏恢复由 [Core](../packages/core/README.md#持久化与恢复)维护。
 
 ## 控制与演进
 
-构建与运行事实由[开发与验证](development.md)维护；Core API、持久化与限制由 [Core](../packages/core/README.md)维护；命令语法由[命令手册](commands.md)维护。长期取舍由 Agent Notes 承载，控制面只服务临时任务。
+构建与运行事实由[开发与验证](development.md)维护；Core API、持久化与限制由 [Core](../packages/core/README.md)维护；远程目标的字段、失败与限制由 [Remote Targets](../packages/remote-targets/README.md)维护；命令语法由[命令手册](commands.md)维护。长期取舍由 Agent Notes 承载，控制面只服务临时任务。
 
 只有实际交付且验证的行为进入 implemented。新增能力按具体应用逐个重配；出现第二个消费端或真实领域闭环时才增加 package，不恢复通用插件运行时。

@@ -1,7 +1,10 @@
-import { resolve } from 'node:path'
+import { readFileSync } from 'node:fs'
+import { join, resolve } from 'node:path'
 import { Command, Option } from 'commander'
 import type { LocusCore, Mount, Workspace, WorkspaceRelation } from '@locus/core'
 import { createTemplateService } from '@locus/templates'
+import { createRemoteTargetsService } from '@locus/remote-targets'
+import type { RemoteTarget, RemoteTargetView } from '@locus/remote-targets'
 import { runWorkspaceShell } from './shell.ts'
 
 function jsonEnabled(command: Command): boolean {
@@ -18,6 +21,30 @@ function relationText(relation: WorkspaceRelation): string {
 
 function mountText(mount: Mount): string {
   return `${mount.id}  ${mount.name}  ${mount.path}`
+}
+
+function remoteTargetLine(target: RemoteTarget): string {
+  const label = target.resource.label === undefined ? '' : `  ${target.resource.label}`
+  const endpoint = `${target.connectivity.host}:${target.connectivity.port}`
+  return `${target.id}  ${target.connectivity.transport}  ${target.connectivity.via}  ${endpoint}  ${target.identity.login}${label}`
+}
+
+function remoteTargetText(target: RemoteTargetView): string {
+  const label = target.resource.label === undefined ? '' : `  ${target.resource.label}`
+  const lines = [
+    `目标：${target.id}`,
+    `资源：${target.resource.kind}${label}`,
+    `身份：${target.identity.login}（${target.identity.auth.method}）`,
+    `凭据：${target.identity.auth.path}`,
+    `能力：${target.access.capabilities.join(', ')}`,
+    `连接：${target.connectivity.transport}  ${target.connectivity.via}  ${target.connectivity.host}:${target.connectivity.port}`,
+    `远端 Shell：${target.connectivity.remoteShell}`,
+  ]
+  if (target.lastProbe !== undefined) {
+    const probe = target.lastProbe
+    lines.push(`最近探测：${probe.ok ? '成功' : '失败'}  ${probe.detail}  ${probe.checkedAt}`)
+  }
+  return lines.join('\n')
 }
 
 function workspaceText(workspace: Workspace): string {
@@ -52,6 +79,9 @@ function resolveWorkspace(locus: LocusCore, reference: string): Workspace {
 /** 构造独立 CLI 的命令树；所有用例直接调用 Core 的公开 Workspace 服务。 */
 export function createProgram(locus: LocusCore): Command {
   const templates = createTemplateService()
+  const remoteTargets = createRemoteTargetsService({
+    root: join(locus.dataDirectory, 'remote-targets'),
+  })
   const program = new Command()
     .name('locus')
     .description('Locus 本地工作空间：Workspace 身份与显式长期关系。')
@@ -193,6 +223,73 @@ export function createProgram(locus: LocusCore): Command {
       ...(result.dryRun ? [] : [`实例记录：${result.metadataPath}`]),
     ]
     emit(templateCreate, result, lines.join('\n'))
+  })
+
+  const targets = program.command('remote-targets')
+    .alias('rt')
+    .description('远程目标：声明式登记 SSH 目标，经统一入口探测与执行')
+  const targetAdd = targets.command('add <id>')
+    .description('登记目标；细节通过 --spec 传入 YAML 或 JSON')
+    .option('--spec <path>', '配置文件；- 表示从 stdin 读取')
+    .option('--dry-run', '只校验并输出，不写配置')
+  targetAdd.action((id: string) => {
+    const options = targetAdd.opts<{ spec?: string; dryRun?: boolean }>()
+    if (options.spec === undefined) {
+      throw new Error('缺少 --spec；用 --spec <file> 或 --spec - 从 stdin 读取')
+    }
+    const text = options.spec === '-'
+      ? readFileSync(0, 'utf8')
+      : readFileSync(resolve(options.spec), 'utf8')
+    const result = remoteTargets.addFromText(id, text, { dryRun: options.dryRun === true })
+    const detail = options.dryRun === true ? '将登记' : '已登记'
+    emit(targetAdd, result, `${detail}目标 ${result.id}\n${remoteTargetText(result)}`)
+  })
+  const targetList = targets.command('list').description('列举已登记目标')
+  targetList.action(() => {
+    const result = remoteTargets.list()
+    emit(
+      targetList,
+      result,
+      result.map(remoteTargetLine).join('\n') || '没有远程目标。',
+    )
+  })
+  const targetShow = targets.command('show <target>')
+    .description('按 id、唯一前缀或标签查看目标与最近探测')
+  targetShow.action((reference: string) => {
+    const result = remoteTargets.show(reference)
+    emit(targetShow, result, remoteTargetText(result))
+  })
+  const targetRemove = targets.command('remove <target>')
+    .description('移除目标定义，不删除目标自身')
+    .requiredOption('--yes', '确认移除；不等待交互输入')
+  targetRemove.action((reference: string) => {
+    remoteTargets.remove(reference)
+    emit(targetRemove, { target: reference, removed: true }, `已移除目标 ${reference}。`)
+  })
+  const targetProbe = targets.command('probe <target>')
+    .description('只读连接并执行 whoami，记录可达性')
+  targetProbe.action(async (reference: string) => {
+    const result = await remoteTargets.probe(reference)
+    emit(targetProbe, result, result.ok ? `探测成功：${result.detail}` : `探测失败：${result.detail}`)
+    if (!result.ok) process.exitCode = 1
+  })
+  const targetExec = targets.command('exec <target> [command...]')
+    .description('经统一入口执行远端命令，退出码透传')
+  targetExec.action(async (reference: string, command: string[] = []) => {
+    const result = await remoteTargets.exec(reference, command)
+    if (jsonEnabled(targetExec)) {
+      process.stdout.write(`${JSON.stringify(result)}\n`)
+    } else {
+      if (result.stdout.length > 0) process.stdout.write(result.stdout)
+      if (result.stderr.length > 0) process.stderr.write(result.stderr)
+    }
+    if (result.exitCode !== 0) process.exitCode = result.exitCode
+  })
+  const targetShell = targets.command('shell <target>')
+    .description('打开目标交互式 Shell；继承当前终端')
+  targetShell.action(async (reference: string) => {
+    const exitCode = await remoteTargets.shell(reference)
+    if (exitCode !== 0) process.exitCode = exitCode
   })
 
   const shell = program.command('shell <workspace>')
