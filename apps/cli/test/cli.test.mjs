@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -7,6 +7,9 @@ import { spawnSync } from 'node:child_process'
 import test from 'node:test'
 
 const CLI = fileURLToPath(new URL('../lib/index.js', import.meta.url))
+const PRODUCT_VERSION = JSON.parse(
+  readFileSync(new URL('../../../package.json', import.meta.url), 'utf8'),
+).version
 
 function fixture(t) {
   const root = mkdtempSync(join(tmpdir(), 'locus-cli-'))
@@ -36,7 +39,7 @@ test('version 与 help 不创建数据目录，退出码为 0', (t) => {
   const f = fixture(t)
   const version = f.run(['version'])
   assert.equal(version.code, 0)
-  assert.equal(version.stdout, '0.0.0')
+  assert.equal(version.stdout, PRODUCT_VERSION)
   assert.equal(version.stderr, '')
   assert.equal(existsSync(f.data), false)
 
@@ -187,7 +190,7 @@ test('挂载目录、注入 shell 上下文，并在删除 Workspace 时清理�
 
   const shellVersion = f.run(['shell', workspace.id, '--command', 'locus version'])
   assert.equal(shellVersion.code, 0)
-  assert.equal(shellVersion.stdout, '0.0.0')
+  assert.equal(shellVersion.stdout, PRODUCT_VERSION)
   const shellExit = f.run(['shell', workspace.id, '--command', 'exit 7'])
   assert.equal(shellExit.code, 7)
 

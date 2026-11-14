@@ -4,6 +4,6 @@
 
 当前交付 Workspace、挂载管理、统一 shell、项目模板与 [Locus Skill](.agents/skills/locus/SKILL.md)；Filesystem 管理、连接、密钥与 Web 尚未交付。
 
-[项目架构](docs/architecture.md) · [开发与验证](docs/development.md) · [测试系统](docs/testing.md) · [命令手册](docs/commands.md)
+[项目架构](docs/architecture.md) · [开发与验证](docs/development.md) · [测试系统](docs/testing.md) · [命令手册](docs/commands.md) · [版本管理](docs/versioning.md)
 
 [ACKNOWLEDGEMENTS](ACKNOWLEDGEMENTS.md)

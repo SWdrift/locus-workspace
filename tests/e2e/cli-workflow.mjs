@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { existsSync, mkdirSync, mkdtempSync, rmSync, statSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -9,6 +9,7 @@ import { spawnSync } from 'node:child_process'
 // 领域矩阵与单条命令细节由 `pnpm test` / `pnpm test:all` 覆盖。
 const REPO = resolve(dirname(fileURLToPath(import.meta.url)), '../..')
 const CLI = join(REPO, 'apps', 'cli', 'lib', 'index.js')
+const PRODUCT_VERSION = JSON.parse(readFileSync(join(REPO, 'package.json'), 'utf8')).version
 const root = mkdtempSync(join(tmpdir(), 'locus-cli-e2e-'))
 const data = join(root, 'data')
 let invocations = 0
@@ -47,7 +48,7 @@ function text(args, options) {
 
 try {
   const version = text(['version'])
-  assert.equal(version, '0.0.0')
+  assert.equal(version, PRODUCT_VERSION)
   assert.match(text(['--help']), /workspace/)
   assert.equal(existsSync(data), false, 'version/help 不应创建数据目录')
 
@@ -81,7 +82,7 @@ try {
   assert.equal(context.environment.LOCUS_WORKSPACE_ID, alpha.id)
   assert.equal(context.environment.LOCUS_MOUNT_FILES, mountPath)
   assert.equal(JSON.parse(context.environment.LOCUS_MOUNTS).length, 1)
-  assert.equal(text(['shell', alpha.id, '--command', 'locus version']), '0.0.0')
+  assert.equal(text(['shell', alpha.id, '--command', 'locus version']), PRODUCT_VERSION)
 
   const generatedPath = join(mountPath, 'generated')
   const generated = json(['--json', 'template', 'create', 'minimal', generatedPath])
@@ -156,7 +157,7 @@ try {
     assert.equal(wrapper.error, undefined)
     assert.equal(wrapper.status, 0, wrapper.stderr)
     const lastLine = wrapper.stdout.trim().split(/\r?\n/).at(-1)
-    assert.equal(lastLine, '0.0.0')
+    assert.equal(lastLine, PRODUCT_VERSION)
   }
 
   console.log(`CLI e2e 通过：${invocations} 次调用，数据目录 ${data}`)

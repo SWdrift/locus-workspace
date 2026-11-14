@@ -4,7 +4,7 @@
 
 ## 前置条件与构建
 
-Node.js 24 或更高、pnpm 11.24.0。执行 `pnpm install`，修改源码后执行 `pnpm build`。根 `tsconfig.json` 引用 `packages/core`、`packages/remote-targets`、`packages/templates` 与 `apps/cli`，构建产物写入各自 `lib/`；包 exports 使用构建产物，不依赖运行时转译。
+Node.js 24 或更高、pnpm 11.24.0。执行 `pnpm install`，修改源码后执行 `pnpm build`。`pnpm build` 先运行 `scripts/version.mjs` 生成 Core 的版本模块，再按根 `tsconfig.json` 编译 `packages/core`、`packages/remote-targets`、`packages/templates` 与 `apps/cli`，构建产物写入各自 `lib/`。包 exports 使用构建产物，不依赖运行时转译。版本号只改根 `package.json`，规则见[版本管理](versioning.md)。
 
 ## 运行 CLI
 

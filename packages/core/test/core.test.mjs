@@ -7,6 +7,10 @@ import { DatabaseSync } from 'node:sqlite'
 import test from 'node:test'
 import { createLocusCore, LOCUS_VERSION } from '../lib/index.js'
 
+const PRODUCT_VERSION = JSON.parse(
+  readFileSync(new URL('../../../package.json', import.meta.url), 'utf8'),
+).version
+
 function fixture(t) {
   const root = mkdtempSync(join(tmpdir(), 'locus-core-'))
   const dataDirectory = join(root, 'data')
@@ -47,6 +51,7 @@ test('版本查询不创建数据目录，数据目录必须是绝对路径', as
   const setup = fixture(t)
   const core = setup.open()
   assert.equal(core.info.version, LOCUS_VERSION)
+  assert.equal(LOCUS_VERSION, PRODUCT_VERSION)
   assert.equal(core.dataDirectory, setup.dataDirectory)
   assert.equal(isAbsolute(core.dataDirectory), true)
   assert.equal(existsSync(setup.dataDirectory), false)

@@ -3,6 +3,7 @@
 !.agents/skills/locus/
 packages/*/lib/
 apps/*/lib/
+packages/*/src/*.generated.ts
 .locus-data/
 temp/*
 node_modules/

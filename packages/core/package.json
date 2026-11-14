@@ -1,6 +1,5 @@
 {
   "name": "@locus/core",
-  "version": "0.0.0",
   "private": true,
   "type": "module",
   "main": "./lib/index.js",
@@ -15,7 +14,7 @@
     "lib"
   ],
   "scripts": {
-    "build": "tsc -b tsconfig.json",
+    "build": "node ../../scripts/version.mjs && tsc -b tsconfig.json",
     "test": "node --test test/*.test.mjs"
   }
 }

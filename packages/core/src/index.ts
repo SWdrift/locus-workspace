@@ -1,7 +1,10 @@
 import { homedir } from 'node:os'
 import { isAbsolute, join, resolve } from 'node:path'
 import { createWorkspaceStore } from './workspaces.ts'
+import { LOCUS_VERSION } from './version.generated.ts'
 import type { LocusCore, LocusInfo } from './types.ts'
+
+export { LOCUS_VERSION } from './version.generated.ts'
 
 export type {
   LocusCore,
@@ -14,9 +17,6 @@ export type {
   WorkspaceRelation,
   WorkspaceService,
 } from './types.ts'
-
-/** Locus 产品版本，也是唯一来源。 */
-export const LOCUS_VERSION = '0.0.0'
 
 /** 数据目录的文件夹名不能为空、不能是路径，也不能逃出基目录。 */
 function assertFolderName(value: string): void {

@@ -24,7 +24,7 @@
 
 | 参数 | 行为与成功判据 |
 | --- | --- |
-| `version` | stdout `0.0.0`、退出 0；不创建数据目录 |
+| `version` | stdout 根 `package.json` 的 `version`、退出 0；不创建数据目录；来源见[版本管理](versioning.md) |
 | `workspace create <name>` | 返回具有稳定 UUID 的新 Workspace，不要求目录 |
 | `workspace list` | 列出长期 Workspace 与挂载数量；空集合不是错误 |
 | `workspace show <workspace>` / `workspace open <workspace>` | 按 Identity 或唯一名称查看挂载与长期关系 |

@@ -23,7 +23,7 @@ try {
 }
 ```
 
-`info.version` 从唯一版本常量 `LOCUS_VERSION` 读取，当前为 `0.0.0`。读取版本、数据目录或服务不创建数据库；首次 Workspace 操作才打开数据。释放后捕获的服务句柄也不可再调用。
+`info.version` 与 `LOCUS_VERSION` 来自构建时生成的 `src/version.generated.ts`，内容取自根 `package.json` 的 `version`，因此等于打包时的版本；仓库级规则见[版本管理](../../docs/versioning.md)。读取版本、数据目录或服务不创建数据库；首次 Workspace 操作才打开数据。释放后捕获的服务句柄也不可再调用。
 
 ## Workspace 与关系
 
