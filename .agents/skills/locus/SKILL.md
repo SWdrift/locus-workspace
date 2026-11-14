@@ -13,6 +13,7 @@ Locus 用稳定的 Workspace Identity 组织长期工作语境。Workspace 可�
 | --- | --- |
 | 创建、查看、改名、删除 Workspace；挂载/取消挂载 | [reference/workspace.md](reference/workspace.md) |
 | 启动统一 shell、读取注入的 `LOCUS_*` 环境 | [reference/shell.md](reference/shell.md) |
+| 复制项目模板、查看 `.template.json` 来源记录 | [reference/templates.md](reference/templates.md) |
 | 可复用脚本 | [scripts/README.md](scripts/README.md) |
 
 ## 快速流程
@@ -21,6 +22,7 @@ Locus 用稳定的 Workspace Identity 组织长期工作语境。Workspace 可�
 locus --json workspace create 研究
 locus --json workspace mount <workspace> /absolute/project --name project
 locus --json workspace show <workspace>
+locus template create minimal my-app
 locus shell <workspace>
 ```
 

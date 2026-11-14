@@ -55,8 +55,8 @@ CLI 每次进程启动直接创建 Core，命令完成后 `dispose()`；`--json`
 
 ## 验证
 
-- `pnpm build`：仅编译 `packages/core` 与 `apps/cli`，退出 0。
-- `pnpm test` / `pnpm test:all`：16 个 Core 用例与 4 个 CLI 子进程用例通过。
+- `pnpm build`：编译当前 workspace 包，退出 0。
+- `pnpm test` / `pnpm test:all`：Core 与 CLI 子进程测试通过。
 - 真实命令：`pnpm locus version` 输出 `0.0.0`；`workspace create/list/show/rename/link/unlink` 在独立进程中跨进程恢复；`version` 与 `--help` 不创建数据目录；未知命令退出 1，业务失败退出 2。
-- `pnpm verify:full`：构建、20 个用例、37 个 Markdown 文件检查与 20 次调用的 CLI e2e 通过；随后再次执行 `pnpm e2e` 以退出码 3 命中冷却。
+- `pnpm verify:full`：构建、测试、文档检查与 CLI e2e 通过；随后再次执行 `pnpm e2e` 以退出码 3 命中冷却。
 - `pnpm docs:check` 与 `pnpm docs:test` 通过。

@@ -69,8 +69,8 @@ CLI 增加 `workspace remove`、`workspace mount`、`workspace mounts`、`worksp
 
 ## 测试
 
-- Core：18 个用例，覆盖挂载唯一性、默认名称、级联删除、v1→v2 迁移与释放边界。
-- CLI：5 个用例，覆盖挂载/取消/删除、名称解析、`shell --print-env`、`locus` 启动器与子 shell 退出码。
-- Skill：1 个用例，通过真实 CLI 与 `LOCUS_CLI` 运行 pick/summary/context 脚本。
-- e2e：25 次真实调用，覆盖挂载、shell 上下文、跨进程恢复与删除。
+- Core 测试覆盖挂载唯一性、默认名称、级联删除、v1→v2 迁移与释放边界。
+- CLI 测试覆盖挂载/取消/删除、名称解析、`shell --print-env`、`locus` 启动器与子 shell 退出码。
+- Skill 测试通过真实 CLI 与 `LOCUS_CLI` 运行 pick/summary/context 脚本。
+- e2e 覆盖挂载、shell 上下文、跨进程恢复与删除。
 - 手工验证：PowerShell 内 `locus version` 与 `Write-Output $env:LOCUS_WORKSPACE_NAME` 通过；`shell --command "exit 7"` 返回 7。

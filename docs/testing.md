@@ -6,7 +6,7 @@
 
 | 层级 | 入口 | 运行内容 |
 | --- | --- | --- |
-| 快速层 | `pnpm test` | Core 包测试、CLI/Skill 跨包测试；不含 e2e |
+| 快速层 | `pnpm test` | 包测试与跨包测试；不含 e2e |
 | 全量进程内 | `pnpm test:all` | 经 `tests/run.mjs` 运行 `packages/*/test/`、`apps/*/test/` 与 `tests/*.test.mjs`；不含 e2e |
 | 单文件 | `pnpm test:file <文件>` | 直接运行一个 `node --test` 文件，可附加 `--test-name-pattern <模式>` 过滤用例 |
 | CLI 端到端 | `pnpm e2e` | 经 `tests/run.mjs` 运行 `tests/e2e/*.mjs`，使用真实构建产物与独立进程；受[高耗时操作节流](#高耗时操作节流)约束 |
@@ -18,9 +18,11 @@
 
 e2e 只保留进程内测试无法覆盖的组合：真实 `apps/cli/lib/index.js`、独立进程、跨进程恢复、完整命令链、退出码与 `pnpm locus` 包装。它不重复快速层或全量层的单命令矩阵。
 
+`pnpm test:all` 与 `pnpm e2e` 经 `tests/run.mjs` 统一执行。
+
 ## 高耗时操作节流
 
-系统性测试统一经 `tests/run.mjs` 执行。入口在运行前读取 `temp/test-runs.log`，按同类上次开始的冷却窗口决定是否放行，并在运行前后自动追加记录。
+入口在运行前读取 `temp/test-runs.log`，按同类上次开始的冷却窗口决定是否放行，并在运行前后自动追加记录。
 
 | 类型 | 命令 | 冷却窗口 |
 | --- | --- | --- |
@@ -35,23 +37,24 @@ e2e 只保留进程内测试无法覆盖的组合：真实 `apps/cli/lib/index.j
 - 该检查只覆盖系统性入口。`pnpm test`、`pnpm test:file`、包内 `pnpm --dir <包> test` 与 `pnpm docs:test` 不经过入口，也不受冷却限制。
 - `pnpm verify:full` 按 `build → test:all → docs:check → e2e` 执行；e2e 被拒绝时命令以退出码 3 结束，已完成的步骤不回滚。
 - e2e 依赖 pnpm 注入的 `npm_execpath`；冷却检查通过后，直接运行 `node tests/run.mjs e2e` 会以退出码 2 拒绝。
+- 未发现测试文件时入口以退出码 1 失败，不把空集合当成通过。
 
 ## 目录与形态
 
-- `packages/*/test/` 与 `apps/*/test/` 是包测试，使用 `node:test`。当前 Core 注册了独立 `test` script；CLI 的功能测试位于跨包层。
-- `tests/*.test.mjs` 是跨包测试，当前为 CLI 子进程与 Skill 脚本用例。
-- `tests/e2e/*.mjs` 是端到端脚本，当前为 `cli-workflow.mjs`；不匹配 `*.test.mjs`，因此不会被快速层或全量层误收集。
+- `packages/*/test/` 与 `apps/*/test/` 是包测试，使用 `node:test`。Core 与 Templates 各自注册 `test` script；CLI 没有包内测试，功能测试位于跨包层。
+- `tests/*.test.mjs` 是跨包测试，使用真实构建产物与独立进程。
+- `tests/e2e/*.mjs` 是端到端脚本，不匹配 `*.test.mjs`，因此不会被快速层或全量层误收集。
 - `tests/run.mjs` 是系统性测试入口，负责文件收集、冷却检查与运行记录；名称不匹配 `*.test.mjs`，不会被自身收集。
-- `scripts/docs.test.mjs` 验证文档检查器自身的通过与失败边界。
+- `scripts/` 下有文档检查器自身的测试，按 `pnpm docs:test` 运行。
 
 ## 夹具与隔离
 
 每个用例建立自己的临时根目录，把 `LOCUS_HOME`、SQLite 与临时资源隔离在其中，并在 `t.after` 或 `finally` 中释放 Core、删除临时目录、恢复环境变量。测试不写入仓库、真实用户目录或默认 `~/.locus-workspace`，不依赖共享的可变状态。
 
-- Core 测试使用真实 SQLite 文件与真实临时目录，覆盖身份、关系、重开、备份、锁与损坏恢复。
+- 包测试使用真实 SQLite 文件、真实模板目录与临时目标目录，不用内存替身代替被测层。
 - CLI 跨包测试通过 `spawnSync` 启动构建后的 bin；每次命令都是独立进程，跨进程恢复由真实 SQLite 与文件系统承担。
-- CLI e2e 使用临时绝对 `LOCUS_HOME`、真实构建产物与 `pnpm locus` 包装，验证完整命令链、退出码与冷却入口；不访问外部服务。
-- Skill 用例设置 `LOCUS_CLI` 与临时 `LOCUS_HOME`，通过真实 CLI 创建 Workspace/挂载，再运行 `workspace-pick`、`workspace-summary` 与 `shell-context`。
+- CLI e2e 使用临时绝对 `LOCUS_HOME`、真实构建产物与 `pnpm locus` 包装，验证完整命令链与退出码；不访问外部服务。
+- Skill 用例设置 `LOCUS_CLI` 与临时 `LOCUS_HOME`，通过真实 CLI 创建 Workspace 与挂载后运行脚本。
 - 测试导入 `lib/` 构建产物，因此运行前需要 `pnpm build`；测试不使用运行时 TypeScript 转译。
 
 ## 编写约束

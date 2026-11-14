@@ -4,7 +4,7 @@
 
 ## 前置条件与构建
 
-Node.js 24 或更高、pnpm 11.24.0。执行 `pnpm install`，修改源码后执行 `pnpm build`。根 `tsconfig.json` 只引用 `packages/core` 与 `apps/cli`，构建产物写入各自 `lib/`；包 exports 使用构建产物，不依赖运行时转译。
+Node.js 24 或更高、pnpm 11.24.0。执行 `pnpm install`，修改源码后执行 `pnpm build`。根 `tsconfig.json` 引用 `packages/core`、`packages/templates` 与 `apps/cli`，构建产物写入各自 `lib/`；包 exports 使用构建产物，不依赖运行时转译。
 
 ## 运行 CLI
 
@@ -15,9 +15,7 @@ pnpm locus --help
 pnpm locus workspace list
 ```
 
-`pnpm locus` 等价于 `node apps/cli/lib/index.js`，参数原样转发。`apps/cli/package.json` 声明了 `locus` bin，供发布或外部安装后直接调用；当前仓库内统一使用 `pnpm locus`。CLI 不经过 DSH、profile 或 Cordis；每次调用创建自己的 Core，命令完成后释放。
-
-数据目录由绝对路径 `LOCUS_HOME` 或 `createLocusCore({ dataDirectory })` 决定；未配置时使用用户主目录下的 `.locus-workspace/`。`version` 与 `--help` 不创建数据目录，首次 Workspace 写入才打开 SQLite。调试时使用单独数据目录，不以清空数据库作为修复失败的默认动作；备份与版本规则见 [Core](../packages/core/README.md#持久化与恢复)。
+`pnpm locus` 需先构建；命令入口、参数与成功判据见[实用命令](commands.md#工程命令)。CLI 装配与生命周期由 [CLI](../apps/cli/README.md)维护，数据目录、首次打开时机与恢复由 [Core](../packages/core/README.md#持久化与恢复)维护。调试时使用单独数据目录，不以清空数据库作为修复失败的默认动作。
 
 ## 修改与验证
 
@@ -34,4 +32,4 @@ Web 当前只有占位，不参与构建与测试。新增 app 时再补构建�
 
 ## Skill 与脚本
 
-Agent 入口是 [.agents/skills/locus/SKILL.md](../.agents/skills/locus/SKILL.md)，按 Workspace、Shell 与脚本分层索引。脚本只调用 CLI 的 JSON 输出，不直接访问 SQLite；在 `locus shell` 内 `LOCUS_CLI` 与 `locus` 已注入，仓库外使用时设置 `LOCUS_CLI` 指向构建后的 `apps/cli/lib/index.js`。脚本测试已包含在 `pnpm test`。
+Agent 入口是 [.agents/skills/locus/SKILL.md](../.agents/skills/locus/SKILL.md)，按 Workspace、Shell 与脚本分层索引。脚本的 CLI 定位与运行方式见 [Skill 脚本](../.agents/skills/locus/scripts/README.md)；脚本测试已包含在 `pnpm test`。
