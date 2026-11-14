@@ -1,10 +1,14 @@
 import { homedir } from 'node:os'
 import { isAbsolute, join, resolve } from 'node:path'
+import type { ComponentRunner } from './components/runner.ts'
+import { createComponentService } from './components/service.ts'
+import type { ComponentSpec } from './components/spec.ts'
 import { createWorkspaceStore } from './workspaces.ts'
 import { LOCUS_VERSION } from './version.generated.ts'
 import type { LocusCore, LocusInfo } from './types.ts'
 
 export { LOCUS_VERSION } from './version.generated.ts'
+export { ComponentFailure, defineComponent } from './components/spec.ts'
 
 export type {
   LocusCore,
@@ -17,6 +21,27 @@ export type {
   WorkspaceRelation,
   WorkspaceService,
 } from './types.ts'
+export type {
+  ComponentConfig,
+  ComponentDeploy,
+  ComponentFailureCode,
+  ComponentInfo,
+  ComponentKind,
+  ComponentProbe,
+  ComponentSpec,
+  DeployState,
+  ExternalState,
+} from './components/spec.ts'
+export type {
+  ComponentDeployView,
+  ComponentExternalView,
+  ComponentList,
+  ComponentProblem,
+  ComponentServiceOptions,
+  ComponentView,
+  ComponentsService,
+} from './components/service.ts'
+export type { ComponentCommandResult, ComponentRunner } from './components/runner.ts'
 
 /** 数据目录的文件夹名不能为空、不能是路径，也不能逃出基目录。 */
 function assertFolderName(value: string): void {
@@ -62,11 +87,24 @@ function resolveDataDirectory(explicit: string | undefined): string {
   return home === undefined ? join(base, '.locus-workspace') : base
 }
 
-/** 创建 Locus core；首次调用 Workspace 用例时才打开自有数据库。 */
-export function createLocusCore(options?: { dataDirectory?: string }): LocusCore {
+export interface CreateLocusCoreOptions {
+  readonly dataDirectory?: string
+  /** 由包定义、经 `defineComponent()` 校验的组件；首次访问组件服务时物化。 */
+  readonly components?: readonly ComponentSpec[]
+  /** 组件探针与部署命令执行器；测试注入假实现。 */
+  readonly componentRunner?: ComponentRunner
+}
+
+/** 创建 Locus core；首次调用 Workspace 或组件用例时才打开自有数据库。 */
+export function createLocusCore(options?: CreateLocusCoreOptions): LocusCore {
   const dataDirectory = resolveDataDirectory(options?.dataDirectory)
   const info: LocusInfo = Object.freeze({ version: LOCUS_VERSION })
   const store = createWorkspaceStore(dataDirectory)
+  const components = createComponentService({
+    dataDirectory,
+    ...(options?.components === undefined ? {} : { definitions: options.components }),
+    ...(options?.componentRunner === undefined ? {} : { runner: options.componentRunner }),
+  })
 
   return {
     get info() {
@@ -85,8 +123,13 @@ export function createLocusCore(options?: { dataDirectory?: string }): LocusCore
       store.assertActive()
       return store.mounts
     },
+    get components() {
+      store.assertActive()
+      return components
+    },
     async dispose() {
       store.dispose()
+      components.dispose()
     },
   }
 }

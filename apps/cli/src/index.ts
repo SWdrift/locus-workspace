@@ -2,6 +2,8 @@
 import { CommanderError } from 'commander'
 import { createLocusCore } from '@locus/core'
 import type { LocusCore } from '@locus/core'
+import { component as remoteTargetsComponent } from '@locus/remote-targets'
+import { component as templatesComponent } from '@locus/templates'
 import { resolve } from 'node:path'
 import { createProgram } from './commands.ts'
 
@@ -18,7 +20,9 @@ async function main(argv: readonly string[]): Promise<number> {
   let locus: LocusCore | undefined
   try {
     loadEnvironment()
-    locus = createLocusCore()
+    locus = createLocusCore({
+      components: [templatesComponent, remoteTargetsComponent],
+    })
     const program = createProgram(locus)
     program.exitOverride()
     await program.parseAsync([...argv], { from: 'user' })

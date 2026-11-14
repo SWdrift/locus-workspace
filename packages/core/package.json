@@ -16,5 +16,9 @@
   "scripts": {
     "build": "node ../../scripts/version.mjs && tsc -b tsconfig.json",
     "test": "node --test test/*.test.mjs"
+  },
+  "dependencies": {
+    "execa": "catalog:",
+    "yaml": "catalog:"
   }
 }

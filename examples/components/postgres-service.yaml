@@ -1,0 +1,19 @@
+id: postgres-service
+version: '1'
+name: PostgreSQL service
+summary: 本机 PostgreSQL 监听 127.0.0.1:5432
+kind: external
+probe:
+  kind: tcp
+  host: 127.0.0.1
+  port: 5432
+  timeoutMs: 3000
+  onFailure: stopped
+info:
+  text: |
+    # 端口可用性
+    locus component probe postgres-service
+    # 认证与查询仍用 psql
+    psql -h 127.0.0.1 -p 5432 -U postgres
+
+    端口可连接不代表认证通过或数据库可写。

@@ -530,7 +530,7 @@ test('v1 数据库迁移保留 Workspace 与关系并加入 mounts 表', async (
   await core.dispose()
 
   const migrated = new DatabaseSync(filename)
-  assert.equal(migrated.prepare('PRAGMA user_version').get().user_version, 2)
+  assert.equal(migrated.prepare('PRAGMA user_version').get().user_version, 3)
   migrated.close()
   assert.deepEqual(
     setup.open().workspaces.get(workspaceId).mounts.map((item) => item.name),

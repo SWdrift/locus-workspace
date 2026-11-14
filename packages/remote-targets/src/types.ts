@@ -94,6 +94,17 @@ export interface CommandRunner {
   interactive(command: string, args: readonly string[], options?: RunOptions): Promise<number>
 }
 
+/** 组合根提供的组件状态；远程目标不依赖 Core，只消费这个窄视图。 */
+export interface ComponentAvailability {
+  readonly id: string
+  readonly kind: 'locus' | 'external'
+  readonly state: string | null
+}
+
+export interface ComponentGate {
+  get(id: string): ComponentAvailability | undefined
+}
+
 export interface RemoteTargetsService {
   list(): readonly RemoteTarget[]
   show(reference: string): RemoteTargetView
@@ -114,6 +125,7 @@ export type RemoteTargetsFailureCode =
   | 'unsupported-protocol'
   | 'credential-missing'
   | 'capability-unsupported'
+  | 'component-unavailable'
   | 'io'
 
 export class RemoteTargetsFailure extends Error {

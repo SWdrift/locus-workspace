@@ -8,6 +8,7 @@ import {
   RemoteTargetsFailure,
   type AddOptions,
   type CommandRunner,
+  type ComponentGate,
   type ExecResult,
   type ProbeResult,
   type RemoteTarget,
@@ -45,6 +46,7 @@ function resolveTarget(targets: readonly RemoteTarget[], reference: string): Rem
 export function createRemoteTargetsService(options: {
   readonly root: string
   readonly runner?: CommandRunner
+  readonly components?: ComponentGate
 }): RemoteTargetsService {
   if (!isAbsolute(options.root)) {
     throw new RemoteTargetsFailure('invalid-spec', 'remote-targets 根目录必须是绝对路径')
@@ -53,6 +55,32 @@ export function createRemoteTargetsService(options: {
   const store = createTargetStore(root)
   const state = createStateStore(root)
   const runner = options.runner ?? createProcessRunner()
+  const gate = options.components
+  const TRANSPORT_COMPONENT: Record<'key' | 'password', string> = {
+    key: 'openssh',
+    password: 'plink',
+  }
+
+  /** 传输前置：组件未登记或状态非 healthy 时明确失败，不静默改用其他客户端。 */
+  function requireTransport(target: RemoteTarget): void {
+    if (gate === undefined) return
+    const componentId = TRANSPORT_COMPONENT[target.identity.auth.method]
+    const availability = gate.get(componentId)
+    if (availability === undefined) {
+      throw new RemoteTargetsFailure(
+        'component-unavailable',
+        `目标 ${target.id} 需要组件 ${componentId}，但它未登记；` +
+          `先运行 locus component add examples/components/${componentId}.yaml`,
+      )
+    }
+    if (availability.state !== 'healthy') {
+      throw new RemoteTargetsFailure(
+        'component-unavailable',
+        `目标 ${target.id} 需要组件 ${componentId}，当前状态：${availability.state ?? '未探查'}；` +
+          `运行 locus component probe ${componentId} 或 locus component show ${componentId}`,
+      )
+    }
+  }
 
   function requireCredential(target: RemoteTarget): void {
     const path = resolveUnderRoot(
@@ -117,6 +145,7 @@ export function createRemoteTargetsService(options: {
     },
     async probe(reference): Promise<ProbeResult> {
       const target = resolveTarget(store.load(), reference)
+      requireTransport(target)
       requireCredential(target)
       const invocation = buildSshInvocation(target, root, ['whoami'])
       const result = await runner.run(invocation.command, invocation.args, { timeoutMs: 15_000 })
@@ -134,6 +163,7 @@ export function createRemoteTargetsService(options: {
     async exec(reference, command): Promise<ExecResult> {
       const target = resolveTarget(store.load(), reference)
       requireCapability(target, 'exec')
+      requireTransport(target)
       if (command.length === 0) {
         throw new RemoteTargetsFailure('invalid-spec', 'exec 需要至少一条远端命令')
       }
@@ -145,6 +175,7 @@ export function createRemoteTargetsService(options: {
     async shell(reference): Promise<number> {
       const target = resolveTarget(store.load(), reference)
       requireCapability(target, 'shell')
+      requireTransport(target)
       requireCredential(target)
       const invocation = buildSshInvocation(target, root, [])
       return runner.interactive(invocation.command, invocation.args)

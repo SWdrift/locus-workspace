@@ -1,11 +1,16 @@
-import { readFileSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import { Command, Option } from 'commander'
-import type { LocusCore, Mount, Workspace, WorkspaceRelation } from '@locus/core'
-import { createTemplateService } from '@locus/templates'
-import { createRemoteTargetsService } from '@locus/remote-targets'
+import type { ComponentView, LocusCore, Mount, Workspace, WorkspaceRelation } from '@locus/core'
+import { component as templatesComponent, createTemplateService } from '@locus/templates'
+import {
+  component as remoteTargetsComponent,
+  createRemoteTargetsService,
+} from '@locus/remote-targets'
 import type { RemoteTarget, RemoteTargetView } from '@locus/remote-targets'
 import { runWorkspaceShell } from './shell.ts'
+
+const PACKAGE_COMPONENT_IDS = [templatesComponent.id, remoteTargetsComponent.id]
 
 function jsonEnabled(command: Command): boolean {
   return command.optsWithGlobals<{ json?: boolean }>().json === true
@@ -21,6 +26,101 @@ function relationText(relation: WorkspaceRelation): string {
 
 function mountText(mount: Mount): string {
   return `${mount.id}  ${mount.name}  ${mount.path}`
+}
+
+function componentStateText(view: ComponentView): string {
+  if (view.external === undefined) return '不适用'
+  const state = view.external.state ?? '未探查'
+  const detail = view.external.detail.length === 0 ? '' : `  ${view.external.detail}`
+  const checkedAt = view.external.checkedAt === undefined ? '' : `  ${view.external.checkedAt}`
+  return `${state}${detail}${checkedAt}`
+}
+
+function truncateDetail(detail: string, limit = 120): string {
+  return detail.length > limit ? `${detail.slice(0, limit)}…` : detail
+}
+
+function componentProbeText(view: ComponentView): string {
+  if (view.external === undefined) return `${view.id}  不适用`
+  const state = view.external.state ?? '未探查'
+  const detail = truncateDetail(view.external.detail)
+  const checkedAt = view.external.checkedAt === undefined ? '' : `  ${view.external.checkedAt}`
+  return `${view.id}  ${state}${detail.length === 0 ? '' : `  ${detail}`}${checkedAt}`
+}
+
+function componentDeployText(view: ComponentView): string {
+  const detail = truncateDetail(view.deploy.detail)
+  const checkedAt = view.deploy.checkedAt === undefined ? '' : `  ${view.deploy.checkedAt}`
+  return `${view.id}  ${view.deploy.state}${detail.length === 0 ? '' : `  ${detail}`}${checkedAt}`
+}
+
+/** 列表只携带定位与状态，完整说明由 show 读取。 */
+function componentSummary(view: ComponentView): Record<string, unknown> {
+  return {
+    id: view.id,
+    name: view.name,
+    summary: view.summary,
+    kind: view.kind,
+    version: view.version,
+    ...(view.codeVersion === undefined ? {} : { codeVersion: view.codeVersion }),
+    needsUpgrade: view.needsUpgrade,
+    requires: view.requires,
+    source: view.source,
+    definitionPath: view.definitionPath,
+    ...(view.configPath === undefined ? {} : { configPath: view.configPath }),
+    ...(view.external === undefined ? {} : { external: view.external }),
+    deploy: view.deploy,
+  }
+}
+
+function formatAge(iso: string): string {
+  const timestamp = Date.parse(iso)
+  if (!Number.isFinite(timestamp)) return '-'
+  const seconds = Math.max(0, Math.round((Date.now() - timestamp) / 1000))
+  if (seconds < 60) return `${seconds}s`
+  if (seconds < 3600) return `${Math.round(seconds / 60)}m`
+  if (seconds < 86_400) return `${Math.round(seconds / 3600)}h`
+  return `${Math.round(seconds / 86_400)}d`
+}
+
+function componentText(view: ComponentView): string {
+  const version = view.needsUpgrade
+    ? `${view.version}（代码版本 ${view.codeVersion}，需要升级）`
+    : view.version
+  const lines = [
+    `组件：${view.id}`,
+    `名称：${view.name}`,
+    `种类：${view.kind}  来源：${view.source}`,
+    `版本：${version}`,
+    `依赖：${view.requires.length === 0 ? '无' : view.requires.join(', ')}`,
+    `外部状态：${componentStateText(view)}`,
+    `部署状态：${view.deploy.state}  ${view.deploy.detail}`,
+    `定义：${view.definitionPath}`,
+    ...(view.configPath === undefined ? [] : [`配置：${view.configPath}`]),
+  ]
+  if (view.info?.text !== undefined) {
+    lines.push('', view.info.text.trimEnd())
+  } else if (view.info?.json !== undefined) {
+    lines.push('', JSON.stringify(view.info.json, null, 2))
+  }
+  return lines.join('\n')
+}
+
+function componentLine(view: ComponentView): string {
+  const external = view.external === undefined
+    ? '-'
+    : view.external.state ?? (view.external.detail || '未探查')
+  const age = view.external?.checkedAt === undefined ? '-' : formatAge(view.external.checkedAt)
+  const upgrade = view.needsUpgrade ? '  需要升级' : ''
+  const requires = view.requires.length === 0 ? '' : `  -> ${view.requires.join(',')}`
+  return `${view.id}  ${view.source}  ${view.kind}  ${view.version}${upgrade}  ${external}  ${age}  ${view.deploy.state}${requires}`
+}
+
+/** 顶层未知命令先判断是否像组件，避免拼写错误也创建数据目录。 */
+function isComponentId(locus: LocusCore, id: string): boolean {
+  if (PACKAGE_COMPONENT_IDS.includes(id)) return true
+  const root = join(locus.dataDirectory, 'components')
+  return existsSync(join(root, `${id}.yaml`)) || existsSync(join(root, id, 'component.yaml'))
 }
 
 function remoteTargetLine(target: RemoteTarget): string {
@@ -81,6 +181,13 @@ export function createProgram(locus: LocusCore): Command {
   const templates = createTemplateService()
   const remoteTargets = createRemoteTargetsService({
     root: join(locus.dataDirectory, 'remote-targets'),
+    components: {
+      get(id) {
+        const found = locus.components.list().components.find((item) => item.id === id)
+        if (found === undefined) return undefined
+        return { id: found.id, kind: found.kind, state: found.external?.state ?? null }
+      },
+    },
   })
   const program = new Command()
     .name('locus')
@@ -92,8 +199,14 @@ export function createProgram(locus: LocusCore): Command {
     .action((command?: string) => {
       if (command === undefined) {
         program.help({ error: true })
+        return
       }
-      program.error(`未知命令：${command}`, { exitCode: 1 })
+      if (!isComponentId(locus, command)) {
+        program.error(`未知命令：${command}`, { exitCode: 1 })
+        return
+      }
+      const result = locus.components.show(command)
+      emit(program, result, componentText(result))
     })
 
   const version = program.command('version').description('读取 Locus 产品版本')
@@ -194,6 +307,10 @@ export function createProgram(locus: LocusCore): Command {
   })
 
   const template = program.command('template').description('本机项目模板：复制文件夹并记录来源')
+  template.action(() => {
+    const result = locus.components.show(templatesComponent.id)
+    emit(template, result, componentText(result))
+  })
   const templateList = template.command('list').description('列出内置模板')
   templateList.action(async () => {
     const result = await templates.list()
@@ -228,6 +345,10 @@ export function createProgram(locus: LocusCore): Command {
   const targets = program.command('remote-targets')
     .alias('rt')
     .description('远程目标：声明式登记 SSH 目标，经统一入口探测与执行')
+  targets.action(() => {
+    const result = locus.components.show(remoteTargetsComponent.id)
+    emit(targets, result, componentText(result))
+  })
   const targetAdd = targets.command('add <id>')
     .description('登记目标；细节通过 --spec 传入 YAML 或 JSON')
     .option('--spec <path>', '配置文件；- 表示从 stdin 读取')
@@ -290,6 +411,100 @@ export function createProgram(locus: LocusCore): Command {
   targetShell.action(async (reference: string) => {
     const exitCode = await remoteTargets.shell(reference)
     if (exitCode !== 0) process.exitCode = exitCode
+  })
+
+  const component = program.command('component').description('组件定义、状态与生命周期')
+  const componentList = component.command('list').description('列出包组件与动态组件')
+  componentList.action(() => {
+    const result = locus.components.list()
+    const summary = {
+      components: result.components.map(componentSummary),
+      problems: result.problems,
+    }
+    const lines = [
+      ...result.components.map(componentLine),
+      ...result.problems.map((problem) =>
+        `! ${problem.id}  ${problem.source}  ${problem.path}  ${problem.error}`),
+    ]
+    emit(componentList, summary, lines.join('\n') || '没有组件。')
+  })
+  const componentShow = component.command('show <id>').description('查看定义、状态与说明')
+  componentShow.action((id: string) => {
+    const result = locus.components.show(id)
+    emit(componentShow, result, componentText(result))
+  })
+  const componentAdd = component.command('add <source>')
+    .description('登记动态组件：YAML 文件、包含 component.yaml 的文件夹或 -')
+  componentAdd.action((source: string) => {
+    const result = source === '-'
+      ? locus.components.addFromText(readFileSync(0, 'utf8'))
+      : locus.components.addFromPath(resolve(source))
+    emit(componentAdd, result, `已登记组件 ${result.id}\n${componentText(result)}`)
+  })
+  const componentUpgrade = component.command('upgrade <id>')
+    .description('按包代码刷新定义字段，保留 config')
+  componentUpgrade.action((id: string) => {
+    const result = locus.components.upgrade(id)
+    emit(componentUpgrade, result, `已升级组件 ${result.id}\n${componentText(result)}`)
+  })
+  const componentRemove = component.command('remove <id>')
+    .description('删除动态组件定义与状态，不触碰外部软件')
+    .requiredOption('--yes', '确认删除；不等待交互输入')
+  componentRemove.action((id: string) => {
+    locus.components.remove(id)
+    emit(componentRemove, { component: id, removed: true }, `已删除组件 ${id}；外部软件未变更。`)
+  })
+  const componentProbe = component.command('probe [id]')
+    .description('执行声明的探针并记录外部状态；--all 探查所有 external 组件')
+    .option('--all', '探查所有 external 组件')
+  componentProbe.action(async (id?: string) => {
+    const options = componentProbe.opts<{ all?: boolean }>()
+    if (options.all === true) {
+      if (id !== undefined) {
+        componentProbe.error('--all 不能与组件 id 同时使用', { exitCode: 1 })
+      }
+      const { components } = locus.components.list()
+      const probed: ComponentView[] = []
+      const skipped: Array<{ id: string; reason: string }> = []
+      const lines: string[] = []
+      let failed = false
+      for (const item of components) {
+        if (item.kind !== 'external') continue
+        try {
+          const view = await locus.components.probe(item.id)
+          probed.push(view)
+          lines.push(componentProbeText(view))
+          if (view.external?.state !== 'healthy') failed = true
+        } catch (error) {
+          const reason = error instanceof Error ? error.message : String(error)
+          skipped.push({ id: item.id, reason })
+          lines.push(`${item.id}  跳过  ${reason}`)
+          if (!/未声明探针/.test(reason)) failed = true
+        }
+      }
+      emit(
+        componentProbe,
+        { probed, skipped },
+        lines.join('\n') || '没有可探查的组件。',
+      )
+      if (failed) process.exitCode = 1
+      return
+    }
+    if (id === undefined) {
+      componentProbe.error('缺少组件 id 或 --all', { exitCode: 1 })
+      return
+    }
+    const result = await locus.components.probe(id)
+    emit(componentProbe, result, componentProbeText(result))
+    if (result.external?.state !== 'healthy') process.exitCode = 1
+  })
+  const componentDeploy = component.command('deploy <id>')
+    .description('执行声明的部署入口并记录结果')
+    .requiredOption('--yes', '确认执行部署；不等待交互输入')
+  componentDeploy.action(async (id: string) => {
+    const result = await locus.components.deploy(id)
+    emit(componentDeploy, result, componentDeployText(result))
+    if (result.deploy.state !== 'deployed') process.exitCode = 1
   })
 
   const shell = program.command('shell <workspace>')

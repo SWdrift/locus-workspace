@@ -1,3 +1,4 @@
+export { component } from './component.ts'
 export { createRemoteTargetsService } from './service.ts'
 export { RemoteTargetsFailure } from './types.ts'
 export type {
@@ -5,6 +6,8 @@ export type {
   AuthMethod,
   Capability,
   CommandRunner,
+  ComponentAvailability,
+  ComponentGate,
   ExecResult,
   ProbeResult,
   RemoteAccess,

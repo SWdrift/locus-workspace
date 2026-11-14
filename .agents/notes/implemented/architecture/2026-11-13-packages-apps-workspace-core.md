@@ -23,6 +23,8 @@ Locus 作为项目内 DSH profile 插件运行后，CLI 不是可直接调用的
 
 CLI 每次进程启动直接创建 Core，命令完成后 `dispose()`；`--json` 输出单一 JSON，诊断写 stderr，退出码保持 0 成功、1 参数/帮助拒绝、2 业务或持久化失败。数据目录的配置契约由 [2026-11-14 数据目录配置](2026-11-14-data-directory-configuration.md) 维护。
 
+2026-11-15 起 Core 增加声明式组件登记、物化与状态；仍不加载插件代码，包仍在组合根显式接入。该扩展见[组件模型](2026-11-15-component-model.md)。
+
 ## 保留的 Workspace 语义
 
 回退不改变 Workspace 的产品含义，这些规则继续以 Core 和测试为准：

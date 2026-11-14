@@ -1,0 +1,22 @@
+id: docker
+version: '1'
+name: Docker
+summary: 容器运行环境
+kind: external
+probe:
+  argv: [docker, info]
+  timeoutMs: 10000
+  onFailure: stopped
+info:
+  text: |
+    # 查看客户端版本
+    docker --version
+    # 查看容器
+    docker ps -a
+    # 验证 daemon 可用
+    docker info
+    # 查看 Compose
+    docker compose version
+
+    本组件只登记与观察 Docker；容器操作仍使用原生 docker 命令。
+    daemon 未启动时探针状态为 stopped，不代表 Docker 未安装。

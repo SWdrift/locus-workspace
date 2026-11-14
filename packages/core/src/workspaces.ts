@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto'
-import { mkdirSync } from 'node:fs'
-import { basename, isAbsolute, join, resolve } from 'node:path'
-import { DatabaseSync } from 'node:sqlite'
+import { basename, isAbsolute, resolve } from 'node:path'
+import type { DatabaseSync } from 'node:sqlite'
+import { openCoreDatabase } from './database.ts'
 import type {
   Mount,
   MountService,
@@ -35,39 +35,6 @@ interface MountRow {
   path: string
   created_at: string
 }
-
-const SCHEMA_VERSION = 2
-const SCHEMA_V1 = `
-  CREATE TABLE workspaces (
-    id TEXT PRIMARY KEY,
-    name TEXT NOT NULL CHECK (length(trim(name)) > 0),
-    created_at TEXT NOT NULL
-  ) STRICT;
-  CREATE TABLE relations (
-    id TEXT PRIMARY KEY,
-    workspace_id TEXT NOT NULL REFERENCES workspaces(id),
-    kind TEXT NOT NULL CHECK (kind IN ('member', 'association')),
-    target_namespace TEXT NOT NULL CHECK (length(trim(target_namespace)) > 0),
-    target_id TEXT NOT NULL CHECK (length(trim(target_id)) > 0),
-    source_kind TEXT NOT NULL CHECK (source_kind IN ('manual', 'discovery')),
-    source_detail TEXT NOT NULL CHECK (length(trim(source_detail)) > 0),
-    created_at TEXT NOT NULL,
-    UNIQUE (workspace_id, kind, target_namespace, target_id)
-  ) STRICT;
-`
-const SCHEMA_V2 = `
-  CREATE TABLE mounts (
-    id TEXT PRIMARY KEY,
-    workspace_id TEXT NOT NULL REFERENCES workspaces(id),
-    name TEXT NOT NULL CHECK (length(trim(name)) > 0),
-    name_key TEXT NOT NULL CHECK (length(trim(name_key)) > 0),
-    path TEXT NOT NULL CHECK (length(trim(path)) > 0),
-    path_key TEXT NOT NULL CHECK (length(trim(path_key)) > 0),
-    created_at TEXT NOT NULL,
-    UNIQUE (workspace_id, name_key),
-    UNIQUE (workspace_id, path_key)
-  ) STRICT;
-`
 
 function requireText(value: unknown, field: string): asserts value is string {
   if (typeof value !== 'string' || value.trim().length === 0) {
@@ -143,81 +110,6 @@ function transaction<T>(database: DatabaseSync, write: boolean, action: () => T)
   }
 }
 
-function checkIntegrity(database: DatabaseSync): void {
-  const rows = database.prepare('PRAGMA integrity_check').all()
-  if (rows.length !== 1 || rows[0]?.integrity_check !== 'ok') {
-    throw new Error(`数据库完整性检查失败：${rows.map((row) => row.integrity_check).join('; ')}`)
-  }
-  if (database.prepare('PRAGMA foreign_key_check').all().length !== 0) {
-    throw new Error('数据库外键完整性检查失败')
-  }
-}
-
-function openDatabase(dataDirectory: string): DatabaseSync {
-  const filename = join(dataDirectory, 'core.sqlite')
-  mkdirSync(dataDirectory, { recursive: true })
-  let database: DatabaseSync | undefined
-  try {
-    database = new DatabaseSync(filename, { timeout: 1000, enableForeignKeyConstraints: true })
-    checkIntegrity(database)
-    const version = database.prepare('PRAGMA user_version').get()?.user_version
-    if (version !== 0 && version !== 1 && version !== SCHEMA_VERSION) {
-      throw new Error(`不支持的数据库版本 ${String(version)}，当前支持 ${SCHEMA_VERSION}；仅支持从 1 迁移`)
-    }
-    if (version === 0 && database.prepare('SELECT name FROM sqlite_schema').all().length !== 0) {
-      throw new Error('仅初始化新空库，拒绝修改已有数据库结构')
-    }
-    if (database.prepare('PRAGMA journal_mode = DELETE').get()?.journal_mode !== 'delete') {
-      throw new Error('数据库无法采用 journal_mode=DELETE')
-    }
-    database.exec('PRAGMA synchronous = FULL')
-    if (version === 0) {
-      const initializingDatabase = database
-      transaction(initializingDatabase, true, () => {
-        const currentVersion = initializingDatabase.prepare('PRAGMA user_version').get()?.user_version
-        if (currentVersion === SCHEMA_VERSION) return
-        if (
-          currentVersion !== 0 ||
-          initializingDatabase.prepare('SELECT name FROM sqlite_schema').all().length !== 0
-        ) {
-          throw new Error(`拒绝初始化非空或未知版本数据库：${String(currentVersion)}`)
-        }
-        initializingDatabase.exec(`${SCHEMA_V1}${SCHEMA_V2}PRAGMA user_version = ${SCHEMA_VERSION};`)
-      })
-    } else if (version === 1) {
-      const migratingDatabase = database
-      transaction(migratingDatabase, true, () => {
-        const currentVersion = migratingDatabase.prepare('PRAGMA user_version').get()?.user_version
-        if (currentVersion === SCHEMA_VERSION) return
-        if (currentVersion !== 1) {
-          throw new Error(`拒绝迁移未知版本数据库：${String(currentVersion)}`)
-        }
-        if (
-          migratingDatabase
-            .prepare("SELECT 1 FROM sqlite_schema WHERE type = 'table' AND name = ?")
-            .get('mounts') !== undefined
-        ) {
-          throw new Error('数据库版本为 1，但已存在 mounts 表；拒绝覆盖未知结构')
-        }
-        migratingDatabase.exec(SCHEMA_V2)
-        migratingDatabase.exec(`PRAGMA user_version = ${SCHEMA_VERSION}`)
-      })
-    }
-    if (
-      database
-        .prepare("SELECT 1 FROM sqlite_schema WHERE type = 'table' AND name = ?")
-        .get('mounts') === undefined
-    ) {
-      throw new Error('数据库缺少 mounts 表，拒绝在不完整结构上继续')
-    }
-    return database
-  } catch (error) {
-    database?.close()
-    const detail = error instanceof Error ? error.message : String(error)
-    throw new Error(`无法打开 Workspace 数据库 ${filename}：${detail}`, { cause: error })
-  }
-}
-
 function requireWorkspace(database: DatabaseSync, id: string): WorkspaceRow {
   const row = database
     .prepare('SELECT id, name, created_at FROM workspaces WHERE id = ?')
@@ -282,7 +174,7 @@ export function createWorkspaceStore(dataDirectory: string) {
   }
 
   function getDatabase(): DatabaseSync {
-    database ??= openDatabase(dataDirectory)
+    database ??= openCoreDatabase(dataDirectory)
     return database
   }
 

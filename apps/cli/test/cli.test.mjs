@@ -7,6 +7,7 @@ import { spawnSync } from 'node:child_process'
 import test from 'node:test'
 
 const CLI = fileURLToPath(new URL('../lib/index.js', import.meta.url))
+const EXAMPLES = fileURLToPath(new URL('../../../examples/components/', import.meta.url))
 const PRODUCT_VERSION = JSON.parse(
   readFileSync(new URL('../../../package.json', import.meta.url), 'utf8'),
 ).version
@@ -16,11 +17,12 @@ function fixture(t) {
   const data = join(root, 'data')
   t.after(() => rmSync(root, { recursive: true, force: true }))
   /** 每个命令都是独立进程，跨进程恢复由文件系统与 SQLite 真实承担。 */
-  const run = (args, environment = {}) => {
+  const run = (args, environment = {}, input) => {
     const result = spawnSync(process.execPath, [CLI, ...args], {
       cwd: root,
       encoding: 'utf8',
       env: { ...process.env, LOCUS_HOME: data, ...environment },
+      ...(input === undefined ? {} : { input }),
     })
     return {
       code: result.status,
@@ -210,4 +212,173 @@ test('挂载目录、注入 shell 上下文，并在删除 Workspace 时清理�
   assert.deepEqual(parseJson(f.run(['--json', 'workspace', 'list']).stdout), [])
   assert.equal(existsSync(appPath), true)
   assert.equal(existsSync(dataPath), true)
+})
+
+test('组件：物化包定义、动态登记、顶层入口与手动升级', (t) => {
+  const f = fixture(t)
+  const listed = f.run(['--json', 'component', 'list'])
+  assert.equal(listed.code, 0)
+  const initial = parseJson(listed.stdout)
+  assert.deepEqual(initial.components.map((item) => item.id), ['remote-targets', 'template'])
+  assert.equal(initial.problems.length, 0)
+  assert.equal('info' in initial.components[0], false)
+  assert.equal(existsSync(join(f.data, 'components', 'remote-targets.yaml')), true)
+
+  const bareTemplate = parseJson(f.run(['--json', 'template']).stdout)
+  assert.equal(bareTemplate.id, 'template')
+  assert.equal(bareTemplate.source, 'package')
+
+  const unknown = f.run(['docker'])
+  assert.equal(unknown.code, 1)
+  assert.match(unknown.stderr, /未知命令：docker/)
+
+  const added = f.run([
+    '--json',
+    'component',
+    'add',
+    join(EXAMPLES, 'docker.yaml'),
+  ])
+  assert.equal(added.code, 0, added.stderr)
+  const docker = parseJson(added.stdout)
+  assert.equal(docker.id, 'docker')
+  assert.equal(docker.source, 'dynamic')
+  assert.match(docker.info.text, /docker --version/)
+
+  const viaTopLevel = f.run(['--json', 'docker'])
+  assert.equal(viaTopLevel.code, 0)
+  assert.equal(parseJson(viaTopLevel.stdout).id, 'docker')
+
+  const reserved = f.run(['component', 'add', '-'], {}, `id: version
+version: '1'
+name: version
+summary: 保留 id
+kind: external
+probe:
+  argv: [node, --version]
+`)
+  assert.equal(reserved.code, 2)
+  assert.match(reserved.stderr, /内置顶层命令/)
+
+  const file = join(f.data, 'components', 'remote-targets.yaml')
+  writeFileSync(
+    file,
+    readFileSync(file, 'utf8').replace('version: "1"', 'version: "0"'),
+    'utf8',
+  )
+  const pending = parseJson(f.run(['--json', 'component', 'show', 'remote-targets']).stdout)
+  assert.equal(pending.needsUpgrade, true)
+  assert.equal(pending.codeVersion, '1')
+  const upgraded = f.run(['--json', 'component', 'upgrade', 'remote-targets'])
+  assert.equal(upgraded.code, 0, upgraded.stderr)
+  assert.equal(parseJson(upgraded.stdout).needsUpgrade, false)
+})
+
+test('组件探针与部署按参数执行，remove 只对动态组件生效', (t) => {
+  const f = fixture(t)
+  const probeYaml = `id: probe-node
+version: '1'
+name: probe-node
+summary: 探针组件
+kind: external
+probe:
+  argv: [node, --version]
+`
+  const added = f.run(['--json', 'component', 'add', '-'], {}, probeYaml)
+  assert.equal(added.code, 0, added.stderr)
+  const probed = f.run(['--json', 'component', 'probe', 'probe-node'])
+  assert.equal(probed.code, 0, probed.stderr)
+  assert.equal(parseJson(probed.stdout).external.state, 'healthy')
+  const humanProbe = f.run(['component', 'probe', 'probe-node'])
+  assert.equal(humanProbe.code, 0, humanProbe.stderr)
+  assert.match(humanProbe.stdout, /^probe-node\s+healthy/)
+  assert.doesNotMatch(humanProbe.stdout, /外部状态：/)
+  const humanList = f.run(['component', 'list'])
+  assert.match(
+    humanList.stdout,
+    /probe-node\s+dynamic\s+external\s+1\s+healthy\s+\d+[smhd]/,
+  )
+
+  const deployYaml = `id: deploy-node
+version: '1'
+name: deploy-node
+summary: 部署组件
+kind: external
+deploy:
+  argv: [node, --version]
+`
+  assert.equal(f.run(['component', 'add', '-'], {}, deployYaml).code, 0)
+  assert.equal(f.run(['component', 'deploy', 'deploy-node']).code, 1)
+  const deployed = f.run(['--json', 'component', 'deploy', 'deploy-node', '--yes'])
+  assert.equal(deployed.code, 0, deployed.stderr)
+  assert.equal(parseJson(deployed.stdout).deploy.state, 'deployed')
+
+  const removed = f.run(['component', 'remove', 'probe-node', '--yes'])
+  assert.equal(removed.code, 0, removed.stderr)
+  assert.equal(existsSync(join(f.data, 'components', 'probe-node.yaml')), false)
+  const packageRemoval = f.run(['component', 'remove', 'template', '--yes'])
+  assert.equal(packageRemoval.code, 2)
+  assert.match(packageRemoval.stderr, /由包定义/)
+})
+
+test('未知顶层命令不创建数据目录', (t) => {
+  const f = fixture(t)
+  const unknown = f.run(['bogus'])
+  assert.equal(unknown.code, 1)
+  assert.match(unknown.stderr, /未知命令：bogus/)
+  assert.equal(existsSync(f.data), false)
+})
+
+test('component probe --all 汇总外部组件状态并跳过无探针定义', (t) => {
+  const f = fixture(t)
+  const specs = [
+    `id: bulk-up
+version: '1'
+name: bulk-up
+summary: 可用
+kind: external
+probe:
+  argv: [node, --version]
+`,
+    `id: bulk-missing
+version: '1'
+name: bulk-missing
+summary: 缺失
+kind: external
+probe:
+  argv: [locus-definitely-missing-binary, --version]
+`,
+    `id: bulk-noprobe
+version: '1'
+name: bulk-noprobe
+summary: 无探针
+kind: external
+`,
+  ]
+  for (const spec of specs) {
+    assert.equal(f.run(['component', 'add', '-'], {}, spec).code, 0)
+  }
+
+  const all = f.run(['--json', 'component', 'probe', '--all'])
+  assert.equal(all.code, 1)
+  const payload = parseJson(all.stdout)
+  assert.deepEqual(payload.probed.map((item) => item.id).sort(), ['bulk-missing', 'bulk-up'])
+  assert.equal(
+    payload.probed.find((item) => item.id === 'bulk-up').external.state,
+    'healthy',
+  )
+  assert.equal(
+    payload.probed.find((item) => item.id === 'bulk-missing').external.state,
+    'absent',
+  )
+  assert.equal(payload.skipped.length, 1)
+  assert.match(payload.skipped[0].reason, /未声明探针/)
+
+  const human = f.run(['component', 'probe', '--all'])
+  assert.equal(human.code, 1)
+  assert.match(human.stdout, /bulk-up\s+healthy/)
+  assert.match(human.stdout, /bulk-missing\s+absent/)
+  assert.match(human.stdout, /bulk-noprobe\s+跳过/)
+
+  assert.equal(f.run(['component', 'probe']).code, 1)
+  assert.equal(f.run(['component', 'probe', 'bulk-up', '--all']).code, 1)
 })

@@ -1,0 +1,16 @@
+id: plink
+version: '1'
+name: Plink
+summary: PuTTY 的 SSH 客户端，用于密码认证
+kind: external
+probe:
+  argv: [plink, -V]
+  timeoutMs: 10000
+info:
+  text: |
+    # 查看版本
+    plink -V
+    # 连接并执行命令（主机指纹必须来自可信渠道）
+    plink -ssh -batch -l <user> -pwfile <file> -hostkey <fingerprint> <host> whoami
+
+    Locus 只用 Plink 做密码认证；主机指纹由目标的 connectivity.trust 钉死。

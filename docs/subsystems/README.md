@@ -7,3 +7,4 @@
 | 项目模板 | [项目模板](templates.md) |
 | 命令行 | [CLI](cli.md) |
 | 远程目标 | [远程目标](remote-targets.md) |
+| 组件 | [组件](components.md) |

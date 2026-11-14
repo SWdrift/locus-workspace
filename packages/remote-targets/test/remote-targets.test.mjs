@@ -240,6 +240,51 @@ test('probe 记录 SQLite 状态并可跨服务实例读取', async (t) => {
   failing.dispose()
 })
 
+test('传输组件未登记或未就绪时在凭据检查前失败', async (t) => {
+  const root = fixture(t)
+  const availability = {}
+  const service = createRemoteTargetsService({
+    root,
+    runner: fakeRunner(),
+    components: {
+      get(id) {
+        return availability[id]
+      },
+    },
+  })
+  service.add('key-target', spec())
+
+  await assert.rejects(
+    () => service.exec('key-target', ['whoami']),
+    expectCode('component-unavailable'),
+  )
+  availability.openssh = { id: 'openssh', kind: 'external', state: 'stopped' }
+  await assert.rejects(
+    () => service.probe('key-target'),
+    (error) => error.code === 'component-unavailable' && /stopped/.test(error.message),
+  )
+  availability.openssh = { id: 'openssh', kind: 'external', state: 'healthy' }
+  await assert.rejects(
+    () => service.exec('key-target', ['whoami']),
+    expectCode('credential-missing'),
+  )
+
+  service.add('pw-target', spec(
+    { trust: { fingerprint: 'SHA256:abc' } },
+    { identity: { login: 'root', auth: { method: 'password' } }, resource: { kind: 'server' } },
+  ))
+  await assert.rejects(
+    () => service.exec('pw-target', ['whoami']),
+    expectCode('component-unavailable'),
+  )
+  availability.plink = { id: 'plink', kind: 'external', state: 'healthy' }
+  await assert.rejects(
+    () => service.exec('pw-target', ['whoami']),
+    expectCode('credential-missing'),
+  )
+  service.dispose()
+})
+
 test('addFromText 接受 YAML，id 以命令参数为准', (t) => {
   const root = fixture(t)
   const service = createRemoteTargetsService({ root })

@@ -2,11 +2,11 @@
 
 ## 范围与边界
 
-项目模板把模板目录复制到新的项目目录，并在目标根写入来源记录。它是文件系统能力，不创建 Workspace、不挂载目录、不读写 `core.sqlite`，也不执行模板内的脚本、hook 或网络请求。
+项目模板把模板目录复制到新的项目目录，并在目标根写入来源记录。它是文件系统能力，不创建 Workspace、不挂载目录、不读写 `core.sqlite`，也不执行模板内的脚本、hook 或网络请求。包导出 `id: template` 的 `locus` 组件定义，只声明能力与说明，不改变复制行为。
 
 | 组件 | 职责 |
 | --- | --- |
-| `packages/templates` | 解析模板源、复制文件、计算 digest、写入实例记录 |
+| `packages/templates` | 解析模板源、复制文件、计算 digest、写入实例记录；导出组件定义 |
 | `apps/cli` | `locus template` 命令、相对目标路径解析、文本/JSON 投影 |
 | `.agents/skills/locus` | Agent 使用模板命令的索引与操作参考 |
 

@@ -2,13 +2,12 @@
 
 ## 简述与职责
 
-声明式登记远程 SSH 目标，并通过统一入口执行只读探测、单次命令与交互 Shell。目标定义保存为 YAML，探测结果保存为 SQLite；模块只构造系统 OpenSSH/Plink 调用并通过 `execa` 执行，不实现 SSH 协议，也不创建或修改凭据文件。
-
-不负责：目标侧账号与密钥的生成、FRP 隧道生命周期、S3 访问、调用方身份与授权模型。目标自身的安全边界仍由远端 sshd 与网络决定。
+声明式登记远程 SSH 目标，并通过统一入口执行只读探测、单次命令与交互 Shell。目标定义保存为 YAML，探测结果保存为 SQLite；模块只构造系统 OpenSSH/Plink 调用并通过 `execa` 执行，不实现 SSH 协议，也不创建或修改凭据文件。包同时导出 `kind: locus` 的组件定义，声明 `requires: [openssh]` 与 `config: remote-targets/`。
 
 ## 使用前提
 
 - Node.js 24 或更高；使用构建产物 `lib/`。
+- 首次访问组件服务时物化 `remote-targets` 组件定义；密钥认证要求 `openssh` 组件为 `healthy`，密码认证要求 `plink` 组件。未登记时先运行 `locus component add examples/components/openssh.yaml`（或 `plink.yaml`）并 `probe`。
 - 密钥认证需要 `ssh` 在 `PATH` 中；密码认证需要 Plink，并提供 `connectivity.trust.fingerprint`。
 - 凭据文件必须由用户放入目标根目录或 `identity.auth.root` 指向的绝对目录内；模块只检查存在性，不读取内容。
 - 目标根目录为 `<dataDirectory>/remote-targets/`，必须由现有 CLI 以绝对数据目录提供；`dataDirectory` 的解析见 [Core](../../packages/core/README.md#持久化与恢复)。
@@ -54,7 +53,7 @@ connectivity:
 ## 配置与契约
 
 | 字段 | 必填 | 默认 | 说明 |
-| --- | --- | --- | --- |
+|---|---|---|---|
 | `resource.kind` | 否 | `server` | `windows-device` 时默认远端 Shell 为 `cmd` |
 | `resource.label` | 否 | 无 | 可作为 `show`/`exec` 的唯一引用 |
 | `identity.login` | 是 | 无 | 目标侧登录名 |
@@ -80,7 +79,7 @@ connectivity:
 ## 失败与限制
 
 | 错误码 | 触发条件 |
-| --- | --- |
+|---|---|
 | `invalid-spec` | 字段缺失、未知字段、路径逃逸、id 格式错误、缺少远端命令 |
 | `target-exists` | `add` 的 id 已存在 |
 | `target-not-found` | 引用无法匹配 |
@@ -88,6 +87,7 @@ connectivity:
 | `unsupported-protocol` | `transport` 不是 `ssh` |
 | `credential-missing` | 凭据文件不存在；在连接前失败 |
 | `capability-unsupported` | 目标未声明 `exec` 或 `shell` |
+| `component-unavailable` | 所需 `openssh`/`plink` 组件未登记或状态非 `healthy`；在连接前失败 |
 | `io` | 配置读写失败 |
 
 当前限制：
@@ -102,11 +102,12 @@ connectivity:
 
 - 新拓扑（直连、FRP、跳板）只改 `connectivity`，不新增代码。
 - 新协议需要一个适配器（构造调用 + 能力声明）并在组合根显式接入；不建立动态插件加载器。
+- 组件状态由 CLI 通过窄接口 `ComponentGate` 注入；本模块不 import Core，也不读取组件定义文件。
 - `targets.yaml` 是唯一可编辑真源；`state.sqlite` 只存探测结果，不从数据库反向生成配置。
 - 写入使用临时文件 + rename，单文件整体替换；不做跨进程并发合并。
 
 ## 验证依据
 
-- `pnpm test` 覆盖配置校验、路径逃逸、引号、SSH/Plink 参数、能力检查与 SQLite 跨实例读取；测试不启动真实 SSH。
+- `pnpm test` 覆盖配置校验、路径逃逸、引号、SSH/Plink 参数、能力检查、组件前置检查与 SQLite 跨实例读取；测试不启动真实 SSH。
 - CLI 用例只验证命令行独有契约：stdin/文件输入、JSON/人类输出、`--yes` 确认与错误退出码；配置校验与执行语义由服务测试覆盖。
 - 真实目标验证需手动执行 `probe` 与只读命令；未执行的外部连接不作为测试通过依据。

@@ -2,7 +2,7 @@
 
 ## 范围
 
-远程目标是接入面的第一个实现：把异构网络中的 SSH 目标登记为声明式数据，经统一入口探测与执行，不暴露第二条直连路径。当前覆盖 `packages/remote-targets`、`apps/cli` 的 `remote-targets` 命令域与 `.agents/skills/locus` 的参考页。
+远程目标是接入面的第一个实现：把异构网络中的 SSH 目标登记为声明式数据，经统一入口探测与执行，不暴露第二条直连路径。当前覆盖 `packages/remote-targets`、`apps/cli` 的 `remote-targets` 命令域与 `.agents/skills/locus` 的参考页。传输客户端的可用性由[组件](components.md)提供：密钥认证依赖 `openssh`，密码认证依赖 `plink`。
 
 不包含：调用方身份与授权模型、S3/HTTP 协议、FRP 隧道生命周期、凭据生成与轮换。
 
@@ -31,9 +31,9 @@
 
 1. `add`：校验 spec、检查 id 未占用、创建默认凭据目录、整体写入 `targets.yaml`；不建立连接，不创建凭据文件。
 2. `show`：按精确 id、唯一前缀或唯一标签解析，附加最近一次探测。
-3. `probe`：检查能力与凭据，构造 `whoami` 调用，记录成功/失败与时间。
-4. `exec`：检查 `exec` 能力与凭据，执行并由 CLI 透传远端退出码。
-5. `shell`：检查 `shell` 能力与凭据，以继承 stdio 的方式启动 SSH 客户端。
+3. `probe`：检查传输组件与凭据，构造 `whoami` 调用，记录成功/失败与时间。
+4. `exec`：检查 `exec` 能力、传输组件与凭据，执行并由 CLI 透传远端退出码。
+5. `shell`：检查 `shell` 能力、传输组件与凭据，以继承 stdio 的方式启动 SSH 客户端。
 
 ## 不变量
 
@@ -41,6 +41,7 @@
 - 凭据引用必须是凭据根内的相对路径，禁止绝对路径与 `..`；凭据根缺省为目标根目录。
 - 未知字段、重复 id、无法解析的引用都明确失败，不静默回退。
 - 能力检查在建立连接前完成；缺少凭据时不启动客户端。
+- 传输组件未登记或状态非 `healthy` 时在连接前失败，不静默改用其他客户端。
 - 传输只调用系统 OpenSSH/Plink，不实现协议；主机密钥默认写入凭据根下的 `known_hosts`，密码认证必须钉死指纹。
 - 秘密值不进入配置、SQLite、输出或命令行参数。
 
@@ -52,6 +53,7 @@
 | 目标重复 | `target-exists`，退出码 2 |
 | 引用歧义 | `ambiguous-target`，列出候选，退出码 2 |
 | 凭据缺失 | `credential-missing`，连接前失败，退出码 2 |
+| 传输组件未就绪 | `component-unavailable`，连接前失败，退出码 2 |
 | 远端退出码非零 | `exec` 原样透传；`probe` 记为失败并以 1 退出 |
 | 主机指纹不符 | SSH/Plink 自身拒绝，stderr 保留诊断 |
 

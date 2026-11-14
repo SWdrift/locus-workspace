@@ -58,7 +58,7 @@ e2e 只保留进程内测试无法覆盖的组合：真实 `apps/cli/lib/index.j
 ## 目录与形态
 
 - `packages/*/test/` 与 `apps/*/test/` 是模块测试，使用 `node:test`；模块内部行为与该模块命令域的子进程用例都在此处。Core、Remote Targets、Templates 与 CLI 各自注册 `test` script。
-- `tests/*.test.mjs` 只放跨模块组合，使用真实构建产物与独立进程；当前为 Skill 脚本用例。
+- `tests/*.test.mjs` 只放跨模块组合，使用真实构建产物与独立进程；当前为 Skill 脚本与包组件契约用例。
 - `tests/e2e/*.mjs` 是端到端脚本，不匹配 `*.test.mjs`，因此不会被快速层或全量层误收集。
 - `tests/run.mjs` 是系统性测试入口，负责文件收集、冷却检查与运行记录；名称不匹配 `*.test.mjs`，不会被自身收集。
 - `scripts/` 下有文档检查器自身的测试，按 `pnpm docs:test` 运行。

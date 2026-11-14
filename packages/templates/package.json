@@ -17,5 +17,8 @@
   "scripts": {
     "build": "tsc -b tsconfig.json",
     "test": "node --test test/*.test.mjs"
+  },
+  "dependencies": {
+    "@locus/core": "workspace:*"
   }
 }

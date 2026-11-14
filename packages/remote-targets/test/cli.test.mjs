@@ -77,6 +77,22 @@ test('服务错误映射为退出码 2，诊断只写 stderr', (t) => {
   const f = fixture(t)
   assert.equal(f.run(['remote-targets', 'add', 'win-x', '--spec', '-'], { input: spec() }).code, 0)
 
+  const gated = f.run(['remote-targets', 'exec', 'win-x', '--', 'whoami'])
+  assert.equal(gated.code, 2)
+  assert.equal(gated.stdout, '')
+  assert.match(gated.stderr, /组件 openssh/)
+
+  const openssh = `id: openssh
+version: '1'
+name: openssh
+summary: 测试用组件
+kind: external
+probe:
+  argv: [node, --version]
+`
+  assert.equal(f.run(['component', 'add', '-'], { input: openssh }).code, 0)
+  assert.equal(f.run(['component', 'probe', 'openssh']).code, 0)
+
   const exec = f.run(['remote-targets', 'exec', 'win-x', '--', 'whoami'])
   assert.equal(exec.code, 2)
   assert.equal(exec.stdout, '')

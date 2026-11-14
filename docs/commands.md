@@ -77,8 +77,27 @@
 
 字段、默认值与失败码见 [Remote Targets](../packages/remote-targets/README.md#配置与契约)。
 
+密钥认证要求 `openssh` 组件为 `healthy`，密码认证要求 `plink` 组件；未登记或状态未就绪时在连接前失败，退出码 2，并给出登记或探测命令。组件命令见下节。
+
+## 组件操作
+
+组件定义位于 `<dataDirectory>/components/`：包组件在首次访问组件服务时物化，动态组件通过 `component add` 登记。版本不一致只标记“需要升级”，由 `component upgrade` 手动改写；字段、状态与失败边界见[组件](subsystems/components.md)。
+
+| 参数 | 行为与成功判据 |
+| --- | --- |
+| `component list` | 列出包组件与动态组件；人类输出含状态时长；空集合不是错误，损坏定义进入 problems |
+| `component show <id>` / `<id>` | 显示定义、版本、外部/部署状态、配置路径与说明；`<id>` 只在未知顶层命令时解析 |
+| `component add <file\|dir\|->` | 校验并登记 `kind: external` 组件；`-` 从 stdin 读取；已存在则失败 |
+| `component upgrade <id>` | 按包代码重写定义字段、保留 `config`、更新 `version`；动态组件明确拒绝 |
+| `component remove <id> --yes` | 只删除动态组件定义与状态，不卸载外部软件 |
+| `component probe <id>` | 执行声明的探针并记录状态；未通过退出 1；`locus` 组件按 `requires` 派生 |
+| `component probe --all` | 逐个探查所有 `external` 组件；无探针的定义跳过；任一未通过退出 1 |
+| `component deploy <id> --yes` | 执行声明的部署入口并记录结果；失败退出 1 |
+
+示例组件位于仓库 `examples/components/`（`docker.yaml`、`openssh.yaml`、`plink.yaml`、`postgres-service.yaml`），复制到其他机器后需重新登记与探测。
+
 ## 输出与退出码
 
 默认输出人类可读文本；`--json` 输出独立 JSON，诊断写 stderr。单次命令不隐式等待输入；删除 Workspace、取消挂载、解除关系与移除远程目标必须显式携带 `--yes`。
 
-退出码：0 表示调用成功；1 表示参数/帮助树拒绝，包括未知命令、缺参数、无效选项值与缺少 `--yes`，以及 `remote-targets probe` 探测失败；2 表示业务前置条件或持久化失败；`shell --command`、`remote-targets exec` 与 `remote-targets shell` 的子进程退出码原样返回。
+退出码：0 表示调用成功；1 表示参数/帮助树拒绝，包括未知命令、缺参数、无效选项值与缺少 `--yes`，以及 `remote-targets probe`、`component probe` 未通过、`component deploy` 失败；2 表示业务前置条件或持久化失败；`shell --command`、`remote-targets exec` 与 `remote-targets shell` 的子进程退出码原样返回。

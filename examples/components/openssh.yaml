@@ -1,0 +1,17 @@
+id: openssh
+version: '1'
+name: OpenSSH
+summary: 远程连接客户端
+kind: external
+probe:
+  argv: [ssh, -V]
+  timeoutMs: 10000
+info:
+  text: |
+    # 查看客户端版本；ssh 将版本写到 stderr
+    ssh -V
+    # 解析某个主机的连接参数
+    ssh -G <host>
+
+    远程目标默认使用 OpenSSH 密钥认证。Locus 不读取私钥内容，
+    凭据文件由 remote-targets 的 identity.auth 引用。
