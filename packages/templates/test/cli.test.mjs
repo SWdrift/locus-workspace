@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url'
 import { spawnSync } from 'node:child_process'
 import test from 'node:test'
 
-const CLI = fileURLToPath(new URL('../apps/cli/lib/index.js', import.meta.url))
+const CLI = fileURLToPath(new URL('../../../apps/cli/lib/index.js', import.meta.url))
 
 function fixture(t) {
   const root = mkdtempSync(join(tmpdir(), 'locus-template-cli-'))

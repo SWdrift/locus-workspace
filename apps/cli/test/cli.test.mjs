@@ -1,12 +1,12 @@
 import assert from 'node:assert/strict'
-import { existsSync, mkdirSync, mkdtempSync, rmSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { spawnSync } from 'node:child_process'
 import test from 'node:test'
 
-const CLI = fileURLToPath(new URL('../apps/cli/lib/index.js', import.meta.url))
+const CLI = fileURLToPath(new URL('../lib/index.js', import.meta.url))
 
 function fixture(t) {
   const root = mkdtempSync(join(tmpdir(), 'locus-cli-'))
@@ -15,6 +15,7 @@ function fixture(t) {
   /** 每个命令都是独立进程，跨进程恢复由文件系统与 SQLite 真实承担。 */
   const run = (args, environment = {}) => {
     const result = spawnSync(process.execPath, [CLI, ...args], {
+      cwd: root,
       encoding: 'utf8',
       env: { ...process.env, LOCUS_HOME: data, ...environment },
     })
@@ -103,7 +104,7 @@ test('显式关系幂等、拒绝自引用，解除必须确认且只移除关�
   assert.deepEqual(parseJson(f.run(['--json', 'workspace', 'show', id]).stdout).relations, [])
 })
 
-test('无参数、未知命令与相对数据目录给出稳定失败', (t) => {
+test('无参数与未知命令给出稳定失败，相对数据目录按工作目录解析', (t) => {
   const f = fixture(t)
   const noCommand = f.run([])
   assert.equal(noCommand.code, 1)
@@ -114,10 +115,34 @@ test('无参数、未知命令与相对数据目录给出稳定失败', (t) => {
   assert.equal(unknown.stdout, '')
   assert.match(unknown.stderr, /未知命令：bogus/)
 
-  const relative = f.run(['version'], { LOCUS_HOME: 'relative-data' })
-  assert.equal(relative.code, 2)
-  assert.equal(relative.stdout, '')
-  assert.match(relative.stderr, /LOCUS_HOME 必须是非空绝对路径/)
+  const relative = f.run(['--json', 'workspace', 'create', '相对数据目录'], {
+    LOCUS_HOME: 'relative-data',
+  })
+  assert.equal(relative.code, 0)
+  assert.equal(existsSync(join(f.root, 'relative-data', 'core.sqlite')), true)
+})
+
+test('读取工作目录 .env，显式环境变量优先', (t) => {
+  const f = fixture(t)
+  writeFileSync(join(f.root, '.env'), 'LOCUS_HOME=env-data\nLOCUS_FOLDER_NAME=.locus\n')
+  const base = { ...process.env }
+  delete base.LOCUS_HOME
+  delete base.LOCUS_FOLDER_NAME
+  const run = (args, overrides = {}) =>
+    spawnSync(process.execPath, [CLI, ...args], {
+      cwd: f.root,
+      encoding: 'utf8',
+      env: { ...base, ...overrides },
+    })
+
+  const created = run(['--json', 'workspace', 'create', '环境数据'])
+  assert.equal(created.status, 0, created.stderr)
+  assert.equal(existsSync(join(f.root, 'env-data', '.locus', 'core.sqlite')), true)
+
+  const explicit = run(['--json', 'workspace', 'list'], { LOCUS_HOME: f.data })
+  assert.equal(explicit.status, 0, explicit.stderr)
+  assert.deepEqual(JSON.parse(explicit.stdout), [])
+  assert.equal(existsSync(join(f.data, '.locus', 'core.sqlite')), true)
 })
 
 test('挂载目录、注入 shell 上下文，并在删除 Workspace 时清理自有记录', (t) => {
