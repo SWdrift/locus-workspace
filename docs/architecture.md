@@ -30,12 +30,13 @@ flowchart LR
     TPL --> FS["node:fs/promises"]
     CLI --> RT["packages/remote-targets"]
     RT --> YAML["yaml"]
+    RT --> EXECA["execa"]
     RT --> SQLITE
     RT --> SSH["ssh / plink"]
     WEB["apps/web（占位）"] -.->|"未来消费公开面"| CORE
 ```
 
-编译依赖：Core 与 Templates 只依赖 Node 内置模块；Remote Targets 额外依赖 YAML 解析库并沿用 `node:sqlite`；CLI 依赖 Core、Remote Targets、Templates 与 Commander。没有共享 contracts 包：Workspace 类型随 Core 的公开入口导出，等出现第二个真实消费端时再抽取同构契约。
+编译依赖：Core 与 Templates 只依赖 Node 内置模块；Remote Targets 额外依赖 YAML 解析库、`execa` 并沿用 `node:sqlite`；CLI 依赖 Core、Remote Targets、Templates 与 Commander。没有共享 contracts 包：Workspace 类型随 Core 的公开入口导出，等出现第二个真实消费端时再抽取同构契约。
 
 ## 边界
 

@@ -19,6 +19,7 @@
     "test": "node --test test/*.test.mjs"
   },
   "dependencies": {
+    "execa": "^10.2.1",
     "yaml": "^2.9.1"
   }
 }

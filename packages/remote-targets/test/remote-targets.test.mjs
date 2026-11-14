@@ -4,7 +4,13 @@ import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import test from 'node:test'
 import { createRemoteTargetsService, RemoteTargetsFailure } from '../lib/index.js'
-import { buildSshInvocation, joinRemoteCommand, quoteCmd, quotePosix } from '../lib/ssh.js'
+import {
+  buildSshInvocation,
+  createProcessRunner,
+  joinRemoteCommand,
+  quoteCmd,
+  quotePosix,
+} from '../lib/ssh.js'
 
 function fixture(t) {
   const root = mkdtempSync(join(tmpdir(), 'locus-remote-target-'))
@@ -112,6 +118,26 @@ test('引号与远端命令拼接区分 POSIX 与 cmd', () => {
   assert.equal(quoteCmd('whoami'), 'whoami')
   assert.equal(quoteCmd('a b'), '"a b"')
   assert.equal(joinRemoteCommand(['whoami', 'a b'], 'cmd'), 'whoami "a b"')
+})
+
+test('execa 执行器返回输出、退出码与超时', async () => {
+  const runner = createProcessRunner()
+  const ok = await runner.run(process.execPath, ['-e', 'console.log("ok")'])
+  assert.equal(ok.exitCode, 0)
+  assert.equal(ok.stdout, 'ok\n')
+
+  const failed = await runner.run(process.execPath, [
+    '-e',
+    'process.stderr.write("bad");process.exit(7)',
+  ])
+  assert.equal(failed.exitCode, 7)
+  assert.equal(failed.stderr, 'bad')
+
+  const timed = await runner.run(process.execPath, ['-e', 'setTimeout(() => {}, 5000)'], {
+    timeoutMs: 100,
+  })
+  assert.equal(timed.exitCode, 124)
+  assert.match(timed.stderr, /命令超时/)
 })
 
 test('密钥认证使用 OpenSSH 参数，显式 known_hosts 开启严格校验', (t) => {
