@@ -81,4 +81,4 @@
 
 ## 验证
 
-Templates 包测试覆盖复制、排除、digest、实例记录、dry-run、目标约束、非法 manifest、缺失源与符号链接；CLI 测试覆盖 `template list/create` 与 Workspace 数据库无副作用；e2e 覆盖在挂载内创建项目与跨进程命令链。验证入口见[测试系统](../testing.md#分层与入口)。
+Templates 模块测试覆盖复制、排除、digest、实例记录、dry-run、目标约束、非法 manifest、缺失源与符号链接；命令行子进程用例位于 `packages/templates/test/cli.test.mjs`，覆盖 `template list/create` 与 Workspace 数据库无副作用；e2e 覆盖在挂载内创建项目与跨进程命令链。验证入口见[测试系统](../testing.md#归属与去重)。
