@@ -20,11 +20,16 @@ importers:
       '@locus/core':
         specifier: workspace:*
         version: link:../../packages/core
+      '@locus/templates':
+        specifier: workspace:*
+        version: link:../../packages/templates
       commander:
         specifier: ^15.0.0
         version: 15.0.0
 
   packages/core: {}
+
+  packages/templates: {}
 
 packages:
 

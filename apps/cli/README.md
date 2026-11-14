@@ -13,6 +13,7 @@ pnpm install
 pnpm build
 pnpm locus --help
 pnpm locus workspace list
+pnpm locus template list
 pnpm locus shell <workspace>
 ```
 
@@ -35,6 +36,10 @@ pnpm locus shell <workspace>
 - `LOCUS_MOUNTS` 与每个挂载的 `LOCUS_MOUNT_<NAME>`。
 
 `--shell <path>` 指定 shell；`--command <command>` 执行一条命令后退出，子 shell 退出码成为 CLI 退出码；`--print-env` 只输出上下文 JSON。第一个可访问挂载作为 `cwd`，缺失挂载会报告并跳过。完整契约见 [Skill Shell 参考](../../.agents/skills/locus/reference/shell.md)。
+
+## 项目模板
+
+`locus template list` 列出内置模板；`locus template create <template> <destination>` 复制文件夹并写入 `.template.json`。`--dry-run` 只计算文件、目录与 digest。模板命令不读取或创建 Workspace，也不执行模板脚本；完整语义见 [Templates](../../packages/templates/README.md)。
 
 ## 数据与生命周期
 

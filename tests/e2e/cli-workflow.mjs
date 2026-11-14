@@ -83,6 +83,12 @@ try {
   assert.equal(JSON.parse(context.environment.LOCUS_MOUNTS).length, 1)
   assert.equal(text(['shell', alpha.id, '--command', 'locus version']), '0.0.0')
 
+  const generatedPath = join(mountPath, 'generated')
+  const generated = json(['--json', 'template', 'create', 'minimal', generatedPath])
+  assert.equal(generated.template.id, 'minimal')
+  assert.equal(existsSync(join(generatedPath, '.template.json')), true)
+  assert.equal(existsSync(join(generatedPath, 'template.json')), false)
+
   const association = json([
     '--json', 'workspace', 'link', alpha.id, 'locus.workspace', beta.id,
   ])

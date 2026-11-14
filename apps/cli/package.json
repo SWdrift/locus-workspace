@@ -14,6 +14,7 @@
   },
   "dependencies": {
     "@locus/core": "workspace:*",
+    "@locus/templates": "workspace:*",
     "commander": "^15.0.0"
   }
 }

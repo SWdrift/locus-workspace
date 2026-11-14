@@ -1,5 +1,7 @@
+import { resolve } from 'node:path'
 import { Command, Option } from 'commander'
 import type { LocusCore, Mount, Workspace, WorkspaceRelation } from '@locus/core'
+import { createTemplateService } from '@locus/templates'
 import { runWorkspaceShell } from './shell.ts'
 
 function jsonEnabled(command: Command): boolean {
@@ -49,6 +51,7 @@ function resolveWorkspace(locus: LocusCore, reference: string): Workspace {
 
 /** 构造独立 CLI 的命令树；所有用例直接调用 Core 的公开 Workspace 服务。 */
 export function createProgram(locus: LocusCore): Command {
+  const templates = createTemplateService()
   const program = new Command()
     .name('locus')
     .description('Locus 本地工作空间：Workspace 身份与显式长期关系。')
@@ -158,6 +161,38 @@ export function createProgram(locus: LocusCore): Command {
       { workspaceId: target.id, removedMount: mountReference },
       `已取消挂载 ${mountReference}；外部目录未删除。`,
     )
+  })
+
+  const template = program.command('template').description('本机项目模板：复制文件夹并记录来源')
+  const templateList = template.command('list').description('列出内置模板')
+  templateList.action(async () => {
+    const result = await templates.list()
+    emit(
+      templateList,
+      result,
+      result.map((item) => {
+        const version = item.version === undefined ? '-' : item.version
+        return `${item.id}  ${version}  ${item.name}${item.description ? `  ${item.description}` : ''}`
+      }).join('\n') || '没有内置模板。',
+    )
+  })
+  const templateCreate = template.command('create <template> <destination>')
+    .description('复制模板到新目录；目标必须不存在')
+    .option('--dry-run', '只计算文件、目录与 digest，不写目标')
+  templateCreate.action(async (templateReference: string, destination: string) => {
+    const result = await templates.create(templateReference, {
+      destination: resolve(destination),
+      dryRun: templateCreate.opts<{ dryRun?: boolean }>().dryRun === true,
+    })
+    const version = result.template.version === undefined ? '' : `@${result.template.version}`
+    const lines = [
+      result.dryRun ? `将创建：${result.destination}` : `已创建：${result.destination}`,
+      `模板：${result.template.id}${version}`,
+      `文件：${result.files.length}  目录：${result.directories.length}`,
+      `Digest：${result.digest}`,
+      ...(result.dryRun ? [] : [`实例记录：${result.metadataPath}`]),
+    ]
+    emit(templateCreate, result, lines.join('\n'))
   })
 
   const shell = program.command('shell <workspace>')

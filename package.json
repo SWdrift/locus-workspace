@@ -9,7 +9,7 @@
   },
   "scripts": {
     "build": "tsc -b tsconfig.json",
-    "test": "node --test packages/core/test/*.test.mjs tests/*.test.mjs",
+    "test": "node --test packages/core/test/*.test.mjs packages/templates/test/*.test.mjs tests/*.test.mjs",
     "test:all": "node tests/run.mjs all",
     "e2e": "node tests/run.mjs e2e",
     "test:file": "node --test",
