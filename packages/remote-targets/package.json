@@ -19,7 +19,8 @@
   },
   "dependencies": {
     "@locus/core": "workspace:*",
+    "yaml": "catalog:",
     "execa": "catalog:",
-    "yaml": "catalog:"
+    "@locus/config-reference": "workspace:*"
   }
 }

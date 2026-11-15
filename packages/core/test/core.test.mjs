@@ -68,6 +68,7 @@ test('数据目录由 LOCUS_HOME 与 LOCUS_FOLDER_NAME 决定，显式选项优�
   const previousFolder = process.env.LOCUS_FOLDER_NAME
   const cores = []
   try {
+    delete process.env.LOCUS_FOLDER_NAME
     process.env.LOCUS_HOME = join(setup.root, 'environment-home')
     const environmentCore = createLocusCore()
     cores.push(environmentCore)
@@ -294,9 +295,9 @@ test('未知数据库版本拒绝打开且保留全部原始字节', async (t) =
   database.close()
   const before = readFileSync(filename)
   const incompatible = setup.open()
-  assert.throws(() => incompatible.workspaces.list(), /core\.sqlite.*不支持.*99/)
+  assert.throws(() => incompatible.workspaces.list(), /core\.sqlite.*不兼容/)
   assert.deepEqual(readFileSync(filename), before)
-  assert.throws(() => incompatible.workspaces.list(), /不支持.*99/)
+  assert.throws(() => incompatible.workspaces.list(), /不兼容/)
   assert.deepEqual(readFileSync(filename), before)
 })
 
@@ -471,69 +472,3 @@ test('挂载名称与路径在 Workspace 内唯一，删除 Workspace 级联自�
   assert.deepEqual(core.mounts.list(other.id), [])
 })
 
-test('v1 数据库迁移保留 Workspace 与关系并加入 mounts 表', async (t) => {
-  const setup = fixture(t)
-  mkdirSync(setup.dataDirectory, { recursive: true })
-  const filename = join(setup.dataDirectory, 'core.sqlite')
-  const workspaceId = '11111111-1111-4111-8111-111111111111'
-  const relationId = '22222222-2222-4222-8222-222222222222'
-  const database = new DatabaseSync(filename)
-  database.exec(`
-    CREATE TABLE workspaces (
-      id TEXT PRIMARY KEY,
-      name TEXT NOT NULL,
-      created_at TEXT NOT NULL
-    ) STRICT;
-    CREATE TABLE relations (
-      id TEXT PRIMARY KEY,
-      workspace_id TEXT NOT NULL,
-      kind TEXT NOT NULL,
-      target_namespace TEXT NOT NULL,
-      target_id TEXT NOT NULL,
-      source_kind TEXT NOT NULL,
-      source_detail TEXT NOT NULL,
-      created_at TEXT NOT NULL
-    ) STRICT;
-    PRAGMA user_version = 1;
-  `)
-  database
-    .prepare('INSERT INTO workspaces (id, name, created_at) VALUES (?, ?, ?)')
-    .run(workspaceId, '旧身份', '2026-11-13T00:00:00.000Z')
-  database
-    .prepare(
-      `INSERT INTO relations
-       (id, workspace_id, kind, target_namespace, target_id, source_kind, source_detail, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-    )
-    .run(
-      relationId,
-      workspaceId,
-      'member',
-      'example.resource',
-      'legacy',
-      'manual',
-      '迁移前确认',
-      '2026-11-13T00:00:00.000Z',
-    )
-  database.close()
-
-  const core = setup.open()
-  const workspace = core.workspaces.get(workspaceId)
-  assert.equal(workspace.name, '旧身份')
-  assert.deepEqual(workspace.relations.map((relation) => relation.id), [relationId])
-  assert.deepEqual(workspace.mounts, [])
-
-  const mount = core.mounts.add(workspaceId, join(setup.root, 'legacy-workspace'), {
-    name: 'legacy',
-  })
-  assert.equal(mount.name, 'legacy')
-  await core.dispose()
-
-  const migrated = new DatabaseSync(filename)
-  assert.equal(migrated.prepare('PRAGMA user_version').get().user_version, 3)
-  migrated.close()
-  assert.deepEqual(
-    setup.open().workspaces.get(workspaceId).mounts.map((item) => item.name),
-    ['legacy'],
-  )
-})

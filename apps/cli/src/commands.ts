@@ -1,23 +1,33 @@
 import { existsSync, readFileSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import { Command, Option } from 'commander'
-import type { ComponentView, LocusCore, Mount, Workspace, WorkspaceRelation } from '@locus/core'
+import { SecurityFailure } from '@locus/core'
+import type { ComponentView, CredentialRef, LocusCore, Mount, SecurityHost, Workspace, WorkspaceRelation } from '@locus/core'
 import { component as templatesComponent, createTemplateService } from '@locus/templates'
+import { api as postgresApi, component as postgresComponent } from '@locus/postgres'
+import { component as giteaComponent } from '@locus/gitea'
 import {
+  api as remoteTargetsApi,
+  assertUnencryptedPrivateKey,
   component as remoteTargetsComponent,
   createRemoteTargetsService,
+  readCredentialFile,
 } from '@locus/remote-targets'
 import type { RemoteTarget, RemoteTargetView } from '@locus/remote-targets'
+import { createCliSecurityHost } from './security-host.ts'
+import type { CliSecurityUI } from './security-host.ts'
 import { runWorkspaceShell } from './shell.ts'
 
-const PACKAGE_COMPONENT_IDS = [templatesComponent.id, remoteTargetsComponent.id]
+const PACKAGE_COMPONENT_IDS = [templatesComponent.id, remoteTargetsComponent.id, postgresComponent.id, giteaComponent.id]
 
 function jsonEnabled(command: Command): boolean {
   return command.optsWithGlobals<{ json?: boolean }>().json === true
 }
 
 function emit(command: Command, value: unknown, text: string): void {
-  process.stdout.write(jsonEnabled(command) ? `${JSON.stringify(value)}\n` : `${text}\n`)
+  let root = command
+  while (root.parent !== null) root = root.parent
+  root.configureOutput().writeOut!(jsonEnabled(command) ? `${JSON.stringify(value)}\n` : `${text}\n`)
 }
 
 function relationText(relation: WorkspaceRelation): string {
@@ -65,6 +75,8 @@ function componentSummary(view: ComponentView): Record<string, unknown> {
     ...(view.codeVersion === undefined ? {} : { codeVersion: view.codeVersion }),
     needsUpgrade: view.needsUpgrade,
     requires: view.requires,
+    ...(view.capabilities === undefined ? {} : { capabilities: view.capabilities }),
+    ...(view.credentials === undefined ? {} : { credentials: view.credentials }),
     source: view.source,
     definitionPath: view.definitionPath,
     ...(view.configPath === undefined ? {} : { configPath: view.configPath }),
@@ -93,6 +105,8 @@ function componentText(view: ComponentView): string {
     `种类：${view.kind}  来源：${view.source}`,
     `版本：${version}`,
     `依赖：${view.requires.length === 0 ? '无' : view.requires.join(', ')}`,
+    `能力：${view.capabilities === undefined || view.capabilities.length === 0 ? '无' : view.capabilities.map((capability) => `${view.id}:${capability.id}`).join(', ')}`,
+    `凭据槽：${view.credentials === undefined || view.credentials.length === 0 ? '无' : view.credentials.map((credential) => `${credential.id}（${credential.fields.map((field) => `${field.name}（${field.secret ? '秘密' : '公开'}，${field.required ? '必填' : '可选'}）`).join(', ')}）`).join(', ')}`,
     `外部状态：${componentStateText(view)}`,
     `部署状态：${view.deploy.state}  ${view.deploy.detail}`,
     `定义：${view.definitionPath}`,
@@ -131,11 +145,13 @@ function remoteTargetLine(target: RemoteTarget): string {
 
 function remoteTargetText(target: RemoteTargetView): string {
   const label = target.resource.label === undefined ? '' : `  ${target.resource.label}`
+  const auth = target.identity.auth
+  const credential = auth.credential ?? `旧文件 ${auth.path ?? '未登记'}`
   const lines = [
     `目标：${target.id}`,
     `资源：${target.resource.kind}${label}`,
-    `身份：${target.identity.login}（${target.identity.auth.method}）`,
-    `凭据：${target.identity.auth.path}`,
+    `身份：${target.identity.login}（${auth.method}）`,
+    `凭据：${credential}`,
     `能力：${target.access.capabilities.join(', ')}`,
     `连接：${target.connectivity.transport}  ${target.connectivity.via}  ${target.connectivity.host}:${target.connectivity.port}`,
     `远端 Shell：${target.connectivity.remoteShell}`,
@@ -176,9 +192,134 @@ function resolveWorkspace(locus: LocusCore, reference: string): Workspace {
   throw new Error(`找不到 Workspace：${reference}`)
 }
 
+/** 可信 Host 由组合根的 receiveHost 闭包注入，不从 Core 或组件取得。 */
+export interface CreateProgramOptions {
+  readonly host?: SecurityHost
+  readonly ui?: CliSecurityUI
+  readonly profile?: 'production' | 'development'
+}
+
+function securityHostFactory(options: CreateProgramOptions): () => ReturnType<typeof createCliSecurityHost> {
+  let trusted: ReturnType<typeof createCliSecurityHost> | undefined
+  return () => {
+    if (options.host === undefined) throw new SecurityFailure('authentication-unavailable')
+    trusted ??= createCliSecurityHost(options.host, options.ui)
+    return trusted
+  }
+}
+
+function addSecurityCommands(
+  program: Command,
+  locus: LocusCore,
+  securityHost: () => ReturnType<typeof createCliSecurityHost>,
+): void {
+
+  const init = program.command('init').description('通过可信 TTY 隐藏输入初始化 Root；不读取参数或环境中的密码')
+  init.action(async () => {
+    await securityHost().initializeRoot()
+    emit(init, { initialized: true }, 'Root 与默认 User 已初始化。')
+  })
+
+  const security = program.command('security').description('Root 身份、认证状态与本机管理')
+  const status = security.command('status').description('读取安全元数据；不认证、不访问凭据保管器')
+  status.action(async () => {
+    const result = await locus.security.status()
+    emit(status, result, `Root：${result.initialized ? '已初始化' : '未初始化'}\nProfile：${result.profile}`)
+  })
+  const reset = security.command('reset-root')
+    .description('本机管理接管：TTY 明确确认后替换 Root 密码，撤销旧授权；没有 --yes 绕过')
+  reset.action(async () => {
+    await securityHost().resetRoot()
+    emit(reset, { reset: true }, 'Root 已重置，旧授权已撤销；Workspace 与资源凭据未删除。')
+  })
+  const change = security.command('change-root-password')
+    .description('隐藏输入新密码，使用旧 Root 密码为本次变更单独授权')
+  change.action(async () => {
+    await securityHost().changeRootPassword()
+    emit(change, { changed: true }, 'Root 密码已变更，旧授权已撤销。')
+  })
+
+  const credential = program.command('credential').description('Root 诊断与清理；普通使用请走组件命令')
+  const providerStatus = credential.command('provider-status')
+    .description('查询 Provider 装配与后端声明，不读取秘密、不把绑定加载等同平台验证')
+  providerStatus.action(async () => {
+    const result = await locus.security.providerStatus()
+    emit(providerStatus, result, `Provider：${result.id}\n后端：${result.backend}\n状态：${result.state}`)
+  })
+  const list = credential.command('list').description('只列举当前 Profile 的凭据元数据与公开字段，不读取秘密')
+  list.action(async () => {
+    const result = await securityHost().listCredentials()
+    emit(list, result, result.map((item) => `${item.reference}  ${item.providerId}  ${Object.keys(item.fields).join(',') || '-'}`).join('\n') || '没有凭据。')
+  })
+  const remove = credential.command('remove <ref>').description('Root 授权删除指定凭据与其绑定；不输出原值')
+  remove.action(async (reference: string) => {
+    await securityHost().removeCredential(reference)
+    emit(remove, { reference, removed: true }, `已删除凭据 ${reference} 及其绑定。`)
+  })
+  const bindings = credential.command('bindings').description('列举当前 Profile 的能力、资源与 slot 绑定，不读取秘密')
+  bindings.action(async () => {
+    const result = await securityHost().listBindings()
+    emit(bindings, result, result.map((item) => `${item.componentId}:${item.capability}  ${item.slot}  ${item.resource.type}/${item.resource.id}  -> ${item.reference}`).join('\n') || '没有绑定。')
+  })
+  const statusOne = credential.command('status <ref>').description('Root 检查凭据元数据与 Provider 条目是否存在；不输出秘密')
+  statusOne.action(async (reference: string) => {
+    const result = await securityHost().credentialStatus(reference)
+    emit(statusOne, result, `${result.metadata.reference}  ${result.present ? '存在' : '缺失'}`)
+  })
+  const cleanup = credential.command('cleanup')
+    .description('Root 检查当前 Profile 精确 Keyring service 下未被元数据登记的孤立条目；--yes 才删除')
+    .option('--yes', '确认删除孤立条目；不删除已知凭据、元数据或绑定')
+  cleanup.action(async () => {
+    const apply = cleanup.opts<{ yes?: boolean }>().yes === true
+    const result = await securityHost().cleanupCredentialOrphans(apply)
+    const detail = result.orphans.length === 0
+      ? `service ${result.service} 没有孤立条目。`
+      : `${apply ? '已删除' : '发现'} ${result.orphans.length} 个孤立条目：${result.orphans.join(', ')}；剩余 ${result.remaining}。`
+    emit(cleanup, result, detail)
+  })
+
+  const capability = security.command('capability').description('组件能力的有效认证等级与 Root 覆盖')
+  const capabilityList = capability.command('list').description('列出组件能力、默认等级、覆盖与最终来源')
+  capabilityList.action(async () => {
+    const result = await securityHost().listCapabilityAuthorities()
+    emit(capabilityList, result, result.map((item) => (
+      `${item.componentId}:${item.capability}  ${item.effectiveAuthLevel}  default=${item.defaultAuthLevel}  source=${item.source}`
+    )).join('\n') || '没有可配置能力。')
+  })
+  const capabilitySet = capability.command('set <capability> <level>')
+    .description('Root 覆盖组件能力的认证等级；capability 形如 postgres:register。write 能力默认 root，降为 user 即显式委派覆盖权')
+  capabilitySet.action(async (reference: string, level: string) => {
+    const parsed = parseQualifiedCapability(reference, capabilitySet)
+    if (level !== 'user' && level !== 'root') {
+      capabilitySet.error('level 必须是 user 或 root', { exitCode: 1 })
+      return
+    }
+    const result = await securityHost().setCapabilityLevel({ componentId: parsed.componentId, capability: parsed.capability, level })
+    emit(capabilitySet, result, `已设置 ${result.componentId}:${result.capability} 为 ${result.effectiveAuthLevel}（source=${result.source}）。`)
+  })
+  const capabilityReset = capability.command('reset <capability>')
+    .description('Root 清除组件能力的覆盖，恢复组件默认等级')
+  capabilityReset.action(async (reference: string) => {
+    const parsed = parseQualifiedCapability(reference, capabilityReset)
+    const result = await securityHost().clearCapabilityLevel({ componentId: parsed.componentId, capability: parsed.capability })
+    emit(capabilityReset, result, `已恢复 ${result.componentId}:${result.capability} 为 ${result.effectiveAuthLevel}（source=${result.source}）。`)
+  })
+}
+
+/** 解析 component:capability；capability 本地 id 不含冒号。 */
+function parseQualifiedCapability(value: string, command: Command): { componentId: string; capability: string } {
+  const index = value.indexOf(':')
+  if (index <= 0 || index === value.length - 1 || value.indexOf(':', index + 1) !== -1) {
+    command.error('capability 必须是 component:capability', { exitCode: 1 })
+  }
+  return { componentId: value.slice(0, index), capability: value.slice(index + 1) }
+}
+
 /** 构造独立 CLI 的命令树；所有用例直接调用 Core 的公开 Workspace 服务。 */
-export function createProgram(locus: LocusCore): Command {
+export function createProgram(locus: LocusCore, options: CreateProgramOptions = {}): Command {
+  let program: Command
   const templates = createTemplateService()
+  const trustedSecurityHost = securityHostFactory(options)
   const remoteTargets = createRemoteTargetsService({
     root: join(locus.dataDirectory, 'remote-targets'),
     components: {
@@ -189,10 +330,35 @@ export function createProgram(locus: LocusCore): Command {
       },
     },
   })
-  const program = new Command()
+  async function executeRemoteAccess(
+    reference: string,
+    operation: 'probe' | 'exec' | 'shell',
+    command: readonly string[] = [],
+  ): Promise<unknown> {
+    const target = remoteTargets.show(reference)
+    const capability = target.identity.auth.method === 'password' ? 'password-access' : 'private-key-access'
+    const handler = remoteTargetsApi[capability]
+    if (handler === undefined) throw new SecurityFailure('access-denied', { reason: 'unsupported-capability' })
+    return trustedSecurityHost().executeComponent(
+      remoteTargetsComponent,
+      capability,
+      { type: 'remote-target', id: target.id },
+      { operation, command: [...command] },
+      (context) => Promise.resolve(handler(context, {
+        root: join(locus.dataDirectory, 'remote-targets'),
+        target: target.id,
+        operation,
+        command,
+      })),
+    )
+  }
+
+  program = new Command()
     .name('locus')
+    .exitOverride()
     .description('Locus 本地工作空间：Workspace 身份与显式长期关系。')
     .option('--json', '输出机器可读 JSON，诊断仍写入 stderr')
+    .addOption(new Option('--profile <profile>', '隔离安全 Profile 与 development 数据目录').choices(['production', 'development']).default(options.profile ?? 'production'))
     .usage('[options] [command]')
     .showHelpAfterError()
     .argument('[command]')
@@ -212,6 +378,68 @@ export function createProgram(locus: LocusCore): Command {
   const version = program.command('version').description('读取 Locus 产品版本')
   version.action(() => {
     emit(version, locus.info, locus.info.version)
+  })
+
+  addSecurityCommands(program, locus, trustedSecurityHost)
+
+  const pg = program.command('pg').description('PostgreSQL 组件命令：登记凭据与查询')
+  const pgRegister = pg.command('register <resource>')
+    .description('登记 PostgreSQL 账号/密码并绑定到精确 database 资源；密码隐藏输入')
+    .requiredOption('--username <name>', 'PostgreSQL 登录名')
+    .option('--credential <ref>', '稳定 CredentialRef；缺省为 credential:pg-<resource>')
+  pgRegister.action(async (resource: string) => {
+    const options = pgRegister.opts<{ username: string; credential?: string }>()
+    const credential = options.credential ?? `credential:pg-${resource}`
+    if (!/^credential:[a-z][a-z0-9-]*$/.test(credential)) {
+      pgRegister.error('credential 必须是 credential:<id>', { exitCode: 1 })
+    }
+    await trustedSecurityHost().executeComponent(
+      postgresComponent,
+      'register',
+      { type: 'database', id: resource },
+      {},
+      async (context) => {
+        const password = await trustedSecurityHost().readSecret('PostgreSQL 密码（隐藏输入）：')
+        return postgresApi.register?.(context, { credential: credential as CredentialRef, username: options.username, password })
+      },
+    )
+    emit(pgRegister, { resource, credential, registered: true }, `已登记 PostgreSQL ${resource}；凭据 ${credential}。`)
+  })
+  const pgList = pg.command('list <resource>')
+    .description('使用绑定的 database-auth 字段连接并查询 PostgreSQL')
+    .requiredOption('--host <host>', 'PostgreSQL 主机')
+    .requiredOption('--database <database>', '数据库名')
+    .option('--port <port>', 'PostgreSQL 端口', (value) => Number(value))
+    .option('--sql <sql>', '查询语句', 'select 1')
+    .option('--credential <ref>', '稳定 CredentialRef；缺省为 credential:pg-<resource>')
+  pgList.action(async (resource: string) => {
+    const options = pgList.opts<{ host: string; database: string; port?: number; sql: string; credential?: string }>()
+    const credential = options.credential ?? `credential:pg-${resource}`
+    if (!/^credential:[a-z][a-z0-9-]*$/.test(credential)) {
+      pgList.error('credential 必须是 credential:<id>', { exitCode: 1 })
+    }
+    let result
+    try {
+      result = await trustedSecurityHost().executeComponent(
+        postgresComponent,
+        'list',
+        { type: 'database', id: resource },
+        {},
+        async (context) => postgresApi.list?.(context, {
+          config: { host: options.host, database: options.database, ...(options.port === undefined ? {} : { port: options.port }), credential: credential as CredentialRef },
+          sql: options.sql,
+        }),
+      )
+    } catch (error) {
+      if (error instanceof SecurityFailure && (
+        error.code === 'credential-fields-mismatch' ||
+        (error.code === 'access-denied' && error.reason === 'credential-binding-mismatch')
+      )) {
+        process.stderr.write(`提示：先运行 locus pg register ${resource} --username <name>${options.credential === undefined ? '' : ` --credential ${credential}`} 登记字段。\n`)
+      }
+      throw error
+    }
+    emit(pgList, result, JSON.stringify(result))
   })
 
   const workspace = program.command('workspace').description('持久工作语境与显式关系，不依赖目录')
@@ -349,21 +577,88 @@ export function createProgram(locus: LocusCore): Command {
     const result = locus.components.show(remoteTargetsComponent.id)
     emit(targets, result, componentText(result))
   })
+  async function writeTargetCredential(
+    targetId: string,
+    credential: CredentialRef,
+    method: 'private-key' | 'password',
+    file: string | undefined,
+    operation: 'add' | 'update-credential',
+    beforeRegister?: () => void,
+    rollback?: () => void,
+  ): Promise<void> {
+    const capability = method === 'password' ? 'register-password' : 'register-private-key'
+    const handler = remoteTargetsApi[capability]
+    if (handler === undefined) throw new SecurityFailure('access-denied', { reason: 'unsupported-capability' })
+    await trustedSecurityHost().executeComponent(
+      remoteTargetsComponent,
+      capability,
+      { type: 'remote-target', id: targetId },
+      { operation },
+      async (context) => {
+        if (beforeRegister !== undefined) beforeRegister()
+        try {
+          if (method === 'password') {
+            const password = await trustedSecurityHost().readSecret('SSH 密码（隐藏输入）：')
+            await handler(context, { credential, password })
+          } else {
+            const privateKey = await readCredentialFile(resolve(file!))
+            await assertUnencryptedPrivateKey(privateKey)
+            await handler(context, { credential, privateKey })
+          }
+        } catch (error) {
+          if (rollback !== undefined) {
+            try { rollback() } catch { /* 保留原能力错误，配置残留由用户诊断 */ }
+          }
+          throw error
+        }
+      },
+    )
+  }
+
   const targetAdd = targets.command('add <id>')
-    .description('登记目标；细节通过 --spec 传入 YAML 或 JSON')
+    .description('登记目标并在 Root 批准后写入配置与对应凭证字段')
     .option('--spec <path>', '配置文件；- 表示从 stdin 读取')
-    .option('--dry-run', '只校验并输出，不写配置')
-  targetAdd.action((id: string) => {
-    const options = targetAdd.opts<{ spec?: string; dryRun?: boolean }>()
+    .option('--file <path>', '私钥文件；私钥认证必须提供')
+    .option('--dry-run', '只校验并输出，不写配置或凭证')
+  targetAdd.action(async (id: string) => {
+    const options = targetAdd.opts<{ spec?: string; file?: string; dryRun?: boolean }>()
     if (options.spec === undefined) {
       throw new Error('缺少 --spec；用 --spec <file> 或 --spec - 从 stdin 读取')
     }
     const text = options.spec === '-'
       ? readFileSync(0, 'utf8')
       : readFileSync(resolve(options.spec), 'utf8')
-    const result = remoteTargets.addFromText(id, text, { dryRun: options.dryRun === true })
-    const detail = options.dryRun === true ? '将登记' : '已登记'
-    emit(targetAdd, result, `${detail}目标 ${result.id}\n${remoteTargetText(result)}`)
+    const preview = remoteTargets.addFromText(id, text, { dryRun: true })
+    const auth = preview.identity.auth
+    if (auth.credential === undefined) {
+      targetAdd.error('目标必须提供 identity.auth.credential', { exitCode: 1 })
+      return
+    }
+    if (auth.method !== 'private-key' && auth.method !== 'password') {
+      targetAdd.error('新目标必须使用 method: private-key|password', { exitCode: 1 })
+      return
+    }
+    if (auth.method === 'private-key' && options.file === undefined) {
+      targetAdd.error('私钥认证必须提供 --file', { exitCode: 1 })
+    }
+    if (auth.method === 'password' && options.file !== undefined) {
+      targetAdd.error('密码认证不能使用 --file', { exitCode: 1 })
+    }
+    if (options.dryRun === true) {
+      emit(targetAdd, preview, `将登记目标 ${preview.id}\n${remoteTargetText(preview)}`)
+      return
+    }
+    await writeTargetCredential(
+      preview.id,
+      auth.credential,
+      auth.method,
+      options.file,
+      'add',
+      () => { remoteTargets.addFromText(id, text) },
+      () => { remoteTargets.remove(preview.id) },
+    )
+    const result = remoteTargets.show(preview.id)
+    emit(targetAdd, result, `已登记目标 ${result.id}（配置与凭证）\n${remoteTargetText(result)}`)
   })
   const targetList = targets.command('list').description('列举已登记目标')
   targetList.action(() => {
@@ -380,6 +675,73 @@ export function createProgram(locus: LocusCore): Command {
     const result = remoteTargets.show(reference)
     emit(targetShow, result, remoteTargetText(result))
   })
+  const targetUpdate = targets.command('update-credential <target>')
+    .alias('register')
+    .description('Root 授权更新目标配置已引用的私钥或密码字段；不改目标配置')
+    .requiredOption('--credential <ref>', '目标配置中已引用的 credential:<id>')
+    .addOption(new Option('--method <method>', '认证方式').choices(['private-key', 'password']).makeOptionMandatory())
+    .option('--file <path>', '私钥文件；私钥认证必须提供，密码认证不使用')
+  targetUpdate.action(async (reference: string) => {
+    const options = targetUpdate.opts<{ credential: string; method: 'private-key' | 'password'; file?: string }>()
+    if (!/^credential:[a-z][a-z0-9-]*$/.test(options.credential)) {
+      targetUpdate.error('credential 必须是 credential:<id>', { exitCode: 1 })
+    }
+    const shown = remoteTargets.show(reference)
+    if (shown.identity.auth.credential !== options.credential) {
+      targetUpdate.error('目标配置引用的 CredentialRef 与 --credential 不一致', { exitCode: 1 })
+    }
+    if (shown.identity.auth.method !== options.method) {
+      targetUpdate.error('目标认证方式与 --method 不一致', { exitCode: 1 })
+    }
+    if (options.method === 'private-key' && options.file === undefined) {
+      targetUpdate.error('私钥认证必须提供 --file', { exitCode: 1 })
+    }
+    if (options.method === 'password' && options.file !== undefined) {
+      targetUpdate.error('密码认证不能使用 --file', { exitCode: 1 })
+    }
+    await writeTargetCredential(
+      shown.id,
+      options.credential as CredentialRef,
+      options.method,
+      options.file,
+      'update-credential',
+    )
+    emit(targetUpdate, { target: shown.id, credential: options.credential, method: options.method }, `已更新目标 ${shown.id} 的 ${options.method} 字段；目标配置未改写。`)
+  })
+  const targetMigrate = targets.command('migrate <target>')
+    .description('显式导入旧凭据文件到 Core、回读验证后切换为 CredentialRef；不删除原文件')
+    .requiredOption('--credential <ref>', 'Core 凭据引用 credential:<id>')
+    .requiredOption('--yes', '确认写入 Core 并改写目标配置')
+  targetMigrate.action(async (reference: string) => {
+    const credential = targetMigrate.opts<{ credential: string }>().credential
+    const legacy = remoteTargets.credentialMigration(reference)
+    const capability = legacy.method === 'password' ? 'register-password' : 'register-private-key'
+    let secret = ''
+    try {
+      if (!/^credential:[a-z][a-z0-9-]*$/.test(credential)) throw new SecurityFailure('access-denied', { reason: 'invalid-request' })
+      const shown = remoteTargets.show(reference)
+      const handler = remoteTargetsApi[capability]
+      if (handler === undefined) throw new SecurityFailure('access-denied', { reason: 'unsupported-capability' })
+      await trustedSecurityHost().executeComponent(
+        remoteTargetsComponent,
+        capability,
+        { type: 'remote-target', id: shown.id },
+        { operation: 'migrate' },
+        async (context) => {
+          secret = await readCredentialFile(legacy.path)
+          if (capability === 'register-private-key') await assertUnencryptedPrivateKey(secret)
+          const input = capability === 'register-private-key'
+            ? { credential: credential as CredentialRef, privateKey: secret }
+            : { credential: credential as CredentialRef, password: secret }
+          await handler(context, input)
+        },
+      )
+      const migrated = remoteTargets.useCredential(reference, credential as CredentialRef)
+      emit(targetMigrate, { target: migrated, credential, capability }, `已迁移目标 ${migrated.id} 到 ${credential}；绑定 ${capability} remote-target/${migrated.id}；原文件保留：${legacy.path}`)
+    } finally {
+      secret = ''
+    }
+  })
   const targetRemove = targets.command('remove <target>')
     .description('移除目标定义，不删除目标自身')
     .requiredOption('--yes', '确认移除；不等待交互输入')
@@ -390,14 +752,14 @@ export function createProgram(locus: LocusCore): Command {
   const targetProbe = targets.command('probe <target>')
     .description('只读连接并执行 whoami，记录可达性')
   targetProbe.action(async (reference: string) => {
-    const result = await remoteTargets.probe(reference)
+    const result = await executeRemoteAccess(reference, 'probe') as { readonly ok: boolean; readonly detail: string }
     emit(targetProbe, result, result.ok ? `探测成功：${result.detail}` : `探测失败：${result.detail}`)
     if (!result.ok) process.exitCode = 1
   })
   const targetExec = targets.command('exec <target> [command...]')
     .description('经统一入口执行远端命令，退出码透传')
   targetExec.action(async (reference: string, command: string[] = []) => {
-    const result = await remoteTargets.exec(reference, command)
+    const result = await executeRemoteAccess(reference, 'exec', command) as { readonly exitCode: number; readonly stdout: string; readonly stderr: string }
     if (jsonEnabled(targetExec)) {
       process.stdout.write(`${JSON.stringify(result)}\n`)
     } else {
@@ -409,7 +771,7 @@ export function createProgram(locus: LocusCore): Command {
   const targetShell = targets.command('shell <target>')
     .description('打开目标交互式 Shell；继承当前终端')
   targetShell.action(async (reference: string) => {
-    const exitCode = await remoteTargets.shell(reference)
+    const exitCode = await executeRemoteAccess(reference, 'shell') as number
     if (exitCode !== 0) process.exitCode = exitCode
   })
 

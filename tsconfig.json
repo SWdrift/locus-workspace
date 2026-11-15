@@ -13,6 +13,15 @@
     },
     {
       "path": "./apps/cli"
+    },
+    {
+      "path": "./packages/postgres"
+    },
+    {
+      "path": "./packages/gitea"
+    },
+    {
+      "path": "./packages/config-reference"
     }
   ]
 }

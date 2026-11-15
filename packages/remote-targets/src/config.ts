@@ -16,6 +16,7 @@ import {
 type JsonObject = Record<string, unknown>
 
 const ID_PATTERN = /^[a-z0-9][a-z0-9._-]*$/
+const CREDENTIAL_REF = /^credential:[a-z][a-z0-9-]*$/
 const CAPABILITIES: readonly Capability[] = ['exec', 'shell']
 const DOCUMENT_VERSION = 1
 
@@ -100,15 +101,32 @@ function normalizeIdentity(value: unknown, path: string, id: string): RemoteIden
   const login = requiredText(object, 'login', path)
 
   const auth = asObject(object.auth, `${path}.auth`)
-  only(auth, ['method', 'path', 'root'], `${path}.auth`)
+  only(auth, ['method', 'credential', 'path', 'root'], `${path}.auth`)
   const method = requiredText(auth, 'method', `${path}.auth`)
-  if (method !== 'key' && method !== 'password') {
-    failure(`${path}.auth.method 只能是 key 或 password：${method}`)
-  }
+  const credential = optionalText(auth, 'credential', `${path}.auth`)
   const credentialPath = optionalText(auth, 'path', `${path}.auth`)
-    ?? `credentials/${id}/${method === 'key' ? 'id_ed25519' : 'password'}`
-  validateRelativePath(credentialPath, `${path}.auth.path`)
   const credentialRoot = optionalText(auth, 'root', `${path}.auth`)
+
+  if (method === 'private-key' || (method === 'password' && credential !== undefined)) {
+    if (method === 'private-key' && credential === undefined) {
+      failure(`${path}.auth.credential 在 private-key 认证时必填`)
+    }
+    if (credential === undefined || !CREDENTIAL_REF.test(credential)) {
+      failure(`${path}.auth.credential 必须是 credential:<id> 稳定引用`)
+    }
+    if (credentialPath !== undefined || credentialRoot !== undefined) {
+      failure(`${path}.auth 不能同时提供 credential 与旧 path/root`)
+    }
+    return { login, auth: { method, credential: credential as `credential:${string}` } }
+  }
+
+  if (method !== 'key' && method !== 'password') {
+    failure(`${path}.auth.method 只能是 private-key、password 或旧 key：${method}`)
+  }
+  if (credential !== undefined) failure(`${path}.auth 旧认证方式不能同时提供 credential`)
+  const legacyPath = credentialPath
+    ?? `credentials/${id}/${method === 'key' ? 'id_ed25519' : 'password'}`
+  validateRelativePath(legacyPath, `${path}.auth.path`)
   if (
     credentialRoot !== undefined
     && !isAbsolute(credentialRoot)
@@ -116,12 +134,11 @@ function normalizeIdentity(value: unknown, path: string, id: string): RemoteIden
   ) {
     failure(`${path}.auth.root 必须是绝对路径：${credentialRoot}`)
   }
-
   return {
     login,
     auth: {
       method,
-      path: credentialPath,
+      path: legacyPath,
       ...(credentialRoot === undefined ? {} : { root: credentialRoot }),
     },
   }

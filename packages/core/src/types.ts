@@ -1,4 +1,5 @@
 import type { ComponentsService } from './components/service.ts'
+import type { SecurityService } from './security/types.ts'
 
 /** Locus 运行时的公开身份信息。 */
 export interface LocusInfo {
@@ -75,5 +76,6 @@ export interface LocusCore {
   readonly workspaces: WorkspaceService
   readonly mounts: MountService
   readonly components: ComponentsService
+  readonly security: SecurityService
   dispose(): Promise<void>
 }

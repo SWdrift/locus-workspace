@@ -4,12 +4,12 @@ import { createServer as createHttpServer } from 'node:http'
 import { createServer as createTcpServer } from 'node:net'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { DatabaseSync } from 'node:sqlite'
 import test from 'node:test'
 import {
   ComponentFailure,
   createLocusCore,
   defineComponent,
+  parseComponent,
 } from '../lib/index.js'
 
 function fixture(t) {
@@ -42,6 +42,26 @@ function packageSpec(id, version = '1', extra = {}) {
   }
 }
 
+function definedPackage(id, version = '1', extra = {}) {
+  return defineComponent(packageSpec(id, version, extra))
+}
+
+function plainCapability(extra = {}) {
+  return { id: 'connect', resourceType: 'database', ...extra }
+}
+
+function capability(extra = {}) {
+  return { ...plainCapability(), run: async () => 'connected', ...extra }
+}
+
+function plainCredential(extra = {}) {
+  return {
+    id: 'database-auth',
+    fields: [{ name: 'password', secret: true, required: true }],
+    ...extra,
+  }
+}
+
 function externalYaml(id, extra = '') {
   return `id: ${id}
 version: '1'
@@ -51,6 +71,19 @@ kind: external
 probe:
   argv: [${id}, --version]
 ${extra}`
+}
+
+function packageSpecYaml(id) {
+  return `id: ${id}
+version: '1'
+name: ${id}
+summary: ${id} 测试组件
+kind: locus
+`
+}
+
+function readSpec(path) {
+  return parseComponent(readFileSync(path, 'utf8'))
 }
 
 function result(overrides = {}) {
@@ -79,7 +112,7 @@ function failureCode(code) {
   return (error) => error instanceof ComponentFailure && error.code === code
 }
 
-test('defineComponent 接受对象与 YAML 并拒绝非法字段', () => {
+test('defineComponent 返回可序列化组件，YAML 由 parseComponent 解析', () => {
   const source = {
     id: 'demo',
     version: '1',
@@ -91,8 +124,15 @@ test('defineComponent 接受对象与 YAML 并拒绝非法字段', () => {
     deploy: { argv: ['demo', 'install'] },
     info: { text: 'hello' },
   }
-  const fromObject = defineComponent(source)
-  const fromYaml = defineComponent(`id: demo
+  const { component, api } = defineComponent(source)
+  assert.deepEqual(component, source)
+  assert.deepEqual(api, {})
+  assert.equal(Object.isFrozen(component), true)
+  assert.equal(Object.isFrozen(component.probe), true)
+  assert.equal(Object.isFrozen(component.config), true)
+  assert.equal(Object.isFrozen(api), true)
+
+  const fromYaml = parseComponent(`id: demo
 version: '1'
 name: Demo
 summary: 示例
@@ -108,9 +148,7 @@ deploy:
 info:
   text: hello
 `)
-  assert.deepEqual(fromObject, fromYaml)
-  assert.equal(Object.isFrozen(fromObject), true)
-  assert.equal(Object.isFrozen(fromObject.probe), true)
+  assert.deepEqual(fromYaml, component)
 
   assert.throws(() => defineComponent({ ...source, extra: true }), failureCode('invalid-spec'))
   assert.throws(() => defineComponent({ ...source, id: 'Bad_ID' }), failureCode('invalid-spec'))
@@ -161,80 +199,548 @@ info:
     () => defineComponent({ ...source, probe: { kind: 'udp', host: '127.0.0.1', port: 1 } }),
     failureCode('invalid-spec'),
   )
-  for (const id of ['version', 'workspace', 'component', 'shell', 'help', 'rt']) {
+  for (const id of ['version', 'workspace', 'component', 'shell', 'help', 'rt', 'init', 'security', 'credential']) {
     assert.throws(() => defineComponent({ ...source, id }), failureCode('invalid-spec'))
   }
   assert.equal(
-    defineComponent({ id: 'template', version: '1', name: '模板', summary: '模板', kind: 'locus' }).id,
+    defineComponent({ id: 'template', version: '1', name: '模板', summary: '模板', kind: 'locus' }).component.id,
     'template',
   )
   assert.throws(
     () => defineComponent({ ...source, info: { text: 'a', json: { b: 1 } } }),
     failureCode('invalid-spec'),
   )
-  assert.throws(() => defineComponent('id: [unclosed'), failureCode('invalid-spec'))
-  assert.throws(() => defineComponent(''), failureCode('invalid-spec'))
+  assert.throws(() => parseComponent('id: [unclosed'), failureCode('invalid-spec'))
+  assert.throws(() => parseComponent(''), failureCode('invalid-spec'))
+  assert.throws(() => parseComponent(null), /不能为空/)
+  // defineComponent 只接受对象；YAML 文本必须走 parseComponent。
+  assert.throws(() => defineComponent(packageSpecYaml('from-text')), failureCode('invalid-spec'))
   assert.throws(
     () => createLocusCore({ dataDirectory: 'relative', components: [source] }),
     /absolute|绝对路径/,
   )
 })
 
-test('包组件在首次访问时物化，版本不一致只标记需要升级', async (t) => {
+test('defineComponent 单独交付本地能力表，序列化组件不包含 handler', () => {
+  const connect = async () => 'connected'
+  const inspect = () => 'inspected'
+  const source = packageSpec('demo', '1', {
+    capabilities: [
+      {
+        id: 'connect',
+        resourceType: 'database',
+        defaultAuthLevel: 'user',
+        secrets: [{ slot: 'database-auth', access: 'read' }],
+        run: connect,
+      },
+      { id: 'database.inspect', resourceType: 'database', run: inspect },
+    ],
+    credentials: [plainCredential()],
+  })
+  const { component, api } = defineComponent(source)
+  assert.deepEqual(component.capabilities, [
+    {
+      id: 'connect',
+      resourceType: 'database',
+      defaultAuthLevel: 'user',
+      secrets: [{ slot: 'database-auth', access: 'read' }],
+    },
+    { id: 'database.inspect', resourceType: 'database' },
+  ])
+  assert.equal('run' in component.capabilities[0], false)
+  assert.deepEqual(Object.keys(api), ['connect', 'database.inspect'])
+  assert.equal(api.connect, connect)
+  assert.equal(api['database.inspect'], inspect)
+  assert.equal(Object.isFrozen(api), true)
+  assert.equal(Object.isFrozen(component.capabilities), true)
+  assert.equal(Object.isFrozen(component.capabilities[0]), true)
+  assert.equal(Object.isFrozen(component.capabilities[0].secrets), true)
+  assert.equal(Object.isFrozen(component.capabilities[0].secrets[0]), true)
+  assert.throws(() => { component.capabilities.push({ id: 'more', resourceType: 'database' }) }, TypeError)
+  assert.throws(() => { component.capabilities[0].defaultAuthLevel = 'root' }, TypeError)
+  assert.throws(() => { component.capabilities[0].secrets[0].access = 'write' }, TypeError)
+  source.capabilities[0].secrets[0].slot = 'changed'
+  assert.equal(component.capabilities[0].secrets[0].slot, 'database-auth')
+  assert.deepEqual(
+    parseComponent(JSON.parse(JSON.stringify(component)), { allowCapabilities: true }),
+    component,
+  )
+  assert.deepEqual(
+    parseComponent({ ...packageSpec('explicit'), capabilities: [plainCapability()] }, { allowCapabilities: true })
+      .capabilities,
+    [plainCapability()],
+  )
+
+  const empty = defineComponent(packageSpec('empty', '1', { capabilities: [] }))
+  assert.deepEqual(empty.component.capabilities, [])
+  assert.deepEqual(Object.keys(empty.api), [])
+  const plain = defineComponent(packageSpec('plain'))
+  assert.equal('capabilities' in plain.component, false)
+  assert.deepEqual(plain.api, {})
+})
+
+test('能力声明拒绝带冒号的全局 id、非法结构与重复声明', () => {
+  for (const capabilities of [null, {}, 'connect', [null], [[]]]) {
+    assert.throws(
+      () => defineComponent(packageSpec('invalid', '1', { capabilities })),
+      failureCode('invalid-spec'),
+    )
+  }
+
+  for (const id of ['connect', 'database.connect', 'database-connect', 'a1.b2-c3']) {
+    assert.equal(
+      defineComponent(packageSpec('valid', '1', { capabilities: [capability({ id })] }))
+        .component.capabilities[0].id,
+      id,
+    )
+  }
+
+  const invalidCapabilities = [
+    plainCapability({ id: 'database:local:connect' }),
+    plainCapability({ id: 'connect:now' }),
+    plainCapability({ id: '' }),
+    plainCapability({ id: 'Connect' }),
+    plainCapability({ id: ' database' }),
+    plainCapability({ id: 'database::connect' }),
+    plainCapability({ id: 'connect all' }),
+    plainCapability({ id: 'connect_thing' }),
+    plainCapability({ id: 'connect-' }),
+    plainCapability({ id: '1connect' }),
+    plainCapability({ id: undefined }),
+    plainCapability({ resourceType: undefined }),
+    plainCapability({ resourceType: '' }),
+    plainCapability({ resourceType: 'Database' }),
+    plainCapability({ resourceType: 'database_x' }),
+    plainCapability({ resourceType: 'database type' }),
+    plainCapability({ defaultAuthLevel: 'admin' }),
+    plainCapability({ defaultAuthLevel: 'Root' }),
+    plainCapability({ defaultAuthLevel: true }),
+    plainCapability({ secrets: 'read' }),
+    plainCapability({ secrets: [null] }),
+    plainCapability({ secrets: [[]] }),
+    plainCapability({ secrets: [{ slot: 'database-auth' }] }),
+    plainCapability({ secrets: [{ slot: 'database-auth', access: 'execute' }] }),
+    plainCapability({ secrets: [{ slot: 'database-auth', access: 'read', extra: true }] }),
+    plainCapability({ secrets: [{ slot: 'Database', access: 'read' }] }),
+    plainCapability({ secrets: [{ slot: 'database_auth', access: 'read' }] }),
+    plainCapability({
+      secrets: [
+        { slot: 'database-auth', access: 'read' },
+        { slot: 'database-auth', access: 'write' },
+      ],
+    }),
+    plainCapability({ unknown: true }),
+  ]
+  for (const invalidCapability of invalidCapabilities) {
+    assert.throws(
+      () => defineComponent(packageSpec('invalid', '1', { capabilities: [capability(invalidCapability)] })),
+      failureCode('invalid-spec'),
+    )
+  }
+
+  // handler 是可信定义的组成部分，不能在序列化组件里出现。
+  assert.throws(
+    () => defineComponent(packageSpec('invalid', '1', { capabilities: [plainCapability()] })),
+    failureCode('invalid-spec'),
+  )
+  assert.throws(
+    () => defineComponent(packageSpec('invalid', '1', { capabilities: [capability({ run: 'connect' })] })),
+    failureCode('invalid-spec'),
+  )
+  assert.throws(
+    () => parseComponent(
+      { ...packageSpec('invalid'), capabilities: [capability()] },
+      { allowCapabilities: true },
+    ),
+    failureCode('invalid-spec'),
+  )
+
+  for (const duplicate of [
+    plainCapability(),
+    plainCapability({ defaultAuthLevel: 'root' }),
+  ]) {
+    assert.throws(
+      () => defineComponent(packageSpec('duplicate', '1', { capabilities: [capability(), capability(duplicate)] })),
+      failureCode('invalid-spec'),
+    )
+  }
+
+  assert.throws(
+    () => defineComponent(packageSpec('invalid', '1', {
+      capabilities: [capability({ secrets: [{ slot: 'missing', access: 'read' }] })],
+      credentials: [plainCredential()],
+    })),
+    failureCode('invalid-spec'),
+  )
+  assert.throws(
+    () => defineComponent(packageSpec('invalid', '1', {
+      capabilities: [capability({ secrets: [{ slot: 'database-auth', access: 'read' }] })],
+    })),
+    failureCode('invalid-spec'),
+  )
+
+  const shared = defineComponent(packageSpec('shared', '1', {
+    capabilities: [
+      capability({ secrets: [{ slot: 'database-auth', access: 'read' }] }),
+      capability({ id: 'manage', secrets: [{ slot: 'database-auth', access: 'write' }] }),
+    ],
+    credentials: [plainCredential()],
+  }))
+  assert.deepEqual(shared.component.capabilities.map((value) => value.id), ['connect', 'manage'])
+
+  assert.throws(
+    () => defineComponent(packageSpecYaml('invalid')),
+    failureCode('invalid-spec'),
+  )
+})
+
+test('凭据槽只声明字段结构，拒绝 kind/capability 与非法字段', () => {
+  const full = {
+    id: 'database-auth',
+    fields: [
+      { name: 'username', secret: false, required: true },
+      { name: 'password', secret: true, required: true },
+      { name: 'remark', secret: false, required: false },
+    ],
+  }
+  const defined = defineComponent(packageSpec('demo', '1', { credentials: [full] }))
+  assert.deepEqual(defined.component.credentials, [full])
+  assert.equal(Object.isFrozen(defined.component.credentials), true)
+  assert.equal(Object.isFrozen(defined.component.credentials[0]), true)
+  assert.equal(Object.isFrozen(defined.component.credentials[0].fields), true)
+  assert.equal('kind' in defined.component.credentials[0], false)
+  assert.equal('capability' in defined.component.credentials[0], false)
+
+  const invalidCredentials = [
+    null,
+    {},
+    'password',
+    [null],
+    [[]],
+    [plainCredential({ id: 'Database' })],
+    [plainCredential({ id: 'database_auth' })],
+    [plainCredential({ id: 'database:auth' })],
+    [plainCredential({ kind: 'password' })],
+    [plainCredential({ capability: 'connect' })],
+    [plainCredential({ fields: [] })],
+    [plainCredential({ fields: null })],
+    [plainCredential({ fields: [{ name: 'Password', secret: true, required: true }] })],
+    [plainCredential({ fields: [{ name: 'pass_word', secret: true, required: true }] })],
+    [plainCredential({ fields: [{ name: 'password', secret: 'yes', required: true }] })],
+    [plainCredential({ fields: [{ name: 'password', secret: true, required: 'yes' }] })],
+    [plainCredential({ fields: [{ name: 'password', secret: true, required: true, extra: true }] })],
+    [plainCredential({ fields: [{ name: 'username', secret: false, required: true }] })],
+    [plainCredential({
+      fields: [
+        { name: 'password', secret: true, required: true },
+        { name: 'password', secret: true, required: true },
+      ],
+    })],
+    [plainCredential(), plainCredential()],
+  ]
+  for (const credentials of invalidCredentials) {
+    assert.throws(
+      () => defineComponent(packageSpec('invalid', '1', { credentials })),
+      failureCode('invalid-spec'),
+    )
+  }
+  assert.deepEqual(
+    defineComponent(packageSpec('plain', '1', { credentials: [full] })).component.credentials,
+    [full],
+  )
+  assert.throws(
+    () => defineComponent({ ...packageSpec('external', '1'), kind: 'external', credentials: [full] }),
+    failureCode('invalid-spec'),
+  )
+})
+
+test('可编辑 YAML 拒绝 capabilities 与 credentials，external 不携带能力', () => {
+  const capabilityYaml = `id: demo
+version: '1'
+name: demo
+summary: demo
+kind: locus
+capabilities:
+  - id: connect
+    resourceType: database
+    defaultAuthLevel: user
+    secrets:
+      - slot: database-auth
+        access: read
+`
+  const credentialYaml = `id: demo
+version: '1'
+name: demo
+summary: demo
+kind: locus
+credentials:
+  - id: database-auth
+    fields:
+      - name: password
+        secret: true
+        required: true
+`
+  for (const text of [capabilityYaml, credentialYaml]) {
+    assert.throws(() => parseComponent(text), failureCode('invalid-spec'))
+  }
+  assert.throws(
+    () => parseComponent({ ...packageSpec('demo'), capabilities: [plainCapability()] }),
+    failureCode('invalid-spec'),
+  )
+  assert.throws(
+    () => parseComponent({ ...packageSpec('demo'), credentials: [plainCredential()] }),
+    failureCode('invalid-spec'),
+  )
+
+  const external = parseComponent(externalYaml('ext'))
+  assert.equal(external.kind, 'external')
+  assert.equal('capabilities' in external, false)
+  assert.equal('credentials' in external, false)
+  assert.throws(
+    () => defineComponent({
+      ...packageSpec('external', '1'),
+      kind: 'external',
+      capabilities: [capability()],
+    }),
+    failureCode('invalid-spec'),
+  )
+  assert.throws(
+    () => parseComponent(`id: ext
+version: '1'
+name: ext
+summary: ext
+kind: external
+capabilities:
+  - id: connect
+    resourceType: database
+`),
+    failureCode('invalid-spec'),
+  )
+})
+
+test('包组件物化只写可序列化元数据，能力与凭据不进入 YAML', async (t) => {
   const setup = fixture(t)
-  const first = setup.open({ components: [packageSpec('alpha', '1')] })
+  const alpha = definedPackage('alpha', '1', {
+    capabilities: [capability({ secrets: [{ slot: 'database-auth', access: 'read' }] })],
+    credentials: [plainCredential()],
+  })
+  const first = setup.open({ components: [alpha.component] })
   assert.equal(existsSync(setup.dataDirectory), false)
   const listed = first.components.list()
   assert.deepEqual(listed.components.map((view) => view.id), ['alpha'])
   assert.equal(listed.components[0].needsUpgrade, false)
-  assert.equal(existsSync(join(setup.dataDirectory, 'components', 'alpha.yaml')), true)
+  assert.deepEqual(listed.components[0].capabilities.map((item) => item.id), ['connect'])
+  assert.deepEqual(listed.components[0].credentials.map((item) => item.id), ['database-auth'])
+  const file = join(setup.dataDirectory, 'components', 'alpha.yaml')
+  assert.equal(existsSync(file), true)
+  const text = readFileSync(file, 'utf8')
+  assert.equal(text.includes('capabilities'), false)
+  assert.equal(text.includes('credentials'), false)
+  const materialized = parseComponent(text)
+  assert.equal(materialized.version, '1')
+  assert.equal('capabilities' in materialized, false)
+  assert.equal('credentials' in materialized, false)
+  assert.deepEqual(Object.keys(alpha.api), ['connect'])
 
-  const second = setup.open({ components: [packageSpec('alpha', '2')] })
+  const second = setup.open({
+    components: [
+      definedPackage('alpha', '2', {
+        summary: 'alpha 升级版本',
+        capabilities: [capability({ id: 'manage' })],
+        credentials: [plainCredential({ id: 'database-manage' })],
+      }).component,
+    ],
+  })
   const pending = second.components.show('alpha')
   assert.equal(pending.version, '1')
   assert.equal(pending.codeVersion, '2')
   assert.equal(pending.needsUpgrade, true)
-  const onDisk = defineComponent(
-    readFileSync(join(setup.dataDirectory, 'components', 'alpha.yaml'), 'utf8'),
-  )
-  assert.equal(onDisk.version, '1')
+  assert.equal(readSpec(file).version, '1')
 
   const upgraded = second.components.upgrade('alpha')
   assert.equal(upgraded.version, '2')
   assert.equal(upgraded.needsUpgrade, false)
   assert.equal(upgraded.codeVersion, '2')
+  assert.deepEqual(upgraded.capabilities.map((item) => item.id), ['manage'])
+  assert.deepEqual(upgraded.credentials.map((item) => item.id), ['database-manage'])
+  const persisted = readSpec(file)
+  assert.equal(persisted.version, '2')
+  assert.equal('capabilities' in persisted, false)
+  assert.equal('credentials' in persisted, false)
+
+  const reopened = setup.open({
+    components: [
+      definedPackage('alpha', '2', {
+        summary: 'alpha 升级版本',
+        capabilities: [capability({ id: 'manage' })],
+        credentials: [plainCredential({ id: 'database-manage' })],
+      }).component,
+    ],
+  })
+  assert.equal(reopened.components.show('alpha').needsUpgrade, false)
+
+  rmSync(file)
+  const recreated = second.components.show('alpha')
+  assert.equal(recreated.version, '2')
+  assert.equal(existsSync(file), true)
+  const rematerialized = readSpec(file)
+  assert.equal(rematerialized.version, '2')
+  assert.equal('capabilities' in rematerialized, false)
 })
 
 test('upgrade 保留 config，删除物化文件后按当前版本重建', async (t) => {
   const setup = fixture(t)
   const core = setup.open({
-    components: [packageSpec('alpha', '1', { config: 'alpha-config/' })],
+    components: [
+      definedPackage('alpha', '1', {
+        config: 'alpha-config/',
+        capabilities: [capability()],
+        credentials: [plainCredential()],
+      }).component,
+    ],
   })
   core.components.list()
   const file = join(setup.dataDirectory, 'components', 'alpha.yaml')
-  const before = readFileSync(file, 'utf8')
-  assert.match(before, /config: alpha-config\//)
-  writeFileSync(file, before.replace('alpha-config/', 'custom-config/'), 'utf8')
+  const before = readSpec(file)
+  assert.equal(before.config, 'alpha-config/')
+  writeFileSync(file, JSON.stringify({ ...before, config: 'custom-config/' }), 'utf8')
 
   const next = setup.open({
-    components: [packageSpec('alpha', '2', { config: 'alpha-config/' })],
+    components: [
+      definedPackage('alpha', '2', {
+        config: 'alpha-config/',
+        capabilities: [capability({ id: 'manage' })],
+        credentials: [plainCredential()],
+      }).component,
+    ],
   })
+  assert.equal(next.components.show('alpha').needsUpgrade, true)
+  assert.equal(readSpec(file).version, '1')
   const upgraded = next.components.upgrade('alpha')
+  assert.equal(upgraded.version, '2')
   assert.equal(upgraded.configPath, join(setup.dataDirectory, 'custom-config'))
-  const text = readFileSync(file, 'utf8')
-  assert.match(text, /version: "2"/)
-  assert.match(text, /custom-config\//)
+  const persisted = readSpec(file)
+  assert.equal(persisted.version, '2')
+  assert.equal(persisted.config, 'custom-config/')
+  assert.equal('capabilities' in persisted, false)
+
+  const reopened = setup.open({
+    components: [
+      definedPackage('alpha', '2', {
+        config: 'alpha-config/',
+        capabilities: [capability({ id: 'manage' })],
+        credentials: [plainCredential()],
+      }).component,
+    ],
+  })
+  assert.equal(reopened.components.show('alpha').needsUpgrade, false)
 
   rmSync(file)
   const recreated = next.components.show('alpha')
   assert.equal(recreated.version, '2')
   assert.equal(existsSync(file), true)
+  assert.equal(readSpec(file).config, 'alpha-config/')
+})
+
+test('升级保留内联 config，能力变更不进入 YAML', async (t) => {
+  const setup = fixture(t)
+  const originalConfig = { database: { host: 'localhost', ports: [5432] } }
+  const core = setup.open({
+    components: [
+      definedPackage('alpha', '1', {
+        config: originalConfig,
+        capabilities: [capability()],
+        credentials: [plainCredential()],
+      }).component,
+    ],
+  })
+  core.components.list()
+  const next = setup.open({
+    components: [
+      definedPackage('alpha', '2', {
+        config: { database: { host: 'package-default' } },
+        capabilities: [capability({ id: 'manage' })],
+        credentials: [plainCredential({ id: 'database-manage' })],
+      }).component,
+    ],
+  })
+  next.components.upgrade('alpha')
+  const upgraded = readSpec(join(setup.dataDirectory, 'components', 'alpha.yaml'))
+  assert.deepEqual(upgraded.config, originalConfig)
+  assert.equal(upgraded.version, '2')
+  assert.equal('capabilities' in upgraded, false)
+  assert.equal('credentials' in upgraded, false)
+})
+
+test('动态组件只接受 external YAML，能力与凭据不能在运行时声明', async (t) => {
+  const setup = fixture(t)
+  const core = setup.open({ components: [definedPackage('alpha').component] })
+  core.components.list()
+
+  const added = core.components.addFromText(externalYaml('ext'))
+  assert.equal(added.source, 'dynamic')
+  assert.equal(added.external.state, null)
+  assert.equal('capabilities' in added, false)
+  assert.equal('credentials' in added, false)
+  const extFile = join(setup.dataDirectory, 'components', 'ext.yaml')
+  assert.equal(existsSync(extFile), true)
+  assert.equal(readSpec(extFile).kind, 'external')
+
+  assert.throws(
+    () => core.components.addFromText(`id: ext-caps
+version: '1'
+name: ext-caps
+summary: ext-caps
+kind: external
+capabilities:
+  - id: connect
+    resourceType: database
+`),
+    failureCode('invalid-spec'),
+  )
+  assert.throws(
+    () => core.components.addFromText(JSON.stringify({
+      ...packageSpec('ext-credentials'),
+      kind: 'external',
+      credentials: [plainCredential()],
+    })),
+    failureCode('invalid-spec'),
+  )
+  assert.throws(() => core.components.addFromText(externalYaml('ext')), failureCode('component-exists'))
+  assert.throws(
+    () => core.components.addFromText(packageSpecYaml('locus-only')),
+    failureCode('invalid-spec'),
+  )
+  assert.throws(
+    () => core.components.addFromText(externalYaml('alpha')),
+    failureCode('component-package'),
+  )
+  assert.throws(() => core.components.remove('alpha'), failureCode('component-package'))
+  assert.throws(() => core.components.remove('missing'), failureCode('component-not-found'))
+
+  const folder = join(setup.root, 'ext-folder')
+  mkdirSync(folder)
+  writeFileSync(join(folder, 'component.yaml'), externalYaml('ext-folder'), 'utf8')
+  writeFileSync(join(folder, 'settings.txt'), 'value', 'utf8')
+  const copied = core.components.addFromPath(folder)
+  assert.equal(copied.id, 'ext-folder')
+  assert.equal('capabilities' in copied, false)
+  assert.equal(
+    readFileSync(join(setup.dataDirectory, 'components', 'ext-folder', 'settings.txt'), 'utf8'),
+    'value',
+  )
+  core.components.remove('ext-folder')
+  assert.equal(existsSync(join(setup.dataDirectory, 'components', 'ext-folder')), false)
+
+  core.components.remove('ext')
+  assert.equal(existsSync(extFile), false)
+  assert.equal(core.components.list().components.some((view) => view.id === 'ext'), false)
 })
 
 test('损坏或冲突的定义只影响该组件，不阻断其他组件', async (t) => {
   const setup = fixture(t)
   const core = setup.open({
-    components: [packageSpec('alpha'), packageSpec('beta')],
+    components: [definedPackage('alpha').component, definedPackage('beta').component],
   })
   core.components.list()
   const beta = join(setup.dataDirectory, 'components', 'beta.yaml')
@@ -257,54 +763,6 @@ test('损坏或冲突的定义只影响该组件，不阻断其他组件', async
     conflicted.problems.find((problem) => problem.id === 'beta').error,
     /同时存在/,
   )
-})
-
-function packageSpecYaml(id) {
-  return `id: ${id}
-version: '1'
-name: ${id}
-summary: ${id} 测试组件
-kind: locus
-`
-}
-
-test('动态组件可添加文件夹与文本，只能删除动态组件', async (t) => {
-  const setup = fixture(t)
-  const core = setup.open({ components: [packageSpec('alpha')] })
-  core.components.list()
-
-  const added = core.components.addFromText(externalYaml('ext'))
-  assert.equal(added.source, 'dynamic')
-  assert.equal(added.external.state, null)
-  assert.equal(existsSync(join(setup.dataDirectory, 'components', 'ext.yaml')), true)
-  assert.throws(() => core.components.addFromText(externalYaml('ext')), failureCode('component-exists'))
-  assert.throws(
-    () => core.components.addFromText(packageSpecYaml('locus-only')),
-    failureCode('invalid-spec'),
-  )
-  assert.throws(
-    () => core.components.addFromText(externalYaml('alpha')),
-    failureCode('component-package'),
-  )
-  assert.throws(() => core.components.remove('alpha'), failureCode('component-package'))
-  assert.throws(() => core.components.remove('missing'), failureCode('component-not-found'))
-
-  const folder = join(setup.root, 'ext-folder')
-  mkdirSync(folder)
-  writeFileSync(join(folder, 'component.yaml'), externalYaml('ext-folder'), 'utf8')
-  writeFileSync(join(folder, 'settings.txt'), 'value', 'utf8')
-  const copied = core.components.addFromPath(folder)
-  assert.equal(copied.id, 'ext-folder')
-  assert.equal(
-    readFileSync(join(setup.dataDirectory, 'components', 'ext-folder', 'settings.txt'), 'utf8'),
-    'value',
-  )
-  core.components.remove('ext-folder')
-  assert.equal(existsSync(join(setup.dataDirectory, 'components', 'ext-folder')), false)
-
-  core.components.remove('ext')
-  assert.equal(existsSync(join(setup.dataDirectory, 'components', 'ext.yaml')), false)
-  assert.equal(core.components.list().components.some((view) => view.id === 'ext'), false)
 })
 
 test('探针按退出、ENOENT、超时分类并跨进程保留状态', async (t) => {
@@ -489,57 +947,9 @@ probe:
 
 test('释放后组件服务不可继续调用', async (t) => {
   const setup = fixture(t)
-  const core = setup.open({ components: [packageSpec('alpha')] })
+  const core = setup.open({ components: [definedPackage('alpha').component] })
   const components = core.components
   components.list()
   await core.dispose()
   assert.throws(() => components.list(), /已释放/)
-})
-
-test('v2 数据库迁移到 v3 并保留 Workspace', async (t) => {
-  const setup = fixture(t)
-  mkdirSync(setup.dataDirectory, { recursive: true })
-  const database = new DatabaseSync(join(setup.dataDirectory, 'core.sqlite'))
-  database.exec(`
-    CREATE TABLE workspaces (
-      id TEXT PRIMARY KEY,
-      name TEXT NOT NULL CHECK (length(trim(name)) > 0),
-      created_at TEXT NOT NULL
-    ) STRICT;
-    CREATE TABLE relations (
-      id TEXT PRIMARY KEY,
-      workspace_id TEXT NOT NULL REFERENCES workspaces(id),
-      kind TEXT NOT NULL CHECK (kind IN ('member', 'association')),
-      target_namespace TEXT NOT NULL CHECK (length(trim(target_namespace)) > 0),
-      target_id TEXT NOT NULL CHECK (length(trim(target_id)) > 0),
-      source_kind TEXT NOT NULL CHECK (source_kind IN ('manual', 'discovery')),
-      source_detail TEXT NOT NULL CHECK (length(trim(source_detail)) > 0),
-      created_at TEXT NOT NULL,
-      UNIQUE (workspace_id, kind, target_namespace, target_id)
-    ) STRICT;
-    CREATE TABLE mounts (
-      id TEXT PRIMARY KEY,
-      workspace_id TEXT NOT NULL REFERENCES workspaces(id),
-      name TEXT NOT NULL CHECK (length(trim(name)) > 0),
-      name_key TEXT NOT NULL CHECK (length(trim(name_key)) > 0),
-      path TEXT NOT NULL CHECK (length(trim(path)) > 0),
-      path_key TEXT NOT NULL CHECK (length(trim(path_key)) > 0),
-      created_at TEXT NOT NULL,
-      UNIQUE (workspace_id, name_key),
-      UNIQUE (workspace_id, path_key)
-    ) STRICT;
-    INSERT INTO workspaces VALUES ('ws-1', '迁移前', '2026-11-15T00:00:00.000Z');
-    PRAGMA user_version = 2;
-  `)
-  database.close()
-
-  const core = setup.open({ components: [packageSpec('alpha')] })
-  assert.equal(core.workspaces.list()[0].name, '迁移前')
-  const reopened = new DatabaseSync(join(setup.dataDirectory, 'core.sqlite'))
-  assert.equal(reopened.prepare('PRAGMA user_version').get().user_version, 3)
-  assert.equal(
-    reopened.prepare("SELECT 1 FROM sqlite_schema WHERE type = 'table' AND name = 'component_states'").get() !== undefined,
-    true,
-  )
-  reopened.close()
 })

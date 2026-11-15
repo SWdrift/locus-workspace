@@ -4,6 +4,8 @@ import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { spawnSync } from 'node:child_process'
+import { randomUUID } from 'node:crypto'
+import { createLocusCore, createMemoryCredentialProvider } from '../../packages/core/lib/index.js'
 
 // 真实构建产物层：只验证跨进程恢复、完整命令链、退出码与 pnpm 入口，
 // 领域矩阵与单条命令细节由 `pnpm test` / `pnpm test:all` 覆盖。
@@ -22,7 +24,7 @@ if (!existsSync(CLI)) {
 function run(args, { code = 0, environment = {} } = {}) {
   const result = spawnSync(process.execPath, [CLI, ...args], {
     cwd: root,
-    env: { ...process.env, LOCUS_HOME: data, ...environment },
+    env: { ...process.env, LOCUS_FOLDER_NAME: undefined, LOCUS_HOME: data, ...environment },
     encoding: 'utf8',
     timeout: 30000,
     maxBuffer: 2 * 1024 * 1024,
@@ -144,11 +146,25 @@ try {
   })
   assert.match(emptyHome.stderr, /LOCUS_HOME 必须是非空路径/)
 
+  let securityHost
+  const core = createLocusCore({ dataDirectory: data, security: { provider: createMemoryCredentialProvider(), receiveHost(value) { securityHost = value } } })
+  try {
+    const password = randomUUID()
+    await securityHost.initializeRoot(password, password)
+  } finally { await core.dispose() }
+  const security = json(['--json', 'security', 'status'])
+  assert.equal(security.initialized, true)
+  assert.equal(json(['--json', 'security', 'status']).installationId, security.installationId)
+  assert.deepEqual(json(['--json', 'credential', 'list']), [])
+  const noninteractive = json(['--json', 'security', 'change-root-password'], { code: 2 })
+  assert.equal(noninteractive.code, 'authentication-unavailable')
+  assert.equal(json(['--json', 'security', 'status']).installationId, security.installationId)
+
   const pnpm = process.env.npm_execpath
   if (pnpm) {
     const wrapper = spawnSync(process.execPath, [pnpm, 'locus', 'version'], {
       cwd: REPO,
-      env: { ...process.env, LOCUS_HOME: data },
+      env: { ...process.env, LOCUS_FOLDER_NAME: undefined, LOCUS_HOME: data },
       encoding: 'utf8',
       timeout: 30000,
       windowsHide: true,
@@ -158,6 +174,14 @@ try {
     assert.equal(wrapper.status, 0, wrapper.stderr)
     const lastLine = wrapper.stdout.trim().split(/\r?\n/).at(-1)
     assert.equal(lastLine, PRODUCT_VERSION)
+    const isolated = spawnSync(process.execPath, [pnpm, 'locus', '--profile', 'development', '--json', 'workspace', 'create', '安全开发隔离'], {
+      cwd: REPO, env: { ...process.env, LOCUS_FOLDER_NAME: 'wrapper-isolation', LOCUS_HOME: data }, encoding: 'utf8', timeout: 30000, windowsHide: true,
+    })
+    invocations++
+    assert.equal(isolated.status, 0)
+    const created = JSON.parse(isolated.stdout.trim().split(/\r?\n/).at(-1))
+    assert.equal(json(['--profile', 'development', '--json', 'workspace', 'show', created.id], { environment: { LOCUS_FOLDER_NAME: 'wrapper-isolation' } }).name, '安全开发隔离')
+    assert.deepEqual(json(['--json', 'workspace', 'list'], { environment: { LOCUS_FOLDER_NAME: 'wrapper-isolation' } }), [])
   }
 
   console.log(`CLI e2e 通过：${invocations} 次调用，数据目录 ${data}`)

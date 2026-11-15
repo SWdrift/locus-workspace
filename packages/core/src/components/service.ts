@@ -15,8 +15,10 @@ import { basename, dirname, join, resolve, sep } from 'node:path'
 import { stringify as stringifyYaml } from 'yaml'
 import {
   ComponentFailure,
-  defineComponent,
+  parseComponent,
+  type ComponentCapability,
   type ComponentConfig,
+  type ComponentCredential,
   type ComponentInfo,
   type ComponentKind,
   type ComponentProbe,
@@ -51,6 +53,8 @@ export interface ComponentView {
   readonly codeVersion?: string
   readonly needsUpgrade: boolean
   readonly requires: readonly string[]
+  readonly capabilities?: readonly ComponentCapability[]
+  readonly credentials?: readonly ComponentCredential[]
   readonly source: 'package' | 'dynamic'
   readonly definitionPath: string
   readonly configPath?: string
@@ -138,18 +142,20 @@ function serialize(spec: ComponentSpec): Record<string, unknown> {
 }
 
 function withConfig(spec: ComponentSpec, config: ComponentConfig | undefined): ComponentSpec {
-  return defineComponent({
+  return parseComponent({
     id: spec.id,
     version: spec.version,
     name: spec.name,
     summary: spec.summary,
     kind: spec.kind,
     ...(spec.requires === undefined ? {} : { requires: spec.requires }),
+    ...(spec.capabilities === undefined ? {} : { capabilities: spec.capabilities }),
+    ...(spec.credentials === undefined ? {} : { credentials: spec.credentials }),
     ...(config === undefined ? {} : { config }),
     ...(spec.probe === undefined ? {} : { probe: spec.probe }),
     ...(spec.deploy === undefined ? {} : { deploy: spec.deploy }),
     ...(spec.info === undefined ? {} : { info: spec.info }),
-  })
+  }, { allowCapabilities: true })
 }
 
 function classifyProbe(
@@ -272,7 +278,7 @@ export function createComponentService(options: ComponentServiceOptions): Compon
   const packageIds = new Set<string>()
   const packageDefinitions: ComponentSpec[] = []
   for (const definition of options.definitions ?? []) {
-    const spec = defineComponent(definition)
+    const spec = parseComponent(definition, { allowCapabilities: true })
     if (spec.kind !== 'locus') {
       throw new ComponentFailure('invalid-spec', `包组件必须是 locus：${spec.id}`)
     }
@@ -319,7 +325,7 @@ export function createComponentService(options: ComponentServiceOptions): Compon
     } catch (error) {
       throw new ComponentFailure('io', `无法读取组件定义 ${path}：${messageOf(error)}`)
     }
-    return defineComponent(text)
+    return parseComponent(text)
   }
 
   function materialize(): void {
@@ -360,11 +366,17 @@ export function createComponentService(options: ComponentServiceOptions): Compon
           `定义 id 与文件不一致：${parsed.id} != ${spec.id}`,
         )
       }
+      // YAML 只保存描述性元数据；能力与凭据字段来自包代码，不写回可编辑文件。
+      const merged = parseComponent({
+        ...parsed,
+        ...(spec.capabilities === undefined ? {} : { capabilities: spec.capabilities }),
+        ...(spec.credentials === undefined ? {} : { credentials: spec.credentials }),
+      }, { allowCapabilities: true })
       return {
         id: spec.id,
         source: 'package',
         path: location.path,
-        spec: parsed,
+        spec: merged,
         codeVersion: spec.version,
         needsUpgrade: parsed.version !== spec.version,
       }
@@ -527,6 +539,8 @@ export function createComponentService(options: ComponentServiceOptions): Compon
       ...(entry.codeVersion === undefined ? {} : { codeVersion: entry.codeVersion }),
       needsUpgrade: entry.needsUpgrade,
       requires: spec.requires ?? [],
+      ...(spec.capabilities === undefined ? {} : { capabilities: spec.capabilities }),
+      ...(spec.credentials === undefined ? {} : { credentials: spec.credentials }),
       source: entry.source,
       definitionPath: entry.path,
       ...(configuredPath === undefined ? {} : { configPath: configuredPath }),
@@ -558,7 +572,7 @@ export function createComponentService(options: ComponentServiceOptions): Compon
   }
 
   function addExternalText(text: string): ComponentView {
-    const spec = defineComponent(text)
+    const spec = parseComponent(text)
     if (spec.kind !== 'external') {
       throw new ComponentFailure('invalid-spec', 'component add 只接受 external 组件')
     }

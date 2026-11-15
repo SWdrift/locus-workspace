@@ -14,7 +14,7 @@ test('Skill 脚本按名称选择 Workspace 并读取挂载与 shell 上下文',
   const data = join(root, 'data')
   const mountPath = join(root, 'work')
   mkdirSync(mountPath)
-  const environment = { ...process.env, LOCUS_HOME: data, LOCUS_CLI: CLI }
+  const environment = { ...process.env, LOCUS_FOLDER_NAME: undefined, LOCUS_HOME: data, LOCUS_CLI: CLI }
   t.after(() => rmSync(root, { recursive: true, force: true }))
 
   const run = (args) => {

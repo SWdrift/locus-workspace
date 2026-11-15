@@ -15,7 +15,7 @@ function fixture(t) {
     const result = spawnSync(process.execPath, [CLI, ...args], {
       encoding: 'utf8',
       cwd: options.cwd ?? root,
-      env: { ...process.env, LOCUS_HOME: data },
+      env: { ...process.env, LOCUS_FOLDER_NAME: undefined, LOCUS_HOME: data },
       timeout: 30000,
       windowsHide: true,
     })

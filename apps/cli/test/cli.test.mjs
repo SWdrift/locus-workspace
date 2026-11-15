@@ -21,7 +21,7 @@ function fixture(t) {
     const result = spawnSync(process.execPath, [CLI, ...args], {
       cwd: root,
       encoding: 'utf8',
-      env: { ...process.env, LOCUS_HOME: data, ...environment },
+      env: { ...process.env, LOCUS_FOLDER_NAME: undefined, LOCUS_HOME: data, ...environment },
       ...(input === undefined ? {} : { input }),
     })
     return {
@@ -219,10 +219,31 @@ test('组件：物化包定义、动态登记、顶层入口与手动升级', (t
   const listed = f.run(['--json', 'component', 'list'])
   assert.equal(listed.code, 0)
   const initial = parseJson(listed.stdout)
-  assert.deepEqual(initial.components.map((item) => item.id), ['remote-targets', 'template'])
   assert.equal(initial.problems.length, 0)
   assert.equal('info' in initial.components[0], false)
   assert.equal(existsSync(join(f.data, 'components', 'remote-targets.yaml')), true)
+  const materialized = readFileSync(join(f.data, 'components', 'remote-targets.yaml'), 'utf8')
+  assert.match(materialized, /version: "3"/)
+  assert.doesNotMatch(materialized, /capabilities:/)
+  assert.doesNotMatch(materialized, /credentials:/)
+
+  const postgres = parseJson(f.run(['--json', 'component', 'show', 'postgres']).stdout)
+  assert.equal(postgres.version, '2')
+  assert.deepEqual(postgres.capabilities.map((capability) => capability.id), ['register', 'list'])
+  assert.deepEqual(postgres.capabilities.map((capability) => capability.resourceType), ['database', 'database'])
+  assert.deepEqual(postgres.credentials[0].fields, [
+    { name: 'username', secret: false, required: true },
+    { name: 'password', secret: true, required: true },
+  ])
+  assert.equal('kind' in postgres.credentials[0], false)
+  const postgresText = f.run(['component', 'show', 'postgres']).stdout
+  assert.match(postgresText, /postgres:register/)
+  assert.match(postgresText, /postgres:list/)
+  assert.match(postgresText, /database-auth（username（公开，必填）, password（秘密，必填））/)
+  const gitea = parseJson(f.run(['--json', 'component', 'show', 'gitea']).stdout)
+  assert.equal(gitea.version, '2')
+  assert.equal(gitea.capabilities[0].id, 'register')
+  assert.equal(parseJson(f.run(['--json', 'component', 'show', 'remote-targets']).stdout).version, '3')
 
   const bareTemplate = parseJson(f.run(['--json', 'template']).stdout)
   assert.equal(bareTemplate.id, 'template')
@@ -242,6 +263,8 @@ test('组件：物化包定义、动态登记、顶层入口与手动升级', (t
   const docker = parseJson(added.stdout)
   assert.equal(docker.id, 'docker')
   assert.equal(docker.source, 'dynamic')
+  assert.equal('capabilities' in docker, false)
+  assert.equal('credentials' in docker, false)
   assert.match(docker.info.text, /docker --version/)
 
   const viaTopLevel = f.run(['--json', 'docker'])
@@ -259,15 +282,36 @@ probe:
   assert.equal(reserved.code, 2)
   assert.match(reserved.stderr, /内置顶层命令/)
 
+  const capabilities = f.run(['component', 'add', '-'], {}, `id: capability-smuggler
+version: '1'
+name: capability-smuggler
+summary: 非法能力
+kind: external
+capabilities:
+  - id: exec
+    resourceType: server
+`)
+  assert.equal(capabilities.code, 2)
+  assert.match(capabilities.stderr, /capabilities/)
+  const credentials = f.run(['component', 'add', '-'], {}, `id: credential-smuggler
+version: '1'
+name: credential-smuggler
+summary: 非法凭据
+kind: external
+credentials: []
+`)
+  assert.equal(credentials.code, 2)
+  assert.match(credentials.stderr, /credentials/)
+
   const file = join(f.data, 'components', 'remote-targets.yaml')
   writeFileSync(
     file,
-    readFileSync(file, 'utf8').replace('version: "1"', 'version: "0"'),
+    readFileSync(file, 'utf8').replace('version: "3"', 'version: "0"'),
     'utf8',
   )
   const pending = parseJson(f.run(['--json', 'component', 'show', 'remote-targets']).stdout)
   assert.equal(pending.needsUpgrade, true)
-  assert.equal(pending.codeVersion, '1')
+  assert.equal(pending.codeVersion, '3')
   const upgraded = f.run(['--json', 'component', 'upgrade', 'remote-targets'])
   assert.equal(upgraded.code, 0, upgraded.stderr)
   assert.equal(parseJson(upgraded.stdout).needsUpgrade, false)

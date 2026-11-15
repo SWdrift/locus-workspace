@@ -1,5 +1,6 @@
 import { isAbsolute } from 'node:path'
 import { parse } from 'yaml'
+import type { CapabilityContext } from '../security/types.ts'
 
 /** 组件类别：包提供的组件，或仅在数据目录登记的外部组件。 */
 export type ComponentKind = 'locus' | 'external'
@@ -50,7 +51,49 @@ export interface ComponentDeploy {
 /** 组件自有配置：内联映射，或相对数据目录的路径（文件/文件夹）。 */
 export type ComponentConfig = Readonly<Record<string, unknown>> | string
 
-export interface ComponentSpec {
+export type CapabilityAuthLevel = 'user' | 'root'
+export type CapabilityAccess = 'read' | 'write'
+
+/** 凭据字段；秘密字段进入 Keyring，公开字段进入 SQLite 元数据。 */
+export interface CredentialField {
+  readonly name: string
+  readonly secret: boolean
+  readonly required: boolean
+}
+
+/** 组件声明的凭据槽；字段结构属于可信代码契约。 */
+export interface ComponentCredential {
+  readonly id: string
+  readonly fields: readonly CredentialField[]
+}
+
+/** 能力对凭据槽的访问声明；不授予凭据本身。 */
+export interface CapabilitySecret {
+  readonly slot: string
+  readonly access: CapabilityAccess
+}
+
+/** 能力声明；id 是组件本地名，全局名由 component.id + ':' + id 派生。 */
+export interface ComponentCapability {
+  readonly id: string
+  readonly resourceType: string
+  readonly defaultAuthLevel?: CapabilityAuthLevel
+  readonly secrets?: readonly CapabilitySecret[]
+}
+
+/** 组件 handler；context 由 Core 在授权后注入，input 由 CLI/Web 传入。 */
+export type CapabilityHandler<Input = unknown, Output = unknown> = (
+  context: CapabilityContext,
+  input: Input,
+) => Output | Promise<Output>
+
+/** 可信包定义中的能力：带具名 handler，不进入可序列化 component。 */
+export interface ComponentCapabilityDefinition extends ComponentCapability {
+  readonly run: CapabilityHandler<any, any>
+}
+
+/** 组件元数据；能力与凭据由两个定义视图分别扩展。 */
+interface ComponentMetadata {
   readonly id: string
   readonly version: string
   readonly name: string
@@ -61,6 +104,24 @@ export interface ComponentSpec {
   readonly probe?: ComponentProbe
   readonly deploy?: ComponentDeploy
   readonly info?: ComponentInfo
+}
+
+/** Core 消费的可序列化定义；不包含函数。 */
+export interface ComponentSpec extends ComponentMetadata {
+  readonly capabilities?: readonly ComponentCapability[]
+  readonly credentials?: readonly ComponentCredential[]
+}
+
+/** 包作者写的一份定义；capability 带 handler。 */
+export interface ComponentDefinition extends ComponentMetadata {
+  readonly capabilities?: readonly ComponentCapabilityDefinition[]
+  readonly credentials?: readonly ComponentCredential[]
+}
+
+/** defineComponent 的两个运行时视图。 */
+export interface DefinedComponent {
+  readonly component: ComponentSpec
+  readonly api: Readonly<Record<string, CapabilityHandler<any, any>>>
 }
 
 export type ComponentFailureCode =
@@ -85,6 +146,11 @@ export class ComponentFailure extends Error {
 }
 
 const COMPONENT_ID = /^[a-z][a-z0-9-]{0,63}$/
+/** 本地能力 id 不含冒号；冒号保留给全局限定名。 */
+const CAPABILITY_NAME = /^[a-z][a-z0-9]*(?:[.-][a-z0-9]+)*$/
+const RESOURCE_TYPE = /^[a-z][a-z0-9-]{0,63}$/
+const CREDENTIAL_ID = /^[a-z][a-z0-9-]{0,63}$/
+const FIELD_NAME = /^[a-z][a-zA-Z0-9]{0,63}$/
 /** 组件 id 同时是顶层命令名；这些名字保留给内置命令与别名。 */
 const RESERVED_COMPONENT_IDS: Record<string, true> = {
   version: true,
@@ -93,6 +159,10 @@ const RESERVED_COMPONENT_IDS: Record<string, true> = {
   shell: true,
   help: true,
   rt: true,
+  init: true,
+  security: true,
+  credential: true,
+  pg: true,
 }
 const SPEC_KEYS: Record<string, true> = {
   id: true,
@@ -101,6 +171,8 @@ const SPEC_KEYS: Record<string, true> = {
   summary: true,
   kind: true,
   requires: true,
+  capabilities: true,
+  credentials: true,
   config: true,
   probe: true,
   deploy: true,
@@ -128,6 +200,17 @@ const HTTP_PROBE_KEYS: Record<string, true> = {
 }
 const DEPLOY_KEYS: Record<string, true> = { argv: true, timeoutMs: true }
 const INFO_KEYS: Record<string, true> = { text: true, json: true }
+const CAPABILITY_KEYS: Record<string, true> = {
+  id: true,
+  resourceType: true,
+  defaultAuthLevel: true,
+  secrets: true,
+  run: true,
+}
+const CREDENTIAL_KEYS: Record<string, true> = { id: true, fields: true }
+const FIELD_KEYS: Record<string, true> = { name: true, secret: true, required: true }
+const SECRET_KEYS: Record<string, true> = { slot: true, access: true }
+const ACCESS_MODES: readonly CapabilityAccess[] = ['read', 'write']
 
 function invalid(message: string): never {
   throw new ComponentFailure('invalid-spec', message)
@@ -161,6 +244,122 @@ function requireKeys(value: Record<string, unknown>, allowed: Record<string, tru
   for (const key of Object.keys(value)) {
     if (allowed[key] !== true) invalid(`${field} 包含未知字段：${key}`)
   }
+}
+
+function validateCapabilityName(value: unknown, field: string): string {
+  const name = requireText(value, field)
+  if (!CAPABILITY_NAME.test(name)) {
+    invalid(`${field} 必须以小写字母开头，名称段只包含小写字母和数字，以 . 或 - 分隔，不能包含冒号`)
+  }
+  return name
+}
+
+function validateResourceType(value: unknown, field: string): string {
+  const type = requireText(value, field)
+  if (!RESOURCE_TYPE.test(type)) {
+    invalid(`${field} 必须以小写字母开头，只包含小写字母、数字和短横线`)
+  }
+  return type
+}
+
+function validateSlotId(value: unknown, field: string): string {
+  const id = requireText(value, field)
+  if (!CREDENTIAL_ID.test(id)) {
+    invalid(`${field} 必须以小写字母开头，只包含小写字母、数字和短横线，最长 64 字符`)
+  }
+  return id
+}
+
+function validateCapabilitySecrets(value: unknown, field: string): readonly CapabilitySecret[] {
+  if (!Array.isArray(value)) invalid(`${field} 必须是数组`)
+  const slots = new Set<string>()
+  return value.map((item, index) => {
+    const itemField = `${field}[${index}]`
+    const object = requirePlainObject(item, itemField)
+    requireKeys(object, SECRET_KEYS, itemField)
+    const slot = validateSlotId(object.slot, `${itemField}.slot`)
+    const access = object.access
+    if (!ACCESS_MODES.includes(access as CapabilityAccess)) {
+      invalid(`${itemField}.access 必须是 read 或 write`)
+    }
+    if (slots.has(slot)) invalid(`${field} 不能重复声明凭据槽：${slot}`)
+    slots.add(slot)
+    return { slot, access: access as CapabilityAccess }
+  })
+}
+
+function validateCapabilities(
+  value: unknown,
+  executable: boolean,
+): { readonly capabilities: readonly ComponentCapability[]; readonly api: Readonly<Record<string, CapabilityHandler>> } {
+  if (!Array.isArray(value)) invalid('capabilities 必须是数组')
+  const ids = new Set<string>()
+  const api: Record<string, CapabilityHandler<any, any>> = Object.create(null) as Record<string, CapabilityHandler<any, any>>
+  const capabilities = value.map((item, index) => {
+    const field = `capabilities[${index}]`
+    const object = requirePlainObject(item, field)
+    requireKeys(object, CAPABILITY_KEYS, field)
+    const id = validateCapabilityName(object.id, `${field}.id`)
+    if (ids.has(id)) invalid(`capabilities 包含重复能力 id：${id}`)
+    ids.add(id)
+    const resourceType = validateResourceType(object.resourceType, `${field}.resourceType`)
+    const defaultAuthLevel = object.defaultAuthLevel
+    if (defaultAuthLevel !== undefined && defaultAuthLevel !== 'user' && defaultAuthLevel !== 'root') {
+      invalid(`${field}.defaultAuthLevel 必须是 user 或 root`)
+    }
+    const secrets = object.secrets === undefined
+      ? undefined
+      : validateCapabilitySecrets(object.secrets, `${field}.secrets`)
+    if (executable) {
+      if (typeof object.run !== 'function') invalid(`${field}.run 必须是具名函数引用`)
+      api[id] = object.run as CapabilityHandler
+    } else if (object.run !== undefined) {
+      invalid(`${field}.run 只能出现在 defineComponent 的定义中`)
+    }
+    return {
+      id,
+      resourceType,
+      ...(defaultAuthLevel === undefined ? {} : { defaultAuthLevel: defaultAuthLevel as CapabilityAuthLevel }),
+      ...(secrets === undefined ? {} : { secrets }),
+    }
+  })
+  return { capabilities, api: Object.freeze(api) }
+}
+
+function validateFields(value: unknown, field: string): readonly CredentialField[] {
+  if (!Array.isArray(value) || value.length === 0) invalid(`${field} 必须是非空数组`)
+  const names = new Set<string>()
+  let hasSecret = false
+  return value.map((item, index) => {
+    const itemField = `${field}[${index}]`
+    const object = requirePlainObject(item, itemField)
+    requireKeys(object, FIELD_KEYS, itemField)
+    const name = requireText(object.name, `${itemField}.name`)
+    if (!FIELD_NAME.test(name)) invalid(`${itemField}.name 必须以小写字母开头，只包含字母和数字`)
+    if (names.has(name)) invalid(`${field} 不能包含重复字段：${name}`)
+    names.add(name)
+    if (typeof object.secret !== 'boolean') invalid(`${itemField}.secret 必须是布尔值`)
+    if (typeof object.required !== 'boolean') invalid(`${itemField}.required 必须是布尔值`)
+    if (object.secret) hasSecret = true
+    return { name, secret: object.secret, required: object.required }
+  }).map((fieldValue) => {
+    if (!hasSecret) invalid(`${field} 至少需要一个 secret 字段`)
+    return fieldValue
+  })
+}
+
+function validateCredentials(value: unknown): readonly ComponentCredential[] {
+  if (!Array.isArray(value)) invalid('credentials 必须是数组')
+  const ids = new Set<string>()
+  return value.map((item, index) => {
+    const field = `credentials[${index}]`
+    const object = requirePlainObject(item, field)
+    requireKeys(object, CREDENTIAL_KEYS, field)
+    const id = validateSlotId(object.id, `${field}.id`)
+    if (ids.has(id)) invalid(`credentials 包含重复凭据槽 id：${id}`)
+    ids.add(id)
+    return { id, fields: validateFields(object.fields, `${field}.fields`) }
+  })
 }
 
 function assertJsonValue(value: unknown, field: string): void {
@@ -207,8 +406,7 @@ function validateArgv(value: unknown, field: string): readonly string[] {
   if (!Array.isArray(value) || value.length === 0) {
     invalid(`${field}.argv 必须是非空数组`)
   }
-  const argv = value.map((item, index) => requireText(item, `${field}.argv[${index}]`))
-  return argv
+  return value.map((item, index) => requireText(item, `${field}.argv[${index}]`))
 }
 
 function validateTimeout(value: unknown, field: string): number | undefined {
@@ -323,7 +521,17 @@ function deepFreeze<T>(value: T): T {
   return value
 }
 
-function validate(input: unknown): ComponentSpec {
+interface ValidationOptions {
+  readonly executable: boolean
+  readonly allowCapabilities: boolean
+}
+
+interface ValidatedComponent {
+  readonly spec: ComponentSpec
+  readonly api?: Readonly<Record<string, CapabilityHandler>>
+}
+
+function validateComponent(input: unknown, options: ValidationOptions): ValidatedComponent {
   const object = requirePlainObject(input, '组件定义')
   requireKeys(object, SPEC_KEYS, '组件定义')
 
@@ -342,13 +550,21 @@ function validate(input: unknown): ComponentSpec {
     invalid('kind 必须是 locus 或 external')
   }
 
+  if (object.capabilities !== undefined && !options.allowCapabilities) {
+    invalid('可编辑 YAML 不能声明 capabilities；能力属于可信代码契约')
+  }
+  if (object.credentials !== undefined && !options.allowCapabilities) {
+    invalid('可编辑 YAML 不能声明 credentials；凭据字段属于可信代码契约')
+  }
+  if (kind === 'external' && (object.capabilities !== undefined || object.credentials !== undefined)) {
+    invalid('只有 locus 组件可以声明 capabilities 与 credentials')
+  }
+
   let requires: readonly string[] | undefined
   if (object.requires !== undefined) {
     if (kind !== 'locus') invalid('只有 locus 组件可以声明 requires')
     if (!Array.isArray(object.requires)) invalid('requires 必须是数组')
-    const values = object.requires.map((item, index) =>
-      requireText(item, `requires[${index}]`),
-    )
+    const values = object.requires.map((item, index) => requireText(item, `requires[${index}]`))
     for (const value of values) {
       if (!COMPONENT_ID.test(value)) invalid(`requires 包含无效组件 id：${value}`)
     }
@@ -361,6 +577,29 @@ function validate(input: unknown): ComponentSpec {
     invalid('只有 external 组件可以声明 probe')
   }
 
+  const capabilitiesResult = object.capabilities === undefined
+    ? undefined
+    : validateCapabilities(object.capabilities, options.executable)
+  const capabilities = capabilitiesResult?.capabilities
+  const credentials = object.credentials === undefined ? undefined : validateCredentials(object.credentials)
+
+  if (capabilities !== undefined && credentials !== undefined) {
+    const slots = new Set(credentials.map((credential) => credential.id))
+    for (const capability of capabilities) {
+      for (const secret of capability.secrets ?? []) {
+        if (!slots.has(secret.slot)) {
+          invalid(`capability ${capability.id} 引用了未声明的凭据槽：${secret.slot}`)
+        }
+      }
+    }
+  } else if (capabilities !== undefined) {
+    for (const capability of capabilities) {
+      if ((capability.secrets ?? []).length > 0) {
+        invalid(`capability ${capability.id} 声明了 secrets，但组件没有 credentials`)
+      }
+    }
+  }
+
   const spec: ComponentSpec = {
     id,
     version,
@@ -368,33 +607,54 @@ function validate(input: unknown): ComponentSpec {
     summary,
     kind,
     ...(requires === undefined ? {} : { requires }),
+    ...(capabilities === undefined ? {} : { capabilities }),
+    ...(credentials === undefined ? {} : { credentials }),
     ...(object.config === undefined ? {} : { config: validateConfig(object.config) }),
     ...(object.probe === undefined ? {} : { probe: validateProbe(object.probe) }),
     ...(object.deploy === undefined ? {} : { deploy: validateDeploy(object.deploy) }),
     ...(object.info === undefined ? {} : { info: validateInfo(object.info) }),
   }
-  return deepFreeze(spec)
+  return {
+    spec: deepFreeze(spec),
+    ...(capabilitiesResult === undefined ? {} : { api: capabilitiesResult.api }),
+  }
 }
 
-/**
- * 定义组件的唯一入口：对象直接校验，字符串按 YAML 解析后走同一校验。
- * 返回深度冻结的定义，不写文件、不注册全局状态。
- */
-export function defineComponent(input: ComponentSpec): ComponentSpec
-export function defineComponent(input: string): ComponentSpec
-export function defineComponent(input: unknown): ComponentSpec {
-  if (typeof input !== 'string') return validate(input)
-  let parsed: unknown
+function parseYaml(text: string): unknown {
   try {
-    parsed = parse(input)
+    return parse(text)
   } catch (error) {
     throw new ComponentFailure(
       'invalid-spec',
       `YAML 解析失败：${error instanceof Error ? error.message : String(error)}`,
     )
   }
-  if (parsed === null || parsed === undefined) {
-    throw new ComponentFailure('invalid-spec', '组件定义不能为空')
-  }
-  return validate(parsed)
+}
+
+/**
+ * 解析可序列化组件定义。字符串走 YAML；默认拒绝 capabilities/credentials，
+ * 防止可编辑 YAML 形成第二份能力或凭据真源。
+ */
+export function parseComponent(
+  input: unknown,
+  options: { readonly allowCapabilities?: boolean } = {},
+): ComponentSpec {
+  const value = typeof input === 'string' ? parseYaml(input) : input
+  if (value === null || value === undefined) throw new ComponentFailure('invalid-spec', '组件定义不能为空')
+  return validateComponent(value, {
+    executable: false,
+    allowCapabilities: options.allowCapabilities === true,
+  }).spec
+}
+
+/**
+ * 定义组件的唯一可信入口：同时产出可序列化 component 与按本地 id 索引的 api。
+ * 不写文件、不注册全局状态。
+ */
+export function defineComponent(input: ComponentDefinition): DefinedComponent {
+  const result = validateComponent(input, { executable: true, allowCapabilities: true })
+  return deepFreeze({
+    component: result.spec,
+    api: result.api ?? Object.freeze({}),
+  })
 }

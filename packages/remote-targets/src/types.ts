@@ -1,8 +1,11 @@
+import { CapabilityFailure } from '@locus/core'
+import type { CredentialRef, CredentialValues } from '@locus/core'
+
 /** 远程目标子系统：声明式登记 SSH 目标，并通过受控入口执行只读或普通命令。 */
 export type TargetProtocol = 'ssh'
 export type TargetVia = 'direct' | 'frp'
 export type RemoteShell = 'posix' | 'cmd'
-export type AuthMethod = 'key' | 'password'
+export type AuthMethod = 'key' | 'private-key' | 'password'
 export type Capability = 'exec' | 'shell'
 
 /** 被访问对象的身份；不包含地址与凭据。 */
@@ -11,12 +14,14 @@ export interface RemoteResource {
   readonly label?: string
 }
 
-/** 接入面到资源的认证材料引用；不保存凭据值。 */
+/** 接入面到资源的认证材料引用；新格式只保存稳定 CredentialRef。 */
 export interface RemoteAuth {
   readonly method: AuthMethod
-  /** 相对目标根目录的凭据文件路径。 */
-  readonly path: string
-  /** 凭据根的绝对路径；缺省使用目标根目录。 */
+  /** Core 凭据引用；新格式必填。 */
+  readonly credential?: CredentialRef
+  /** 旧格式相对目标根目录的凭据文件路径；仅供迁移读取。 */
+  readonly path?: string
+  /** 旧格式凭据根的绝对路径；仅供迁移读取。 */
   readonly root?: string
 }
 
@@ -80,6 +85,7 @@ export interface AddOptions {
 
 export interface RunOptions {
   readonly timeoutMs?: number
+  readonly signal?: AbortSignal
 }
 
 export interface RunResult {
@@ -94,7 +100,7 @@ export interface CommandRunner {
   interactive(command: string, args: readonly string[], options?: RunOptions): Promise<number>
 }
 
-/** 组合根提供的组件状态；远程目标不依赖 Core，只消费这个窄视图。 */
+/** 组合根提供的组件状态；远程目标只消费这个窄视图，不读取组件定义文件。 */
 export interface ComponentAvailability {
   readonly id: string
   readonly kind: 'locus' | 'external'
@@ -105,12 +111,38 @@ export interface ComponentGate {
   get(id: string): ComponentAvailability | undefined
 }
 
+export type RemoteCredentialSlot = 'ssh-private-key' | 'ssh-password'
+
+export interface RemoteCredentialOperation {
+  readonly operation: 'probe' | 'exec' | 'shell'
+  readonly command: readonly string[]
+}
+
+/** 组合根注入 Core 授权与字段交付；组件状态与目标 access 不能代替它。 */
+export interface RemoteSecurity {
+  withCredential<T>(
+    targetId: string,
+    slot: RemoteCredentialSlot,
+    credential: CredentialRef,
+    operation: RemoteCredentialOperation,
+    consume: (values: CredentialValues) => Promise<T>,
+  ): Promise<T>
+}
+
+/** 旧文件认证的迁移读取结果；调用方负责导入 Core。 */
+export interface CredentialMigration {
+  readonly method: 'key' | 'password'
+  readonly path: string
+}
+
 export interface RemoteTargetsService {
   list(): readonly RemoteTarget[]
   show(reference: string): RemoteTargetView
   add(id: string, spec: unknown, options?: AddOptions): RemoteTarget
   addFromText(id: string, text: string, options?: AddOptions): RemoteTarget
   remove(reference: string): void
+  credentialMigration(reference: string): CredentialMigration
+  useCredential(reference: string, credential: CredentialRef): RemoteTarget
   probe(reference: string): Promise<ProbeResult>
   exec(reference: string, command: readonly string[]): Promise<ExecResult>
   shell(reference: string): Promise<number>
@@ -124,16 +156,19 @@ export type RemoteTargetsFailureCode =
   | 'ambiguous-target'
   | 'unsupported-protocol'
   | 'credential-missing'
+  | 'credential-too-large'
   | 'capability-unsupported'
   | 'component-unavailable'
+  | 'access-denied'
+  | 'migration-required'
+  | 'already-migrated'
+  | 'encrypted-key-unsupported'
+  | 'delivery-failed'
   | 'io'
 
-export class RemoteTargetsFailure extends Error {
-  readonly code: RemoteTargetsFailureCode
-
+export class RemoteTargetsFailure extends CapabilityFailure {
   constructor(code: RemoteTargetsFailureCode, message: string) {
-    super(message)
+    super(code, message)
     this.name = 'RemoteTargetsFailure'
-    this.code = code
   }
 }

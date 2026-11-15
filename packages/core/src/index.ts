@@ -4,11 +4,56 @@ import type { ComponentRunner } from './components/runner.ts'
 import { createComponentService } from './components/service.ts'
 import type { ComponentSpec } from './components/spec.ts'
 import { createWorkspaceStore } from './workspaces.ts'
+import { createSecurityRuntime } from './security/service.ts'
+import { createSqliteSecurityStore } from './security/sqlite-store.ts'
+import { createKeyringCredentialProvider } from './security/keyring-provider.ts'
+import type { SecurityOptions } from './security/types.ts'
 import { LOCUS_VERSION } from './version.generated.ts'
 import type { LocusCore, LocusInfo } from './types.ts'
 
 export { LOCUS_VERSION } from './version.generated.ts'
-export { ComponentFailure, defineComponent } from './components/spec.ts'
+export { ComponentFailure, defineComponent, parseComponent } from './components/spec.ts'
+export { CapabilityFailure, SecurityFailure } from './security/errors.ts'
+export { createMemoryCredentialProvider, createMemorySecurityStore } from './security/provider.ts'
+export { createSqliteSecurityStore } from './security/sqlite-store.ts'
+export { createKeyringCredentialProvider } from './security/keyring-provider.ts'
+export type { AccessDeniedReason, SecurityFailureCode } from './security/errors.ts'
+export type {
+  CapabilityAuthority,
+  CapabilityContext,
+  CapabilityLevelRecord,
+  ClearCapabilityLevelInput,
+  ComponentSecurity,
+  CredentialBinding,
+  CredentialCleanupResult,
+  CredentialMetadata,
+  CredentialProvider,
+  CredentialProviderKey,
+  CredentialProviderStatus,
+  CredentialRef,
+  CredentialStatus,
+  CredentialValues,
+  HostSecurity,
+  RootAuthenticationState,
+  RootPasswordVerifier,
+  SecurityChallenge,
+  SecurityGrant,
+  SecurityHost,
+  SecurityInstallation,
+  SecurityLevel,
+  SecurityOptions,
+  SecurityParameters,
+  SecurityRequest,
+  SecurityResource,
+  SecurityService,
+  SecuritySession,
+  SecuritySource,
+  SecurityStatus,
+  SecurityStore,
+  SecurityStoreTransaction,
+  SetCapabilityLevelInput,
+  UnbindCredentialInput,
+} from './security/types.ts'
 
 export type {
   LocusCore,
@@ -22,13 +67,23 @@ export type {
   WorkspaceService,
 } from './types.ts'
 export type {
+  CapabilityAccess,
+  CapabilityAuthLevel,
+  CapabilityHandler,
+  CapabilitySecret,
+  ComponentCapability,
+  ComponentCapabilityDefinition,
   ComponentConfig,
+  ComponentCredential,
+  ComponentDefinition,
   ComponentDeploy,
   ComponentFailureCode,
   ComponentInfo,
   ComponentKind,
   ComponentProbe,
   ComponentSpec,
+  CredentialField,
+  DefinedComponent,
   DeployState,
   ExternalState,
 } from './components/spec.ts'
@@ -93,9 +148,11 @@ export interface CreateLocusCoreOptions {
   readonly components?: readonly ComponentSpec[]
   /** 组件探针与部署命令执行器；测试注入假实现。 */
   readonly componentRunner?: ComponentRunner
+  /** 默认使用惰性 SQLite Store；Provider 由组合根显式注入，构造不执行 IO。 */
+  readonly security?: SecurityOptions
 }
 
-/** 创建 Locus core；首次调用 Workspace 或组件用例时才打开自有数据库。 */
+/** 创建 Locus core；首次需要持久化数据时才打开自有数据库。 */
 export function createLocusCore(options?: CreateLocusCoreOptions): LocusCore {
   const dataDirectory = resolveDataDirectory(options?.dataDirectory)
   const info: LocusInfo = Object.freeze({ version: LOCUS_VERSION })
@@ -105,6 +162,11 @@ export function createLocusCore(options?: CreateLocusCoreOptions): LocusCore {
     ...(options?.components === undefined ? {} : { definitions: options.components }),
     ...(options?.componentRunner === undefined ? {} : { runner: options.componentRunner }),
   })
+  const security = createSecurityRuntime({
+    ...options?.security,
+    store: options?.security?.store ?? createSqliteSecurityStore(dataDirectory, options?.security?.profile),
+    provider: options?.security?.provider ?? createKeyringCredentialProvider(),
+  }, options?.components)
 
   return {
     get info() {
@@ -127,9 +189,20 @@ export function createLocusCore(options?: CreateLocusCoreOptions): LocusCore {
       store.assertActive()
       return components
     },
+    get security() {
+      store.assertActive()
+      return security.service
+    },
     async dispose() {
-      store.dispose()
-      components.dispose()
+      try {
+        store.dispose()
+      } finally {
+        try {
+          components.dispose()
+        } finally {
+          await security.dispose()
+        }
+      }
     },
   }
 }

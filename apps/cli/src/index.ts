@@ -1,10 +1,13 @@
 #!/usr/bin/env node
-import { CommanderError } from 'commander'
-import { createLocusCore } from '@locus/core'
-import type { LocusCore } from '@locus/core'
-import { component as remoteTargetsComponent } from '@locus/remote-targets'
+import { Command, CommanderError, Option } from 'commander'
+import { CapabilityFailure, ComponentFailure, createLocusCore, SecurityFailure } from '@locus/core'
+import type { LocusCore, SecurityHost } from '@locus/core'
+import { component as remoteTargetsComponent, RemoteTargetsFailure } from '@locus/remote-targets'
 import { component as templatesComponent } from '@locus/templates'
-import { resolve } from 'node:path'
+import { component as postgresComponent } from '@locus/postgres'
+import { component as giteaComponent } from '@locus/gitea'
+import { homedir } from 'node:os'
+import { join, resolve } from 'node:path'
 import { createProgram } from './commands.ts'
 
 /** 读取工作目录的 `.env`；已存在的环境变量优先，缺少文件不算失败。 */
@@ -16,20 +19,66 @@ function loadEnvironment(): void {
   }
 }
 
+/** 先解析受限 Profile 再装配 Core；帮助与未知命令不会打开安全存储。 */
+function parseProfile(argv: readonly string[]): 'production' | 'development' {
+  const parser = new Command()
+    .helpOption(false)
+    .allowUnknownOption()
+    .allowExcessArguments()
+    .addOption(new Option('--profile <profile>').choices(['production', 'development']).default('production'))
+    .exitOverride()
+  parser.parse([...argv], { from: 'user' })
+  return parser.opts<{ profile: 'production' | 'development' }>().profile
+}
+
+/** production 仍由 Core 按原规则解析；development 使用其目录下的独立子目录。 */
+function developmentDataDirectory(): string {
+  const home = process.env.LOCUS_HOME
+  const folder = process.env.LOCUS_FOLDER_NAME
+  if (home !== undefined && home.trim().length === 0) throw new Error('LOCUS_HOME 必须是非空路径')
+  if (folder !== undefined && (
+    folder.trim().length === 0 || folder !== folder.trim() || folder === '.' || folder === '..' || /[\\/:\u0000]/.test(folder)
+  )) throw new Error('LOCUS_FOLDER_NAME 必须是非空文件夹名')
+  const base = home === undefined ? homedir() : resolve(home)
+  const production = folder === undefined
+    ? home === undefined ? join(base, '.locus-workspace') : base
+    : join(base, folder)
+  return join(production, 'profiles', 'development')
+}
+
 async function main(argv: readonly string[]): Promise<number> {
   let locus: LocusCore | undefined
   try {
     loadEnvironment()
+    const profile = parseProfile(argv)
+    let host: SecurityHost | undefined
     locus = createLocusCore({
-      components: [templatesComponent, remoteTargetsComponent],
+      ...(profile === 'development' ? { dataDirectory: developmentDataDirectory() } : {}),
+      components: [templatesComponent, remoteTargetsComponent, postgresComponent, giteaComponent],
+      security: { profile, receiveHost(value) { host = value } },
     })
-    const program = createProgram(locus)
+    const program = createProgram(locus, { profile, ...(host === undefined ? {} : { host }) })
     program.exitOverride()
     await program.parseAsync([...argv], { from: 'user' })
     return typeof process.exitCode === 'number' ? process.exitCode : 0
   } catch (error) {
     if (error instanceof CommanderError) {
       return error.exitCode
+    }
+    if (error instanceof SecurityFailure || error instanceof CapabilityFailure || error instanceof ComponentFailure) {
+      const reason = 'reason' in error && typeof error.reason === 'string' ? error.reason : undefined
+      if (argv.includes('--json')) {
+        process.stdout.write(`${JSON.stringify({ code: error.code, ...(reason === undefined ? {} : { reason }) })}\n`)
+      }
+      const label = error instanceof SecurityFailure
+        ? '安全操作'
+        : error instanceof RemoteTargetsFailure
+          ? '远程目标操作'
+          : error instanceof CapabilityFailure
+            ? '组件能力'
+            : '组件操作'
+      process.stderr.write(`Locus ${label}失败 [${error.code}]：${error.message}${reason === undefined ? '' : `（${reason}）`}\n`)
+      return 2
     }
     process.stderr.write(`Locus 操作失败：${error instanceof Error ? error.message : String(error)}\n`)
     return 2

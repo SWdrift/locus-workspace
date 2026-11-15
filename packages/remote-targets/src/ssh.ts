@@ -1,10 +1,9 @@
-import { execa } from 'execa'
+import { createCommandRunner } from './runner.ts'
 import { resolve, sep } from 'node:path'
 import {
   RemoteTargetsFailure,
   type CommandRunner,
   type RemoteTarget,
-  type RunOptions,
 } from './types.ts'
 
 export interface SshInvocation {
@@ -42,9 +41,9 @@ export function buildSshInvocation(
   target: RemoteTarget,
   root: string,
   command: readonly string[],
+  credentialPath: string,
 ): SshInvocation {
   const { connectivity, identity } = target
-  const credentialRoot = identity.auth.root ?? root
   const remoteCommand = command.length === 0
     ? undefined
     : joinRemoteCommand(command, connectivity.remoteShell)
@@ -65,7 +64,7 @@ export function buildSshInvocation(
       '-l',
       identity.login,
       '-pwfile',
-      resolveUnderRoot(credentialRoot, identity.auth.path),
+      credentialPath,
       '-hostkey',
       fingerprint,
       connectivity.host,
@@ -75,7 +74,7 @@ export function buildSshInvocation(
   }
 
   const knownHosts = resolveUnderRoot(
-    credentialRoot,
+    root,
     connectivity.trust?.knownHosts ?? `credentials/${target.id}/known_hosts`,
   )
   const strict = connectivity.trust?.knownHosts === undefined ? 'accept-new' : 'yes'
@@ -85,9 +84,11 @@ export function buildSshInvocation(
     '-l',
     identity.login,
     '-i',
-    resolveUnderRoot(credentialRoot, identity.auth.path),
+    credentialPath,
     '-o',
     'IdentitiesOnly=yes',
+    '-o',
+    'IdentityAgent=none',
     '-o',
     'BatchMode=yes',
     '-o',
@@ -102,44 +103,5 @@ export function buildSshInvocation(
 
 /** 真实子进程执行器；测试通过服务注入假实现。 */
 export function createProcessRunner(): CommandRunner {
-  return {
-    async run(command, args, options) {
-      try {
-        const result = await execa(command, [...args], {
-          reject: false,
-          stdin: 'ignore',
-          stripFinalNewline: false,
-          windowsHide: true,
-          ...(options?.timeoutMs === undefined ? {} : { timeout: options.timeoutMs }),
-        })
-        const stderr = result.stderr ?? ''
-        return {
-          exitCode: result.exitCode ?? (result.timedOut ? 124 : 1),
-          stdout: result.stdout ?? '',
-          stderr: result.timedOut
-            ? `${stderr}${stderr.length === 0 ? '' : '\n'}命令超时`
-            : stderr,
-        }
-      } catch (error) {
-        return {
-          exitCode: 1,
-          stdout: '',
-          stderr: error instanceof Error ? error.message : String(error),
-        }
-      }
-    },
-    async interactive(command, args, options: RunOptions | undefined) {
-      try {
-        const result = await execa(command, [...args], {
-          stdio: 'inherit',
-          reject: false,
-          windowsHide: true,
-          ...(options?.timeoutMs === undefined ? {} : { timeout: options.timeoutMs }),
-        })
-        return result.exitCode ?? 1
-      } catch {
-        return 1
-      }
-    },
-  }
+  return createCommandRunner()
 }

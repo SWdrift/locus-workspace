@@ -4,4 +4,5 @@ packages:
 
 catalog:
   execa: ^10.2.1
+  pg: ^8.23.1
   yaml: ^2.9.1

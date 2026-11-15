@@ -5,10 +5,24 @@
     "outDir": "lib",
     "tsBuildInfoFile": "lib/.tsbuildinfo"
   },
-  "include": ["src"],
+  "include": [
+    "src"
+  ],
   "references": [
-    { "path": "../../packages/core" },
-    { "path": "../../packages/remote-targets" },
-    { "path": "../../packages/templates" }
+    {
+      "path": "../../packages/core"
+    },
+    {
+      "path": "../../packages/remote-targets"
+    },
+    {
+      "path": "../../packages/templates"
+    },
+    {
+      "path": "../../packages/postgres"
+    },
+    {
+      "path": "../../packages/gitea"
+    }
   ]
 }
