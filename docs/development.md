@@ -4,7 +4,7 @@
 
 ## 前置条件与构建
 
-Node.js 24 或更高、pnpm 11.24.0。执行 `pnpm install`，修改源码后执行 `pnpm build`。`pnpm build` 先运行 `scripts/version.mjs` 生成 Core 的版本模块，再按根 `tsconfig.json` 编译 `packages/core`、`packages/remote-targets`、`packages/templates` 与 `apps/cli`，构建产物写入各自 `lib/`。包 exports 使用构建产物，不依赖运行时转译。版本号只改根 `package.json`，规则见[版本管理](versioning.md)。
+Node.js 24 或更高、pnpm 11.24.0。执行 `pnpm install`，修改源码后执行 `pnpm build`。构建先生成 Core 的版本模块，再按根 tsconfig 编译 Core、Config Reference、PostgreSQL、Gitea、Remote Targets、Templates 与 CLI，产物写入各自 lib；包 exports 不依赖运行时转译。版本号只改根 package.json，规则见[版本管理](versioning.md)。
 
 ## 运行 CLI
 
@@ -14,6 +14,8 @@ Node.js 24 或更高、pnpm 11.24.0。执行 `pnpm install`，修改源码后执
 pnpm locus --help
 pnpm locus workspace list
 ```
+
+安全开发使用 `--profile development`，初始化与管理只在可信本地 TTY 输入；不要从 argv/env/.env 传递 Root 密码。自动化测试使用内存 Provider，真实后端验证另需独立 OS 账户，入口见[测试隔离](testing.md#安全与平台验证)。
 
 `pnpm locus` 需先构建；命令入口、参数与成功判据见[实用命令](commands.md#工程命令)。CLI 装配与生命周期由 [CLI](../apps/cli/README.md)维护，数据目录、首次打开时机与恢复由 [Core](../packages/core/README.md#持久化与恢复)维护。调试时使用单独数据目录，不以清空数据库作为修复失败的默认动作。
 

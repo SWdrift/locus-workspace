@@ -7,8 +7,8 @@
 | 命令 | 用途与成功判据 |
 | --- | --- |
 | `pnpm install` | 安装 workspace 依赖并链接本地包 |
-| `pnpm build` | 编译 Core、Remote Targets、Templates 与 CLI，退出 0 |
-| `pnpm test` | 运行 Core、Remote Targets、Templates、CLI 与 Skill 脚本测试，退出 0；范围见[测试系统](testing.md#分层与入口) |
+| `pnpm build` | 编译 Core、PostgreSQL、Gitea、Remote Targets、Templates 与 CLI，退出 0 |
+| `pnpm test` | 运行模块、CLI、跨包与 Skill 脚本测试，退出 0；范围见[测试系统](testing.md#分层与入口) |
 | `pnpm test:all` | 全量进程内测试，经 `tests/run.mjs` 收集并记录，退出 0 |
 | `pnpm e2e` | 真实 CLI 端到端测试，经 `tests/run.mjs` 执行；2 小时冷却未解除时退出 3 |
 | `pnpm test:file <文件>` | 直接运行单个测试文件；可附加 `--test-name-pattern <模式>` |
@@ -35,6 +35,39 @@
 | `workspace unmount <workspace> <mount> --yes` | 取消挂载，接受挂载 ID 或名称；不删除目录 |
 | `workspace link <workspace> <namespace> <reference> [--kind member\|association] [--source <说明>]` | 显式保存外部引用；默认 association；引用 Workspace 使用 namespace `locus.workspace` |
 | `workspace unlink <workspace> <relation-id> --yes` | 仅解除该关系，不删除目标或其他归属 |
+
+## 安全与凭据
+
+以下参数接在 `locus` 后；全局 `--profile production|development` 默认 production，development 数据隔离见 [CLI](../apps/cli/README.md#安全-host-与-profile)。Root 密码与凭据秘密只由可信本地 TTY 隐藏输入；非交互失败，不支持通过 argv、环境变量、`.env` 或普通 stdin spec 提交。Root 提权按单次操作生效，没有 `--grant-scope`，也不宣传跨命令 Session 放行。
+
+### 组件命令
+
+`pg` 当前只用于临时 PostgreSQL 验证消费者；权限控制面验证完成后命令与包会一起移除，不作为长期稳定依赖。
+
+| 参数 | 行为与成功判据 |
+| --- | --- |
+| `pg register <resource> --username <name> [--credential <ref>]` | 隐藏输入 PostgreSQL 密码；一次 Root 批准内登记 `database-auth` 的公开用户名与秘密密码，并为 `register` 与 `list` 建立精确绑定 |
+| `pg list <resource> --host <host> --database <name> [--port <port>] [--sql <sql>] [--credential <ref>]` | User 级读取绑定字段，使用真实 `pg.Pool` 连接并返回查询结果；缺少绑定或字段不匹配时不触发 Root |
+| `security capability list` | 列出组件能力、默认等级、Root 覆盖与最终来源；需要已初始化 Root 元数据 |
+| `security capability set <component:capability> <user\|root>` | Root 覆盖该能力的认证等级；`write` 能力默认 root，Root 降为 user 即显式委派覆盖权，覆盖是预期行为 |
+| `security capability reset <component:capability>` | Root 清除覆盖，恢复组件 `defaultAuthLevel` 或 `user` |
+
+### Root 诊断
+
+| 参数 | 行为与成功判据 |
+| --- | --- |
+| `init` | 两次隐藏输入，初始化 Root／默认 User 与安装身份；重复调用不覆盖，不删除已有 Workspace |
+| `security status` | 查询初始化、Profile 与固定身份，不输出验证材料；空目录不建库 |
+| `security change-root-password` | 输入新密码后以旧 Root 密码认证，单次恢复原密码变更，旧授权失效 |
+| `security reset-root` | 显示本机管理接管警告，TTY 确认后替换密码；无旧密码，无 `--yes` 绕过，不删除 Workspace／Keyring |
+| `credential provider-status` | 查询 Provider／后端声明与绑定加载状态；unverified 不等于真实后端已可用，不读取任何条目 |
+| `credential list` | 只输出当前 Profile 的引用元数据与公开字段，不读取秘密 |
+| `credential bindings` | 列出组件能力、slot、精确资源与引用，不读取秘密 |
+| `credential remove <credential:id>` | Root 授权删除条目、引用元数据与关联绑定，不输出原值 |
+| `credential status <credential:id>` | Root 检查元数据与 Provider 条目是否存在，只返回 `present`，不输出秘密 |
+| `credential cleanup [--yes]` | Root 检查当前 Profile 精确 Keyring service 下未登记元数据的孤立账户；无 `--yes` 只报告，`--yes` 才删除孤立条目；不删除已知凭据、元数据或绑定 |
+
+普通业务凭据使用组件命令，不提供 `credential put`、`credential bind` 或 get-secret。`credential cleanup` 只按当前安装 UUID 与 Profile 推导出的完整 service 操作，不接受 `locus*` 前缀批量删除，也没有 `--all` 清空当前 Service；已知凭据用 `credential remove`。Provider 的平台容量限制独立判定，超限不分片、不回退明文。丢失重置与备份后果见[安全设计](subsystems/core-security.md#root-认证与恢复)。
 
 ## Shell
 
@@ -67,17 +100,19 @@
 
 | 参数 | 行为与成功判据 |
 | --- | --- |
-| `remote-targets add <id> --spec <file\|-> [--dry-run]` | 校验并写入目标，创建 `credentials/<id>/` 空目录；`-` 从 stdin 读取 YAML 或 JSON；dry-run 不落盘 |
+| `remote-targets add <id> --spec <file\|-> [--file <path>] [--dry-run]` | 校验目标；Root 批准后同时写入配置与凭证字段，要求 CredentialRef；私钥必须用 `--file`，密码隐藏输入；`--dry-run` 只校验不落盘 |
+| `remote-targets update-credential <target> --credential <ref> --method private-key\|password [--file <path>]` | 只更新目标已引用的私钥或密码字段，不改目标配置；别名 `register` |
 | `remote-targets list` | 列出目标；空集合不是错误 |
-| `remote-targets show <target>` | 显示身份、能力、连接与最近探测；不输出凭据值 |
-| `remote-targets remove <target> --yes` | 只移除定义，不删除外部目标 |
+| `remote-targets show <target>` | 显示身份、CredentialRef、能力、连接与最近探测；不输出凭据值 |
+| `remote-targets migrate <target> --credential <credential:id> --yes` | 显式导入旧凭据文件到 Core、回读验证、绑定目标资源后改写配置；原文件保留；带口令私钥明确阻塞 |
+| `remote-targets remove <target> --yes` | 只移除定义，不删除外部目标或 Core 绑定；复用 id 前重新登记正确引用或由 Root 删除旧凭据 |
 | `remote-targets probe <target>` | 执行 `whoami` 并记录结果；成功退出 0，失败退出 1 |
 | `remote-targets exec <target> [command...]` | 执行远端命令；远端退出码原样返回；命令选项放在 `--` 之后 |
 | `remote-targets shell <target>` | 进入交互 Shell；退出码取客户端退出码 |
 
 字段、默认值与失败码见 [Remote Targets](../packages/remote-targets/README.md#配置与契约)。
 
-密钥认证要求 `openssh` 组件为 `healthy`，密码认证要求 `plink` 组件；未登记或状态未就绪时在连接前失败，退出码 2，并给出登记或探测命令。组件命令见下节。
+密钥认证要求 `openssh` 组件为 `healthy`，密码认证要求 `plink` 组件；随后通过 Core 主体授权与凭据绑定，未初始化时需先在本地 TTY 运行 init。普通 User 访问不触发 Root；没有授权入口或绑定不能启动客户端。新目标只接受 `method: private-key|password` 与 `credential:<id>`；旧 `auth.path/root` 仅供 `migrate` 读取。迁移与阻塞条件见 [Remote Targets](../packages/remote-targets/README.md#凭据交付与迁移)。
 
 ## 组件操作
 
@@ -98,6 +133,6 @@
 
 ## 输出与退出码
 
-默认输出人类可读文本；`--json` 输出独立 JSON，诊断写 stderr。单次命令不隐式等待输入；删除 Workspace、取消挂载、解除关系与移除远程目标必须显式携带 `--yes`。
+默认输出人类可读文本；`--json` 输出独立 JSON，诊断写 stderr。普通命令不隐式等待输入，安全交互命令使用可信 TTY；删除 Workspace、取消挂载、解除关系与移除远程目标必须显式携带 `--yes`。安全失败的 JSON stdout 含 code／reason，不能按普通命令失败时 stdout 总为空处理。
 
 退出码：0 表示调用成功；1 表示参数/帮助树拒绝，包括未知命令、缺参数、无效选项值与缺少 `--yes`，以及 `remote-targets probe`、`component probe` 未通过、`component deploy` 失败；2 表示业务前置条件或持久化失败；`shell --command`、`remote-targets exec` 与 `remote-targets shell` 的子进程退出码原样返回。

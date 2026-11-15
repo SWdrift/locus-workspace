@@ -2,9 +2,9 @@
 
 ## 简述与职责
 
-独立 `locus` 可执行程序。只负责参数/帮助、调用 `@locus/core` 的 Workspace 与组件用例、`@locus/remote-targets` 的目标用例、人类/JSON 渲染与退出码；不生成身份、不写持久化，也不实现第二套领域规则。
+独立 `locus` 可执行程序。负责参数/帮助、调用 Core／远程目标用例、人类/JSON 渲染、可信本地安全输入与原操作恢复；不直接写领域持久化，不实现第二套授权规则。
 
-CLI 不依赖 DSH、Cordis、profile 或插件装配。每次调用创建自己的 Core，命令完成后 `dispose()`；提供 Workspace/挂载管理与统一 shell，没有 `ui` 或 `fs` 命令。
+CLI 不依赖 DSH、Cordis 或插件装配。每次调用创建自己的 Core，命令完成后 `dispose()`；安全 Profile 只选择本地隔离数据与凭据命名空间，不是插件运行时。
 
 ## 构建与运行
 
@@ -24,7 +24,7 @@ pnpm locus shell <workspace>
 
 默认输出人类可读文本；`--json` 输出单行 JSON，诊断写 stderr，不混入提示或 ANSI。查询与写入都支持 JSON，创建和关系写入返回后续操作所需的 Identity/关系 ID。
 
-单次命令在 TTY 与非 TTY 均不隐式等待输入；删除 Workspace、取消挂载、解除关系与移除远程目标必须携带 `--yes`。CLI 不保存隐式当前 Workspace，也不把上一条命令的选项带入下一条。
+普通命令不隐式等待输入；删除 Workspace、取消挂载、解除关系与移除远程目标必须携带 `--yes`。安全初始化及 Root 管理操作只在本地 TTY 隐藏输入，非 TTY 明确失败，不接受 argv/env/.env 密码。CLI 不保存隐式当前 Workspace，也不把上一条命令的选项带入下一条。
 
 退出码：0 表示调用成功；1 表示参数/帮助树拒绝，如未知命令、缺参数、无效选项值或缺少 `--yes`，以及 `component probe` 未通过、`component deploy` 失败；2 表示业务前置条件或持久化失败；`shell --command`、`remote-targets exec` 与 `remote-targets shell` 的子进程退出码原样返回。
 
@@ -38,6 +38,19 @@ pnpm locus shell <workspace>
 
 `--shell <path>` 指定 shell；`--command <command>` 执行一条命令后退出，子 shell 退出码成为 CLI 退出码；`--print-env` 只输出上下文 JSON。第一个可访问挂载作为 `cwd`，缺失挂载会报告并跳过。完整契约见 [Skill Shell 参考](../../.agents/skills/locus/reference/shell.md)。
 
+`--print-env` 包含继承环境；安全实现不把 Root 密码、Credential 或 Grant 放入环境，不能将此调试输出当作通用环境脱敏器。
+
+## 安全 Host 与 Profile
+
+仓库根 `.env` 是测试夹具，当前设置 `LOCUS_HOME=temp`、`LOCUS_FOLDER_NAME=.locus`；从仓库根运行命令时，测试数据目录就是 `temp/.locus`。CLI 加载该文件时已存在的环境变量优先。手工验证如果改用其他数据目录，应显式覆盖这两个变量或切换 CWD；不同初始化路径出现的 `security-uninitialized` 不是 Core 故障。
+
+
+CLI 组合根只通过 Core 的 receiveHost 回调取得可信管理端口；组件不能接管输入或伪造认证成功。TTY 输入隐藏，Ctrl+C 取消并恢复终端；Core 不读 stdin。Root 认证后只用 resume(grant) 执行原操作，不能替换参数。当前只支持单次操作授权，没有 `--grant-scope` 或 Session Grant。安全失败退出 2，`--json` stdout 含固定 code／可选 reason，诊断写 stderr，不输出秘密或后端异常对象。
+
+全局 `--profile production|development` 默认 production，原有 LOCUS_HOME 解析保持不变；development 使用生产解析目录下的 `profiles/development/`，包含独立 SQLite 与安装 UUID，Keyring 命名空间也独立。Profile 名和 LOCUS_HOME 不是 OS 级隔离；真实 Keyring 测试另需独立 OS 账户。
+
+`init`、`security reset-root/change-root-password`、`security capability set/reset`、`credential remove/status/cleanup` 是可信交互入口。`pg register/list` 当前只服务临时 PostgreSQL 验证消费者，验证完成后与包一起移除。`pg register` 通过组件能力登记字段并隐藏输入密码；`pg list` 以 User 级读取绑定字段。`credential list` 与 `credential bindings` 只查询公开 metadata，不读取秘密；`credential cleanup` 只按当前精确 service 报告或删除未登记元数据的孤立账户；没有 `credential put/bind`，也没有 get-secret。完整命令和成功判据由[命令手册](../../docs/commands.md#安全与凭据)维护，模型和恢复后果见[安全子系统](../../docs/subsystems/core-security.md)。
+
 ## 项目模板
 
 `locus template list` 列出内置模板；`locus template create <template> <destination>` 复制文件夹并写入 `.template.json`。`--dry-run` 只计算文件、目录与 digest。模板命令不读取或创建 Workspace，也不执行模板脚本；完整语义见 [Templates](../../packages/templates/README.md)。
@@ -46,7 +59,7 @@ pnpm locus shell <workspace>
 
 `locus remote-targets ...`（别名 `rt`）把目标登记与访问交给 `@locus/remote-targets`。定义保存在 `<dataDirectory>/remote-targets/targets.yaml`，探测结果保存在同目录 `state.sqlite`；CLI 只读取 `--spec` 并渲染结果，不解析目标字段。
 
-`add --spec <file|->` 接受 YAML 或 JSON；`probe` 成功退出 0、失败退出 1；`exec` 与 `shell` 的远端退出码原样返回。命令语法见[命令手册](../../docs/commands.md#远程目标)，字段、默认值与失败码见 [Remote Targets](../../packages/remote-targets/README.md)。
+`add --spec <file|->` 接受 YAML 或 JSON，要求在 Root 批准后同时写入配置与凭证字段；`update-credential` 只更新凭证；`migrate` 显式导入旧文件后改写配置；`probe` 成功退出 0、失败退出 1；`exec` 与 `shell` 的远端退出码原样返回。命令语法见[命令手册](../../docs/commands.md#远程目标)，字段、默认值与失败码见 [Remote Targets](../../packages/remote-targets/README.md)。
 
 ## 组件
 
@@ -63,7 +76,7 @@ pnpm locus shell <workspace>
 | `component probe --all` | 逐个探查 external 组件，跳过无探针定义；任一未通过退出 1 |
 | `component deploy <id> --yes` | 执行部署入口并记录；失败退出 1 |
 
-首次访问组件服务时，CLI 把 `@locus/templates` 与 `@locus/remote-targets` 的组件定义物化到 `<dataDirectory>/components/`；版本不一致只提示，`upgrade` 才改写。`version` 与 `--help` 不触发物化。组件字段、状态与失败边界见[组件子系统](../../docs/subsystems/components.md)，命令参数见[命令手册](../../docs/commands.md#组件操作)。
+首次访问组件服务时，CLI 把 Templates、Remote Targets、PostgreSQL 与 Gitea 的包定义物化到 `<dataDirectory>/components/`；版本不一致只提示，`upgrade` 才改写。`version` 与 `--help` 不触发物化。组件字段、状态与失败边界见[组件子系统](../../docs/subsystems/components.md)，命令参数见[命令手册](../../docs/commands.md#组件操作)。
 
 ## 数据与生命周期
 

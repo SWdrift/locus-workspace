@@ -19,15 +19,17 @@
 
 ## 定义
 
-定义由 `@locus/core` 的 `defineComponent()` 校验并冻结；包传对象，`component add` 传 YAML 文本，两条路径使用同一 schema。
+包定义由 `@locus/core` 的 `defineComponent()` 校验并冻结，返回 `component` 与 `api`；`component add` 只接受 YAML 文本中的描述性元数据。YAML 不接受 `capabilities`/`credentials`，避免形成第二份可编辑真源。
 
 | 字段 | 必填 | 说明 |
 | --- | --- | --- |
-| `id` | 是 | 小写字母开头，只含小写字母、数字与短横线；同时作为顶层命令名与文件名；`version`、`workspace`、`component`、`shell`、`help`、`rt` 保留 |
+| `id` | 是 | 小写字母开头，只含小写字母、数字与短横线；同时作为顶层命令名与文件名；`version`、`workspace`、`component`、`shell`、`help`、`rt`、`pg` 保留 |
 | `version` | 是 | 非空字符串，只做相等比较，不解释语义 |
 | `name`、`summary` | 是 | 展示用名称与一句话说明 |
 | `kind` | 是 | `locus` 或 `external` |
 | `requires` | 否 | 仅 `locus`；依赖的组件 id，不能重复或引用自身 |
+| `capabilities` | 否 | 仅代码定义；本地 id、`resourceType`、`defaultAuthLevel`、`secrets`（slot/access）与 handler；不产生授权 |
+| `credentials` | 否 | 仅代码定义；凭据槽数组：id 与 fields（name/secret/required）；不授予凭据，也不进入 YAML |
 | `config` | 否 | 内联映射，或相对 `<dataDirectory>` 的文件/文件夹路径；Core 不解释内容 |
 | `probe` | 否 | 仅 `external`；`kind` 为 `argv`（默认）、`tcp` 或 `http`，共同支持 `timeoutMs` 与 `onFailure` |
 | `deploy` | 否 | `argv` 与 `timeoutMs`；缺少即 `not-deployable` |
@@ -62,6 +64,8 @@ probe:
 
 物化后，`list`、`show`、`probe`、`deploy` 统一读取文件，不回读代码。`--help` 与 `version` 不访问组件服务，不创建数据目录。
 
+能力需求与凭据槽随定义物化、序列化与升级，升级保留 config；资源必须精确，不接受通配符。凭据槽必须引用已声明能力，同一能力与类型只允许一个槽。Core Security 的可信身份、固定授权规则与 Root 绑定独立于这些可编辑需求，详见[安全服务](../../packages/core/README.md#安全服务)。`external` 即使声明能力也不自动获得 Locus 身份或凭据。
+
 ## 状态
 
 外部状态只在显式 `probe` 时写入，读取不探测。未探查不落值，展示为“未探查”。`component list` 同时显示距最近观察的时长，避免把旧 `healthy` 当成当前事实。`component probe --all` 逐个探查 `external` 组件；没有探针的定义跳过，派生状态由依赖组件在读取时汇总。
@@ -91,19 +95,19 @@ probe:
       └─ settings.yaml         # 组件自有配置
 ```
 
-组件定义是可复制、可手工编辑的文件；状态保存在 `core.sqlite` 的 `component_states` 表，不随定义迁移。删除动态组件只删除定义与状态，不卸载、不停止外部软件。
+组件 YAML 是可复制、可手工编辑的元数据文件；`capabilities`/`credentials` 属于包代码的可信契约，不写入 YAML。状态保存在 `core.sqlite` 的 `component_states` 表，不随定义迁移。删除动态组件只删除定义与状态，不卸载、不停止外部软件。
 
 多个动态定义可以直接复制到 `components/`（单文件或 `<id>/component.yaml`），不经过 `component add`；文件仍需满足定义 schema，损坏的定义进入 `problems`，不影响其他组件。
 
 ## 与远程目标的关系
 
-`remote-targets` 是 `kind: locus` 组件，声明 `requires: [openssh]` 与 `config: remote-targets/`。密钥认证在连接前要求 `openssh` 组件为 `healthy`，密码认证要求 `plink` 组件；未登记或状态未就绪时以 `component-unavailable` 失败，并给出登记或探测命令。该检查不替代目标自身的能力与凭据检查。
+`remote-targets` 是 `kind: locus` 组件，声明 `requires: [openssh]`、`register-private-key` / `register-password` / `private-key-access` / `password-access` 能力、SSH 私钥／密码字段槽与 `config: remote-targets/`。密钥认证在连接前要求 `openssh` 组件为 `healthy`，密码认证要求 `plink` 组件；未登记或状态未就绪时以 `component-unavailable` 失败，并给出登记或探测命令。该检查不替代目标自身的能力、Core 绑定与凭据检查。
 
 远程目标模块不依赖 Core 的类型；CLI 组合根把组件状态投影成窄接口 `ComponentGate` 注入。
 
 ## 不变量
 
-- 一个组件只有一份定义：包代码常量或数据目录 YAML，不存在第二套注册表。
+- 一个组件只有一份定义：包代码常量返回 `component` + `api` 两个视图，数据目录 YAML 只保存描述性元数据，不存在第二套能力注册表。
 - 定义与状态分离：文件可复制，状态是本机观察。
 - 读取不探测；`probe`、`deploy`、`upgrade` 都是显式动作。
 - 登记不产生权限；组件状态不表示调用方被授权执行操作。

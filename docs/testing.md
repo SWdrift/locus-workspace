@@ -65,7 +65,7 @@ e2e 只保留进程内测试无法覆盖的组合：真实 `apps/cli/lib/index.j
 
 ## 夹具与隔离
 
-每个用例建立自己的临时根目录，把 `LOCUS_HOME`、SQLite 与临时资源隔离在其中，并在 `t.after` 或 `finally` 中释放 Core、删除临时目录、恢复环境变量。测试不写入仓库、真实用户目录或默认 `~/.locus-workspace`，不依赖共享的可变状态。
+每个用例建立自己的临时根目录，把 `LOCUS_HOME`、SQLite 与临时资源隔离在其中，并在 `t.after` 或 `finally` 中释放 Core、删除临时目录、恢复环境变量。CLI 子进程夹具清除继承的 `LOCUS_FOLDER_NAME`，除非用例显式验证它，避免外层 Workspace 注入改变隔离数据位置。测试不写入仓库、真实用户目录或默认 `~/.locus-workspace`，不依赖共享的可变状态。
 
 - 模块测试使用真实 SQLite 文件、真实模板目录与临时目标目录，不用内存替身代替被测层；远程目标的传输边界注入假执行器，避免依赖外部 SSH。
 - CLI 子进程用例通过 `spawnSync` 启动构建后的 bin；每次命令都是独立进程，跨进程恢复由真实 SQLite 与文件系统承担。
@@ -85,7 +85,22 @@ e2e 只保留进程内测试无法覆盖的组合：真实 `apps/cli/lib/index.j
 
 ## 平台与外部依赖
 
-测试通过 Node API 使用临时目录与子进程，不依赖 shell 工具、原生 Git、OpenSSH 或外部服务。测试使用绝对 `LOCUS_HOME` 并在临时 CWD 中运行 CLI，避免读取仓库 `.env`；相对值按进程 CWD 解析，不用于隔离用例。Windows 与 POSIX 的路径差异由 `node:path`、`node:os` 处理。平台无法制造的故障带原因跳过，不写成通过。
+自动化领域测试通过 Node API 使用临时目录与子进程；Gitea 使用真实 Node fetch 与本地 HTTP 服务，PostgreSQL 自动化使用真实 `pg.Pool` 参数但不连接数据库，SSH 真实会话另走显式手工检查。安全临时文件测试在 Windows 实际调用系统 PowerShell 核验 DACL，失败不会降级。CLI 夹具使用临时 CWD，避免读取仓库 .env；pnpm 包装从仓库运行时显式固定隔离目录名。平台无法制造的故障带原因标记，不写成通过。
+
+## 安全与平台验证
+
+自动化安全测试显式注入内存 Credential Provider，元数据使用真实临时 SQLite 或显式内存 Store；默认原生 Provider 在测试上下文加载前拒绝访问。LOCUS_HOME 不能隔离 OS Keyring。测试覆盖组件能力授权、Root 等级覆盖、字段公开／秘密拆分、按 slot 精确绑定、真实 scrypt、跨进程锁定／重置、单次 Grant、单次并发消费、释放 IO、秘密错误隔离、实际 HTTP Header 边界、DACL、超时／取消、临时凭据清理与迁移阻塞。
+
+原生 Keyring 只由管理员显式运行 `node scripts/verify-keyring-windows.mjs --isolated-account`：建立临时非管理员 OS 账户及专属命名空间，检查后删除条目、账户与用户 Profile，不使用当前用户 vault。隔离检查器还会按随机 `locus:<uuid>:development` service 枚举并删除未知账户，确认该 service 无残留；不要对当前用户的 Production service 执行批量删除。日常孤立条目用 `locus credential cleanup`（默认只报告，`--yes` 才删除）处理当前 Profile 的精确 service。该脚本和包内 manual-*.mjs 不匹配自动测试 glob；真实消费者入口、平台矩阵与未验证项归 [Core Security](subsystems/core-security.md#平台证据与安全边界) 与各 Compose README，不能用模拟器或绑定加载成功代替平台证据。
+
+真实消费者手工入口：
+
+```sh
+node packages/postgres/test/manual-postgres.mjs
+node packages/remote-targets/test/manual-ssh.mjs
+```
+
+PostgreSQL 脚本启动临时 PostgreSQL 16 并执行真实查询；SSH 脚本启动本地 OpenSSH sshd，使用 Core CredentialRef 登录并验证错误私钥拒绝与临时文件清理。缺少本机前置时以非零明确阻塞。
 
 ## 文档检查
 
