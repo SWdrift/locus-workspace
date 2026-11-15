@@ -76,6 +76,7 @@ locus remote-targets exec <target> -- whoami
 
 - 先 `show`/`probe` 再使用；`unknown` 不是可用。
 - 不因组件存在就认为当前 Agent 被授权执行某个操作。
+- capabilities 只是需求，修改 YAML、requires 或健康状态不能获得权限；Pure／Referenced 走统一 Core Security，external 不自动继承身份、Grant 或秘密。
 - 不自动安装、不自动启停服务；`deploy` 只在用户明确要求时执行。
 - 区分 `absent`（不存在）与 `stopped`（已安装但未运行），不要用“没装”解释运行失败。
 - 只登记有状态、有门禁或有操作入口的软件；纯版本查询直接用原生命令。

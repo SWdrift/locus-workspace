@@ -18,6 +18,7 @@ Locus 用稳定的 Workspace Identity 组织长期工作语境。Workspace 可�
 | 复制项目模板、查看 `.template.json` 来源记录 | [reference/templates.md](reference/templates.md) |
 | 发现组件、登记外部组件、读取探针与部署状态 | [reference/components.md](reference/components.md) |
 | 登记并访问远程 SSH 目标、读取探测结果 | [reference/remote-targets.md](reference/remote-targets.md) |
+| 本地 Root 初始化／认证、CredentialRef 与 Profile 边界 | [reference/security.md](reference/security.md) |
 | 可复用脚本 | [scripts/README.md](scripts/README.md) |
 
 ## 快速流程
@@ -45,4 +46,5 @@ locus shell <workspace>
 - 使用外部组件前先 `component show`/`component probe`；`unknown` 与过期时间不能当作可用。
 - 不自动安装、启停或部署外部软件；`component deploy` 只在用户明确要求时执行。
 - 远程目标只经 `locus remote-targets` 访问；不得直接调用 `ssh`/`plink`，不得读取或输出凭据文件内容。
+- Root 密码只进入可信本地 Host 的隐藏 TTY，不进入 Prompt、Bash 参数、argv/env/.env 或日志；普通 User 凭据使用不触发 Root，非交互认证失败不得绕过。
 - 需要跨进程恢复或脚本组合时，先用 `locus --json workspace show <workspace>` 读取当前事实，不缓存派生状态。

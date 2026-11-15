@@ -2,6 +2,8 @@
 
 对已登记目标执行探测、单次命令或交互 Shell。所有访问都经 `locus remote-targets`（别名 `rt`）；不要直接调用 `ssh`、`plink` 或读取凭据文件。
 
+执行还需 Core 主体授权与按 slot 绑定；未初始化时由用户在可信本地 TTY 运行 init，普通 User 访问不要求 Root。目标配置只保存 `credential:<id>`；Root 在 `remote-targets add` 时同时写入目标配置与字段，之后用 `update-credential` 修改字段。旧文件只用于显式迁移。详见[安全参考](security.md)。
+
 ## 读取当前事实
 
 ```sh
@@ -14,10 +16,10 @@ locus --json remote-targets show <target>
 ## 登记目标
 
 ```sh
-locus remote-targets add <id> --spec - --json
+locus remote-targets add <id> --spec - --file <key> --json
 ```
 
-从 stdin 读取 YAML 或 JSON；`add` 写 `<dataDirectory>/remote-targets/targets.yaml` 并创建 `credentials/<id>/` 空目录，不建立连接，也不创建凭据文件。
+从 stdin 读取 YAML 或 JSON；`add` 在 Root 批准后写 `<dataDirectory>/remote-targets/targets.yaml`、创建 `credentials/<id>/` 空目录并登记 CredentialRef 字段。私钥必须用 `--file`，密码隐藏输入。后续改密/换钥用 `update-credential`。
 
 ```yaml
 resource:
@@ -26,14 +28,30 @@ resource:
 identity:
   login: Administrator
   auth:
-    method: key
+    method: private-key
+    credential: credential:server-key
 connectivity:
   via: frp
   host: 127.0.0.1
   port: 6001
 ```
 
-默认凭据路径为 `credentials/<id>/id_ed25519` 或 `credentials/<id>/password`，由用户放入；模块只检查存在性。未知字段会被拒绝。
+密码目标使用 `method: password` 和密码引用。登记示例：
+
+```sh
+locus remote-targets add win-x --spec target.json --file /absolute/selected-key
+locus remote-targets update-credential win-x --credential credential:server-key --method private-key --file /absolute/selected-key
+```
+
+未知字段会被拒绝。
+
+## 迁移旧目标
+
+```sh
+locus remote-targets migrate <target> --credential credential:server-key --yes
+```
+
+命令读取旧 `auth.path/root` 文件，经 Root 通过对应 `register-*` 能力写入 Core、回读验证并绑定到精确目标资源，再改写目标配置；原文件保留。私钥带口令时以 `encrypted-key-unsupported` 阻塞；不要自行去口令或把口令放入 argv/env。
 
 ## 访问目标
 
@@ -52,7 +70,9 @@ locus remote-targets shell <target>
 
 | 现象 | 含义 |
 | --- | --- |
-| `缺少凭据文件` | 连接前失败；按 `show` 的 `identity.auth.path` 放置文件 |
+| `migration-required` | 目标仍使用旧文件认证；先显式迁移 |
+| `encrypted-key-unsupported` | 私钥带口令或无法解析；迁移不写配置 |
+| `credential-missing` | Core 元数据或 Provider 条目缺失；连接前失败 |
 | `目标未授权能力` | `access.capabilities` 未包含 `exec`/`shell` |
 | `目标前缀不唯一` / `目标标签不唯一` | 使用完整 id |
 | `password 认证必须提供 ... fingerprint` | 密码目标缺少 `connectivity.trust.fingerprint` |
