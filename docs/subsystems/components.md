@@ -15,7 +15,7 @@
 
 包组件只允许 `kind: locus`；动态组件只允许 `kind: external`。纯 Locus 组件与依赖外部的 Locus 组件不是两种 kind，后者用 `requires` 表达。
 
-`packages/` 下除 `packages/core` 外的每个包都导出组件定义，作为包的一部分参与类型检查，并由 CLI 组合根传给 `createLocusCore()`。没有包的外部软件（如 Docker）只登记 YAML。
+提供组件的包导出 `component` 与 `api`，作为包的一部分参与类型检查，并由 CLI 组合根传给 `createLocusCore()`；`config-reference` 这类非组件包不导出组件。没有包的外部软件（如 Docker）只登记 YAML。
 
 ## 定义
 
@@ -56,15 +56,15 @@ probe:
 
 ## 物化与版本
 
-1. 首次访问组件服务时，把包定义写入 `<dataDirectory>/components/<id>.yaml`；`version` 一并写入。
+1. 首次访问组件服务时，把包定义的描述性元数据写入 `<dataDirectory>/components/<id>.yaml`；`version` 一并写入。
 2. 文件已存在时不自动改写。版本与代码一致则直接使用；不一致仍使用文件，并在 `list`/`show` 标记“需要升级”。
-3. `component upgrade` 按代码重写定义字段，保留文件中的 `config`，更新 `version`；只对 `locus` 组件生效。
+3. `component upgrade` 按代码重写描述性字段，保留文件中的 `config`，更新 `version`；只对 `locus` 组件生效。
 4. 物化文件被删除后，下次访问按当前版本重建；文件非法时报错且不覆盖，删除后可重建。
 5. 同名单文件与文件夹并存视为冲突，只影响该 id。
 
-物化后，`list`、`show`、`probe`、`deploy` 统一读取文件，不回读代码。`--help` 与 `version` 不访问组件服务，不创建数据目录。
+`list`、`show`、`probe`、`deploy` 读取物化文件的描述性元数据，并把包代码的能力与字段合并为只读视图；能力/字段契约不写回文件。`--help` 与 `version` 不访问组件服务，不创建数据目录。
 
-能力需求与凭据槽随定义物化、序列化与升级，升级保留 config；资源必须精确，不接受通配符。凭据槽必须引用已声明能力，同一能力与类型只允许一个槽。Core Security 的可信身份、固定授权规则与 Root 绑定独立于这些可编辑需求，详见[安全服务](../../packages/core/README.md#安全服务)。`external` 即使声明能力也不自动获得 Locus 身份或凭据。
+YAML 物化只保存描述性元数据；`capabilities`/`credentials` 属于包代码契约，升级时保留 config 但不写回能力列表。capability 的 `secrets` 必须引用已声明字段槽，资源必须精确，不接受通配符。Core Security 的可信组件身份、Root 覆盖与精确绑定独立于可编辑 YAML，详见[安全服务](../../packages/core/README.md#安全服务)。`external` 不拥有可执行能力或凭据字段。
 
 ## 状态
 
@@ -101,9 +101,9 @@ probe:
 
 ## 与远程目标的关系
 
-`remote-targets` 是 `kind: locus` 组件，声明 `requires: [openssh]`、`register-private-key` / `register-password` / `private-key-access` / `password-access` 能力、SSH 私钥／密码字段槽与 `config: remote-targets/`。密钥认证在连接前要求 `openssh` 组件为 `healthy`，密码认证要求 `plink` 组件；未登记或状态未就绪时以 `component-unavailable` 失败，并给出登记或探测命令。该检查不替代目标自身的能力、Core 绑定与凭据检查。
+`remote-targets` 是 `kind: locus` 组件，声明 `requires: [openssh]`、`register-private-key` / `register-password` / `private-key-access` / `password-access` 能力、SSH 私钥／密码字段槽与 `config: remote-targets/`。密钥认证在连接前要求 `openssh` 组件为 `healthy`，密码认证要求 `plink` 组件；未登记或状态未就绪时以 `component-unavailable` 失败。该检查不替代目标自身的能力、Core 绑定与凭据检查。
 
-远程目标模块不依赖 Core 的类型；CLI 组合根把组件状态投影成窄接口 `ComponentGate` 注入。
+Remote Targets 依赖 Core 的 `CredentialRef` / `CapabilityFailure` 类型与能力上下文接口；CLI 组合根把组件状态投影成窄接口 `ComponentGate` 注入。
 
 ## 不变量
 

@@ -4,6 +4,8 @@
 
 未实施子系统可以登记明确标注状态的设计大纲，完整方案仍由 `proposed` Agent Note 唯一维护；实现并验证后才把现行契约迁入所属页面，不将大纲视为交付证据。
 
+权限系统跨 Core Security、组件、配置引用、CLI 与远程目标：模型以 Core Security 为入口，组件声明见[组件](components.md)，引用见[配置引用](config-reference.md)，命令语法归[实用命令](../commands.md#安全与凭据)，远程目标见[远程目标](remote-targets.md)。
+
 | 子系统 | 设计 |
 |---|---|
 | 项目模板 | [项目模板](templates.md) |
@@ -11,4 +13,4 @@
 | 远程目标 | [远程目标](remote-targets.md) |
 | 组件 | [组件](components.md) |
 | 配置引用 | [配置引用](config-reference.md) |
-| Core Security | [当前契约与平台证据](core-security.md)；带口令 SSH 私钥交付仍待决 |
+| 权限与凭据（Core Security） | [当前契约与平台证据](core-security.md)；带口令 SSH 私钥交付仍待决 |

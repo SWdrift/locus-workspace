@@ -11,21 +11,9 @@
 
 它不拥有凭据、不决定权限，也不保存“当前实例”。组件负责读取自己的配置文件并解释字段语义；Core 负责绑定、字段拆分与交付。
 
-## 契约
+## 契约归属
 
-```ts
-type CredentialRef = `credential:${string}`
-
-parseCredentialRef(value: unknown): CredentialRef
-isCredentialRef(value: unknown): value is CredentialRef
-resolveCredentialRef(config: unknown, field = 'credential'): CredentialRef
-assertConfigPath(value: unknown): string
-```
-
-- `credential:` 后必须以小写字母开头，只含小写字母、数字和短横线。
-- 拒绝路径、空白、通配、其它协议与大写名称。
-- 配置路径必须是安全的相对路径；`..`、绝对路径、Windows 盘符与 NUL 拒绝。
-- 失败统一为 `ConfigReferenceFailure`，code 为 `invalid-reference`。
+`CredentialRef` 类型、解析函数、路径校验和错误分类由 [包 README](../../packages/config-reference/README.md)维护；本页不复制 API 签名。
 
 ## 使用边界
 

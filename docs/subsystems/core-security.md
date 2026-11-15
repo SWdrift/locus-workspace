@@ -50,7 +50,7 @@ defineComponent(...)
 }
 ```
 
-有效认证等级固定为：Root 覆盖 > 组件 `defaultAuthLevel` > `user`。Root 通过 `security capability set <component:capability> <user|root>` 覆盖，`reset` 恢复默认。`access: write` 能力默认由组件声明为 root；Root 可以显式降为 user，此时普通 User 获得覆盖该资源凭据的权力，覆盖是预期行为。Root 是信任锚，不在 Core 额外阻止这种显式委派。capability 只声明资源类型；同一能力可绑定多个精确资源，不允许 `*`、前缀或同类型通配。
+有效认证等级固定为：Root 覆盖 > 组件 `defaultAuthLevel` > `user`。Root 通过能力等级管理入口覆盖，命令语法见[命令手册](../commands.md#安全与凭据)；清除覆盖后恢复组件默认等级。当前内置组件把 `access: write` 能力声明为 root；组件也可以声明 user，Root 可以显式降为 user，此时普通 User 获得覆盖该资源凭据的权力，覆盖是预期行为。Root 是信任锚，不在 Core 额外阻止这种显式委派。capability 只声明资源类型；同一能力可绑定多个精确资源，不允许 `*`、前缀或同类型通配。
 
 `capabilities` / `credentials` 不写入可编辑 YAML；YAML 只保存描述性元数据。动态 `kind: external` 组件没有可执行能力。Core 不再维护组件能力的固定白名单，只保留 Host 管理能力规则；受信任边界是装配时同一包定义对象。
 
@@ -78,45 +78,25 @@ defineComponent(...)
 
 登记由组件能力调用 `CapabilityContext.registerCredential` 完成。Core 在一个逻辑操作内写 Provider、公开字段元数据与所有相关 capability 绑定；Provider 写后回读验证，数据库提交失败时按前值补偿。配置文件更新属于组件边界，CLI 以显式补偿处理失败，不宣称跨存储 2PC。
 
-删除凭据会级联删除绑定；`credential remove` 只由 Root 使用。普通业务命令不提供 get-secret。
+删除凭据会级联删除绑定；对应 Root 管理入口只允许 Root 使用。普通业务命令不提供 get-secret。
 
-## CapabilityContext
+## 能力执行上下文
 
-handler 不直接接触 Host、Keyring 或 SQLite。Core 在授权后注入能力级端口：
+handler 不直接接触 Host、Keyring 或 SQLite。Core 在授权后注入 `CapabilityContext`；接口、调用签名与字段类型由 [Core README](../../packages/core/README.md#安全服务)维护。
 
-```ts
-interface CapabilityContext {
-  registerCredential(
-    slot: string,
-    reference: CredentialRef,
-    values: Readonly<Record<string, string>>,
-  ): Promise<void>
+- `execute` 只触发一次授权；handler 内部的 `withCredential` / `registerCredential` 不重新 Challenge。
+- 两个方法仍校验 capability 的 `access`、slot、精确绑定与 Root 世代。
+- Root 重置后旧上下文失效；组件不能绕过上下文读取原始凭据。
 
-  withCredential<T>(
-    slot: string,
-    reference: CredentialRef,
-    consume: (values: Readonly<Record<string, string>>) => Promise<T>,
-  ): Promise<T>
-}
-```
+## 入口边界
 
-`execute` 只触发一次授权；handler 内部的 `withCredential` / `registerCredential` 不重新 Challenge。`withCredential` 仍校验 capability 的 `access`、slot、精确绑定与 Root 世代；Root 重置后旧上下文失效。
+命令树、参数、提示、渲染与退出码归 `apps/cli`；组件包不注册 CLI，也不包含 CLI 命令文本。命令语法见[实用命令](../commands.md#安全与凭据)。
 
-## CLI 与组件命令
-
-CLI 在 `apps/cli` 定义命令，组件包不注册 Commander：
-
-- `locus pg register <resource> --username <name>`：隐藏输入密码，一次 Root 批准内登记字段并绑定 `register` / `list`。
-- `locus pg list <resource> --host <host> --database <name>`：User 级读取字段并查询 PostgreSQL。
-- `locus security capability list|set|reset`：查看默认/覆盖/来源，Root 设置或清除覆盖。
-- `locus credential list|bindings|status|remove|cleanup`：Root 诊断与清理，不提供 put/bind/unbind 用户入口。
-- `locus remote-targets add`：Root 批准后同时写目标配置与凭证字段；`update-credential` 只更新凭证；`migrate` 读取旧文件后经组件登记能力写入 Core，再改写目标配置。
-
-CLI 只传参数与展示结果，不接触 Keyring、字段拆分或绑定内部。错误先区分授权门与凭据门；Missing 不触发 Root。
+CLI 只传参数与展示结果，不接触 Keyring、字段拆分或绑定内部。授权门先于凭据门：权限不足返回 Challenge，凭据缺失、字段不符或未绑定返回独立错误，不触发 Root 提权。
 
 ## Root 认证与恢复
 
-`locus init` 在可信本地 TTY 隐藏输入两次密码；重复初始化不覆盖验证材料，不删除已有 Workspace。Core 不读取 stdin。Root 密码不得来自 argv、环境、.env、普通配置、Credential Provider、Prompt 或普通 Bash 参数；不能进入日志、JSON、Challenge 或 Grant。非交互或输入中断明确失败。
+初始化入口在可信本地 TTY 隐藏输入两次密码；重复初始化不覆盖验证材料，不删除已有 Workspace。Core 不读取 stdin。Root 密码不得来自 argv、环境、.env、普通配置、Credential Provider、Prompt 或普通 Bash 参数；不能进入日志、JSON、Challenge 或 Grant。非交互或输入中断明确失败。
 
 验证使用 Node 原生异步 scrypt，固定 N=32768、r=8、p=1、maxmem=64 MiB，随机 16 字节 Salt，32 字节派生结果，固定长度 timingSafeEqual 比较。SQLite 保存版本、算法与参数、Salt、派生验证值和认证世代，不保存明文。
 
@@ -124,37 +104,17 @@ CLI 只传参数与展示结果，不接触 Keyring、字段拆分或绑定内�
 
 丢失密码只提供明确本地管理接管：可信 TTY 展示警告、要求确认，再设置新密码；不要求旧密码，不生成恢复码、恢复密钥或跨设备恢复体系。重置原子替换验证材料、清除锁定、递增认证世代并使旧 Grant／上下文失效，不删除 Workspace 或 Keyring 条目，也不自动恢复资源凭据。拥有同 OS 用户文件权限的代码可以模拟重置，这是接受的软件边界。
 
-## 消费者交付
+## 消费者交付边界
 
-| 消费者 | 交付 | 验证边界 |
-| --- | --- | --- |
-| PostgreSQL（`@locus/postgres`） | `api.register` 写 username/password；`api.list` 把合并字段放入驱动参数，不构造密码 URL | 真实临时 PostgreSQL 16、scram-sha-256 拒绝无密码登录、Core 交付字段后 `pg.Pool` 认证与 `select` 已运行 |
-| Gitea（`@locus/gitea`） | `api.register` 写 token；`api.request` 只向绑定 origin 发送 Authorization Header | 真实 Node fetch 本地 HTTP 服务，Header、跨源、重定向、401/403、网络失败 |
-| SSH（`@locus/remote-targets`） | `register-private-key` / `register-password` 写字段；`private-key-access` / `password-access` 把私钥或密码送入受限临时文件，argv 只有路径 | 真实 OpenSSH 9.5 客户端与本地 Git OpenSSH 9.4 服务端；正确密钥、错误密钥、主机固定、临时文件清理 |
+PostgreSQL、Gitea 与 Remote Targets 各自负责协议、能力 handler 与秘密载体；Core 只负责字段拆分、精确绑定与交付。具体 API、失败与平台限制由各包 README 维护：
 
-SSH 私钥与密码文件使用操作独享临时目录与排他文件；POSIX 目录 0700、文件 0600。Windows 在写任何秘密前建立并核验受限 DACL，仅当前 SID、SYSTEM 与 Administrators，禁止宽松回退。消费回调必须等待进程退出；成功、异常、超时与取消均执行清理，清理失败明确报错。系统客户端执行复用 execa，不经过 shell。强杀进程可能留下同 OS 用户可读的临时文件，这是接受的残留窗口。
+- [PostgreSQL](../../packages/postgres/README.md)：临时验证消费者，验证完成后移除。
+- [Gitea](../../packages/gitea/README.md)：绑定 origin 的 Bearer 请求。
+- [Remote Targets](../../packages/remote-targets/README.md)：系统 OpenSSH/Plink 与受限临时文件。
 
-PostgreSQL、Gitea 与 Remote Targets 的 handler 只消费 `CapabilityContext`，不读取 Provider 或数据库元数据。
+## 远程目标安全边界
 
-## SSH 与远程目标迁移
-
-SSH 协议、连接和认证交给系统 OpenSSH。Remote Targets 保留目标模型、远程登录身份、主机信任、exec / shell / probe、ComponentGate 与 CommandRunner 注入。Locus 主体授权统一由 Core 提供。
-
-目标配置使用稳定引用：
-
-```yaml
-identity:
-  login: user
-  auth:
-    method: private-key
-    credential: credential:server-key
-```
-
-旧 `auth.path/root` 不再参与运行时。`locus remote-targets migrate <target> --credential <ref> --yes` 读取旧文件，经 `register-private-key` 或 `register-password` 能力写入 Core，再改写目标配置；原文件保留。私钥迁移先用受限临时副本执行 `ssh-keygen -y -P ''` 预检，带口令或无法解析时以 `encrypted-key-unsupported` 阻塞，不自动去口令、不删除原支持、不把口令放入 argv/env。密码迁移把旧密码文件写入 Core，之后由 Plink 受限临时文件交付。
-
-`IdentitiesOnly=yes` 避免自动选取其他密钥；`IdentityAgent=none` 禁用隐式共享 Agent 身份。保留主机信任检查，不静默放宽 known_hosts / TOFU 行为。不实现 SSH 客户端，不建设共享 ssh-agent 管理平台。
-
-带口令私钥仍是明确阻塞：没有冻结的口令交付契约；迁移拒绝该情况，旧文件不会被自动删除或去除口令。
+SSH 协议、目标模型、迁移流程与临时文件交付归 Remote Targets；本页只记录与 Core 的交界：目标配置保存稳定 `credential:<id>`，旧 `auth.path/root` 只供显式迁移读取，字段与绑定由 Core 校验，带口令私钥仍明确阻塞。详见[远程目标](remote-targets.md)与 [Remote Targets README](../../packages/remote-targets/README.md)。
 
 ## 持久化、错误与备份
 

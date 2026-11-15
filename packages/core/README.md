@@ -27,7 +27,7 @@ try {
 
 ## 组件
 
-`defineComponent()` 是唯一校验入口：对象直接校验，字符串按 YAML 解析后走同一规则，返回深度冻结的定义，不写文件、不注册全局状态。包在代码中定义组件；没有包的软件通过 `component add` 登记 YAML。
+`defineComponent()` 是可信包定义的唯一入口：接收对象，返回 `{ component, api }`，不写文件、不注册全局状态。可编辑 YAML 由 `parseComponent()` 解析，只接受描述性元数据；`capabilities`/`credentials` 不进入 YAML。包在代码中定义组件；没有包的软件通过 `component add` 登记 YAML。
 
 ```ts
 import { createLocusCore, defineComponent } from '@locus/core'
@@ -38,9 +38,9 @@ const demo = defineComponent({
   name: 'Demo',
   summary: '示例组件',
   kind: 'locus',
-  info: { text: '使用 demo 命令。' },
+  info: { text: '示例组件。' },
 })
-const core = createLocusCore({ dataDirectory: '/absolute/data', components: [demo] })
+const core = createLocusCore({ dataDirectory: '/absolute/data', components: [demo.component] })
 try {
   const { components, problems } = core.components.list()
   console.log(components.map((item) => item.id), problems)
@@ -49,7 +49,7 @@ try {
 }
 ```
 
-`createLocusCore({ components })` 接收包定义；首次访问 `core.components` 时把它们物化到 `<dataDirectory>/components/<id>.yaml`。文件已存在时不改写：版本一致直接使用，不一致标记 `needsUpgrade`，由 `upgrade()` 重写定义字段并保留 `config`。动态组件通过 `addFromText()`、`addFromPath()` 登记，只能删除动态组件。
+`createLocusCore({ components })` 接收包代码的 `component` 视图；首次访问 `core.components` 时把它们物化到 `<dataDirectory>/components/<id>.yaml`。文件已存在时不改写：版本一致直接使用，不一致标记 `needsUpgrade`，由 `upgrade()` 重写定义字段并保留 `config`。动态组件通过 `addFromText()`、`addFromPath()` 登记，只能删除动态组件。
 
 `probe()` 支持 `argv`、`tcp` 与 `http` 三种探针；`argv` 与 `deploy()` 调用注入的 `ComponentRunner`，默认实现使用 `execa`，不经过 shell，带超时；Windows 的 `.cmd`/`.bat` 由 `execa` 解析。`list()` 返回 `{ components, problems }`，单个损坏定义不阻断其他组件；CLI 的列表投影省略 `info`，完整说明用 `show()`。读取状态不创建数据库；`show()`、`list()` 只使用最近一次观察。字段、探针类型与 A/B/C 状态由[组件子系统](../../docs/subsystems/components.md)维护。
 
@@ -60,6 +60,22 @@ try {
 `defineComponent()` 返回 `component` 与 `api`：`component.capabilities` 声明本地 id、`resourceType`、`defaultAuthLevel` 与 `secrets`；`component.credentials` 用 `fields` 声明公开/秘密字段。声明本身不授予权限。Root 通过组件能力调用 `CapabilityContext.registerCredential(slot, reference, values)` 登记字段并建立 `component + capability + resource + slot` 绑定；同一 slot 被多个能力共用时一次登记建立多条绑定。`withCredential(slot, reference, consume)` 只使用与当前组件、能力、精确资源和 slot 一致的引用，否则 `credential-binding-mismatch`。凭据缺失、字段不匹配和 Provider 不可用分别失败，不会触发 Root 认证。
 
 Core 与 CLI 的默认安全 Profile 都为 production；同一安装中，默认 API 消费者可以使用 CLI 管理入口录入的引用，不会意外进入另一个 default 命名空间。需要隔离时显式选择 Profile，并按 Host 的数据目录约定装配。
+
+```ts
+interface CapabilityContext {
+  registerCredential(
+    slot: string,
+    reference: CredentialRef,
+    values: Readonly<Record<string, string>>,
+  ): Promise<void>
+
+  withCredential<T>(
+    slot: string,
+    reference: CredentialRef,
+    consume: (values: Readonly<Record<string, string>>) => Promise<T>,
+  ): Promise<T>
+}
+```
 
 Host 的 `bindComponent(session, definition)` 要求装配时同一可信 `ComponentSpec` 对象；可编辑 YAML、同名复制对象与 external 组件不会因此取得身份。组件只使用 `execute()` 与注入的 `CapabilityContext`；Core 按可信能力声明、`resourceType`、精确资源和 Root 覆盖判定等级，声明不等于授权。普通 User 凭据使用不触发 Root。不存在 Host 注入资源声明或通用资源扩展入口。
 
