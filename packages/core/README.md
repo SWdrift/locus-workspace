@@ -57,7 +57,9 @@ try {
 
 `createLocusCore({ components, security })` 同步装配；`core.security` 仅公开异步 `status()` 与 `providerStatus()`，不暴露认证、身份选择或任意秘密读取。组合根通过 `security.receiveHost` 接收可信 Host，Host 创建 Session 并把精确绑定的组件端口注入消费者；组件不能从普通 Core 句柄取得 Host。默认 Store 为惰性 SQLite，默认 Provider 为惰性 OS Keyring；空目录 status、help 与 version 不建库，Provider 状态不读取条目。
 
-`defineComponent()` 返回 `component` 与 `api`：`component.capabilities` 声明本地 id、`resourceType`、`defaultAuthLevel` 与 `secrets`；`component.credentials` 用 `fields` 声明公开/秘密字段。声明本身不授予权限。Root 通过组件能力调用 `CapabilityContext.registerCredential(slot, reference, values)` 登记字段并建立 `component + capability + resource + slot` 绑定；同一 slot 被多个能力共用时一次登记建立多条绑定。`withCredential(slot, reference, consume)` 只使用与当前组件、能力、精确资源和 slot 一致的引用，否则 `credential-binding-mismatch`。凭据缺失、字段不匹配和 Provider 不可用分别失败，不会触发 Root 认证。
+`parseCredentialRef()` 是 Compose 解析配置引用的唯一入口；Core 统一维护 `credential:<id>` 格式。
+
+`defineComponent()` 返回 `component` 与 `api`：`component.capabilities` 声明本地 id、`resourceType`、`defaultAuthLevel` 与 `secrets`；`component.credentials` 用 `fields` 声明公开/秘密字段。声明本身不授予权限。Root 通过组件能力调用 `CapabilityContext.registerCredential(slot, reference, values)` 登记字段并建立 `component + capability + resource + slot` 绑定；同一 slot 被多个能力共用时一次登记建立多条绑定。`withCredential(slot, reference, consume)` 只使用与当前组件、能力、精确资源和 slot 一致的引用，否则 `credential-binding-mismatch`。凭据缺失、字段不匹配和 Provider 不可用分别失败，不会触发 Root 认证。`CredentialMetadata` 持久化 `owner` 组件 id；第一版一个 CredentialRef 只对应一个 owner。其他组件已绑定的 ref 不能被覆盖，也不提供跨组件共享的 Root bind 入口。
 
 Core 与 CLI 的默认安全 Profile 都为 production；同一安装中，默认 API 消费者可以使用 CLI 管理入口录入的引用，不会意外进入另一个 default 命名空间。需要隔离时显式选择 Profile，并按 Host 的数据目录约定装配。
 
@@ -79,7 +81,7 @@ interface CapabilityContext {
 
 Host 的 `bindComponent(session, definition)` 要求装配时同一可信 `ComponentSpec` 对象；可编辑 YAML、同名复制对象与 external 组件不会因此取得身份。组件只使用 `execute()` 与注入的 `CapabilityContext`；Core 按可信能力声明、`resourceType`、精确资源和 Root 覆盖判定等级，声明不等于授权。普通 User 凭据使用不触发 Root。不存在 Host 注入资源声明或通用资源扩展入口。
 
-Root 操作抛出带不透明 Challenge 的 `SecurityFailure`；只有 Host 可验证密码，并通过 `resume(grant)` 恢复 Core 捕获的原操作。`authenticate(challenge, password)` 只签发单次操作 Grant，60 秒内首次恢复后消费；没有 Session Grant 或 scope 参数。Session 结束、Root 重置、Host 关闭与 dispose 都撤销未消费 Grant。Host 的 `initializeRoot()`／`resetRoot()` 由可信 UI 编排，`forSession()` 提供凭据删除、绑定列举、状态检查、孤立条目清理、能力等级覆盖与密码变更。`cleanupCredentialOrphans(apply)` 只针对当前 Profile 推导出的精确 Keyring service，比较 Provider 账户与 `security_credentials` 元数据；默认只报告，`apply=true` 才删除孤立账户，不触碰已知凭据、元数据、绑定或其他 service。`dispose()` 即使存储清理失败也会本地撤销并释放 Store／Provider。
+Root 操作抛出带不透明 Challenge 的 `SecurityFailure`；只有 Host 可验证密码，并通过 `resume(grant)` 恢复 Core 捕获的原操作。`authenticate(challenge, password, scope)` 支持 `operation` 与 `session`：operation 默认 60 秒内首次恢复后消费；session 绑定真实进程内 Session，同组件、能力与精确资源可复用，Session 结束、Root 重置、Host 关闭与 dispose 都撤销，不跨进程。Host 的 `initializeRoot()`／`resetRoot()` 由可信 UI 编排，`forSession()` 提供凭据删除、绑定列举、状态检查、孤立条目清理、能力等级覆盖与密码变更。`cleanupCredentialOrphans(apply)` 只针对当前 Profile 推导出的精确 Keyring service，比较 Provider 账户与 `security_credentials` 元数据；默认只报告，`apply=true` 才删除孤立账户，不触碰已知凭据、元数据、绑定或其他 service。`dispose()` 即使存储清理失败也会本地撤销并释放 Store／Provider。
 
 测试必须显式注入 `createMemoryCredentialProvider()`；元数据需要真实持久化时保留默认 SQLite，需要纯内存路径时另注入 `createMemorySecurityStore()`。自动化上下文的默认原生 Provider 在加载前拒绝实际访问；单设 LOCUS_HOME 不够。Provider 的 get/set/delete 是可信装配边界，不是组件的授权接口。完整模型、备份后果、平台证据与消费者交付见[安全子系统](../../docs/subsystems/core-security.md)。
 
@@ -95,11 +97,11 @@ Root 操作抛出带不透明 Challenge 的 `SecurityFailure`；只有 Host 可�
 
 ## 持久化与恢复
 
-Core 唯一拥有 `dataDirectory/core.sqlite`，格式版本为 SQLite `user_version=6`，包含 Workspace、关系、挂载、组件状态，以及安装、Root 验证、Profile、凭据公开字段、能力等级覆盖和组件／能力／资源／slot 绑定。资源秘密不进入数据库；Root 派生验证材料仍敏感。数据库使用 DELETE journal、FULL synchronous、外键与事务；写入成功返回前提交，读用例采用一致快照。多个连接重新读取已提交数据，不用进程内旧对象覆盖；写锁等待 1000ms 后明确失败，调用者不能把失败当成确认成功。
+Core 唯一拥有 `dataDirectory/core.sqlite`，格式版本为 SQLite `user_version=7`，包含 Workspace、关系、挂载、组件状态，以及安装、Root 验证、Profile、凭据公开字段与 owner、能力等级覆盖和组件／能力／资源／slot 绑定。资源秘密不进入数据库；Root 派生验证材料仍敏感。数据库使用 DELETE journal、FULL synchronous、外键与事务；写入成功返回前提交，读用例采用一致快照。多个连接重新读取已提交数据，不用进程内旧对象覆盖；写锁等待 1000ms 后明确失败，调用者不能把失败当成确认成功。
 
 建库 DDL 按主题分片在 `src/schema/*.ts`（Workspace、组件、安全）并以字符串常量导出；只在初始化新空库时执行，已有库不读 DDL。
 
-未知版本、已有表结构但无版本或损坏库明确失败，不覆盖为空库。0 字节库视为初始化中断留下的空库，可安全建立当前结构；已有任何表结构则拒绝接管。开发阶段不维护旧 schema 逐版本迁移：版本与当前 `user_version=6` 不一致时要求备份后重建数据目录，版本与表结构冲突时拒绝，已有数据保留。仍应升级前备份，没有自动备份实现。清除实验数据只能由用户在备份后、停止所有写者时移走选定数据目录，不自动清理或删除用户成果。
+未知版本、已有表结构但无版本或损坏库明确失败，不覆盖为空库。0 字节库视为初始化中断留下的空库，可安全建立当前结构；已有任何表结构则拒绝接管。开发阶段不维护旧 schema 逐版本迁移：版本与当前 `user_version=7` 不一致时要求备份后重建数据目录，版本与表结构冲突时拒绝，已有数据保留。仍应升级前备份，没有自动备份实现。清除实验数据只能由用户在备份后、停止所有写者时移走选定数据目录，不自动清理或删除用户成果。
 
 备份需停止全部 Locus 写者后复制**整个数据目录**。将副本放到干净目录并通过 `dataDirectory` 或 `LOCUS_HOME` 打开即可保持身份和关系。副本含 Root 离线验证材料与安装 UUID，但不包含原生文件、仓库或 OS Keyring 秘密；恢复 CredentialRef 不等于恢复秘密。跨设备同步与自动合并不受支持。
 

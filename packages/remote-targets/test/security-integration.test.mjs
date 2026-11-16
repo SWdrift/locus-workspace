@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import test from 'node:test'
 import { createLocusCore, createMemoryCredentialProvider, createMemorySecurityStore } from '@locus/core'
-import { api, component, createRemoteTargetsService } from '../lib/index.js'
+import { api, component, createRemoteTargetsService, RemoteTargetsFailure, targetBinding } from '../lib/index.js'
 
 const ROOT_PASSWORD = 'isolated-root'
 const CREDENTIAL = 'credential:target-a'
@@ -26,15 +26,20 @@ function passwordSpec(credential = 'credential:target-pw') {
 /** 把服务边界映射到组件能力：资源精确到目标，slot 决定 read 能力。 */
 function accessPort(port) {
   return {
-    withCredential(targetId, slot, credential, operation, consume) {
+    withCredential(targetId, slot, credential, expectedBinding, consume) {
       return port.execute({
         capability: slot === 'ssh-password' ? 'password-access' : 'private-key-access',
         resource: { type: 'remote-target', id: targetId },
-        parameters: { operation: operation.operation, command: [...operation.command] },
+        parameters: null,
       }, (context, snapshot) => {
         assert.equal(Object.isFrozen(snapshot), true)
         assert.equal(snapshot.resource.type, 'remote-target')
-        return context.withCredential(slot, credential, consume)
+        return context.withCredential(slot, credential, (values) => {
+          if (values.targetBinding !== expectedBinding) {
+            throw new RemoteTargetsFailure('target-config-mismatch', '测试目标配置已变化')
+          }
+          return consume(values)
+        })
       })
     },
   }
@@ -102,7 +107,10 @@ test('实际 Core 精确绑定目标、普通 User 不认证，缺失与权限�
     await assert.rejects(operation, (error) => error.code === 'access-denied' && error.reason === 'credential-binding-mismatch')
   }
 
-  await f.register('register-private-key', RESOURCE_A, { credential: CREDENTIAL, privateKey: PRIVATE_KEY })
+  const bindingA = targetBinding(service.show('target-a'))
+  await f.register('register-private-key', RESOURCE_A, {
+    credential: CREDENTIAL, targetBinding: bindingA, privateKey: PRIVATE_KEY,
+  })
   const management = f.host.forSession(f.session)
   const bindings = await management.listBindings()
   assert.deepEqual(bindings.map(bindingText).sort(), [
@@ -111,7 +119,8 @@ test('实际 Core 精确绑定目标、普通 User 不认证，缺失与权限�
   ])
   const [metadata] = await management.listCredentials()
   assert.equal(metadata?.reference, CREDENTIAL)
-  assert.deepEqual(Object.keys(metadata?.fields ?? {}), [])
+  assert.deepEqual(Object.keys(metadata?.fields ?? {}), ['targetBinding'])
+  assert.equal(metadata.fields.targetBinding, bindingA)
 
   const installation = await f.core.security.status()
   const key = { service: `locus:${installation.installationId}:production`, account: 'target-a' }
@@ -119,9 +128,53 @@ test('实际 Core 精确绑定目标、普通 User 不认证，缺失与权限�
   await assert.rejects(() => service.exec('target-a', ['whoami']), (error) => error.code === 'credential-missing')
   assert.equal(started, false)
 
-  await f.register('register-private-key', RESOURCE_A, { credential: CREDENTIAL, privateKey: PRIVATE_KEY })
+  await f.register('register-private-key', RESOURCE_A, {
+    credential: CREDENTIAL, targetBinding: bindingA, privateKey: PRIVATE_KEY,
+  })
   const result = await service.exec('target-a', ['whoami'])
   assert.equal(result.exitCode, 0)
+  assert.equal(started, true)
+})
+
+test('目标安全配置变化后必须由 Root 重新登记绑定', async (t) => {
+  const f = fixture()
+  let started = false
+  const service = createRemoteTargetsService({
+    root: join(f.root, 'targets'),
+    security: accessPort(f.port),
+    runner: { async run() { started = true; return { exitCode: 0, stdout: 'authorized', stderr: '' } }, async interactive() { started = true; return 0 } },
+  })
+  t.after(async () => { service.dispose(); await f.close() })
+  await f.initialize()
+  service.add('target-a', targetSpec())
+  const binding = targetBinding(service.show('target-a'))
+  await f.register('register-private-key', RESOURCE_A, {
+    credential: CREDENTIAL, targetBinding: binding, privateKey: PRIVATE_KEY,
+  })
+  const first = await service.exec('target-a', ['whoami'])
+  assert.equal(first.exitCode, 0)
+  assert.equal(started, true)
+
+  started = false
+  service.remove('target-a')
+  service.add('target-a', {
+    ...targetSpec(),
+    connectivity: { ...targetSpec().connectivity, host: 'attacker.example' },
+  })
+  await assert.rejects(
+    () => service.exec('target-a', ['whoami']),
+    (error) => error instanceof RemoteTargetsFailure && error.code === 'target-config-mismatch',
+  )
+  assert.equal(started, false)
+
+  // Root 重新登记新的目标摘要后才恢复；不是普通请求参数可以绕过。
+  await f.register('register-private-key', RESOURCE_A, {
+    credential: CREDENTIAL,
+    targetBinding: targetBinding(service.show('target-a')),
+    privateKey: PRIVATE_KEY,
+  })
+  const approved = await service.exec('target-a', ['whoami'])
+  assert.equal(approved.exitCode, 0)
   assert.equal(started, true)
 })
 
@@ -145,7 +198,9 @@ test('密码槽经 Core 绑定，合并后的 password 字段进入临时文件'
   await f.initialize()
   service.add('target-pw', passwordSpec())
 
-  await f.register('register-password', { type: 'remote-target', id: 'target-pw' }, { credential: 'credential:target-pw', password: 'pw-secret' })
+  await f.register('register-password', { type: 'remote-target', id: 'target-pw' }, {
+    credential: 'credential:target-pw', targetBinding: targetBinding(service.show('target-pw')), password: 'pw-secret',
+  })
   const bindings = await f.host.forSession(f.session).listBindings()
   assert.deepEqual(bindings.map(bindingText).sort(), [
     'remote-targets:password-access:ssh-password:remote-target/target-pw',

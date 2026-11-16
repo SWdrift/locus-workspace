@@ -5,7 +5,7 @@ import { createServer } from 'node:net'
 import { tmpdir, userInfo } from 'node:os'
 import { join } from 'node:path'
 import { createLocusCore, createMemoryCredentialProvider, createMemorySecurityStore } from '@locus/core'
-import { api, component, createRemoteTargetsService } from '../lib/index.js'
+import { api, component, createRemoteTargetsService, targetBinding } from '../lib/index.js'
 
 const ROOT_PASSWORD = 'manual-ssh-root-password'
 const REFERENCE = 'credential:server-key'
@@ -79,26 +79,38 @@ try {
           }
         }
         /** Root 授权后经注册能力写入凭据，并为声明该槽的能力建立精确绑定。 */
-        async function register(resourceId, credential, privateKey) {
+        async function register(resourceId, credential, privateKey, binding) {
           return privileged(() => componentPort.execute({
             capability: 'register-private-key',
             resource: { type: 'remote-target', id: resourceId },
             parameters: {},
-          }, (context) => api['register-private-key'](context, { credential, privateKey })))
+          }, (context) => api['register-private-key'](context, { credential, targetBinding: binding, privateKey })))
         }
         const access = {
-          withCredential(targetId, slot, credential, operation, consume) {
+          withCredential(targetId, slot, credential, expectedBinding, consume) {
             return componentPort.execute({
               capability: 'private-key-access',
               resource: { type: 'remote-target', id: targetId },
-              parameters: { operation: operation.operation, command: [...operation.command] },
-            }, (context) => context.withCredential(slot, credential, consume))
+              parameters: null,
+            }, (context) => context.withCredential(slot, credential, (values) => {
+              assert.equal(values.targetBinding, expectedBinding)
+              return consume(values)
+            }))
           },
         }
-        await register('loopback', REFERENCE, readFileSync(userKey.path, 'utf8'))
+        const targetRoot = join(root, 'targets')
+        const targetSeed = createRemoteTargetsService({ root: targetRoot })
+        targetSeed.add('loopback', {
+          resource: { kind: 'server' },
+          identity: { login: userInfo().username, auth: { method: 'private-key', credential: REFERENCE } },
+          connectivity: { host: '127.0.0.1', port, trust: { knownHosts: 'trust/loopback/known_hosts' } },
+        })
+        const loopbackBinding = targetBinding(targetSeed.show('loopback'))
+        targetSeed.dispose()
+        await register('loopback', REFERENCE, readFileSync(userKey.path, 'utf8'), loopbackBinding)
         const observed = []
         const service = createRemoteTargetsService({
-          root: join(root, 'targets'),
+          root: targetRoot,
           security: access,
           runner: {
             async run(command, args, options) {
@@ -114,14 +126,8 @@ try {
           },
         })
         cleanup.push(() => service.dispose())
-        const targetRoot = join(root, 'targets')
-        service.add('loopback', {
-          resource: { kind: 'server' },
-          identity: { login: userInfo().username, auth: { method: 'private-key', credential: REFERENCE } },
-          connectivity: { host: '127.0.0.1', port, trust: { knownHosts: 'credentials/loopback/known_hosts' } },
-        })
-        mkdirSync(join(targetRoot, 'credentials', 'loopback'), { recursive: true })
-        writeFileSync(join(targetRoot, 'credentials', 'loopback', 'known_hosts'), `[127.0.0.1]:${port} ${hostKey.publicKey}`)
+        mkdirSync(join(targetRoot, 'trust', 'loopback'), { recursive: true })
+        writeFileSync(join(targetRoot, 'trust', 'loopback', 'known_hosts'), `[127.0.0.1]:${port} ${hostKey.publicKey}`)
         const probe = await service.probe('loopback')
         assert.equal(probe.ok, true)
         const executed = await service.exec('loopback', ['whoami'])
@@ -135,20 +141,24 @@ try {
         report.temporaryKeyRemoved = true
         // 错误私钥必须被拒绝。
         const wrongCredential = 'credential:wrong-key'
-        await register('wrong', wrongCredential, readFileSync(wrongKey.path, 'utf8'))
+        const wrongRoot = join(root, 'wrong-targets')
+        const wrongSeed = createRemoteTargetsService({ root: wrongRoot })
+        wrongSeed.add('wrong', {
+          resource: { kind: 'server' },
+          identity: { login: userInfo().username, auth: { method: 'private-key', credential: wrongCredential } },
+          connectivity: { host: '127.0.0.1', port, trust: { knownHosts: 'trust/wrong/known_hosts' } },
+        })
+        const wrongBinding = targetBinding(wrongSeed.show('wrong'))
+        wrongSeed.dispose()
+        await register('wrong', wrongCredential, readFileSync(wrongKey.path, 'utf8'), wrongBinding)
         const wrongService = createRemoteTargetsService({
-          root: join(root, 'wrong-targets'),
+          root: wrongRoot,
           security: access,
           runner: { async run(command, args, options) { const { createProcessRunner } = await import('../lib/ssh.js'); return createProcessRunner().run(command, args, options) }, async interactive() { return 1 } },
         })
         cleanup.push(() => wrongService.dispose())
-        wrongService.add('wrong', {
-          resource: { kind: 'server' },
-          identity: { login: userInfo().username, auth: { method: 'private-key', credential: wrongCredential } },
-          connectivity: { host: '127.0.0.1', port, trust: { knownHosts: 'credentials/wrong/known_hosts' } },
-        })
-        mkdirSync(join(root, 'wrong-targets', 'credentials', 'wrong'), { recursive: true })
-        writeFileSync(join(root, 'wrong-targets', 'credentials', 'wrong', 'known_hosts'), `[127.0.0.1]:${port} ${hostKey.publicKey}`)
+        mkdirSync(join(wrongRoot, 'trust', 'wrong'), { recursive: true })
+        writeFileSync(join(wrongRoot, 'trust', 'wrong', 'known_hosts'), `[127.0.0.1]:${port} ${hostKey.publicKey}`)
         const rejected = await wrongService.exec('wrong', ['whoami'])
         assert.notEqual(rejected.exitCode, 0)
         report.wrongKeyRejected = true

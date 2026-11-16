@@ -19,16 +19,20 @@ function loadEnvironment(): void {
   }
 }
 
-/** 先解析受限 Profile 再装配 Core；帮助与未知命令不会打开安全存储。 */
-function parseProfile(argv: readonly string[]): 'production' | 'development' {
+/** 先解析受限全局选项再装配 Core；帮助与未知命令不会打开安全存储。 */
+function parseGlobalOptions(argv: readonly string[]): {
+  profile: 'production' | 'development'
+  grantScope: 'operation' | 'session'
+} {
   const parser = new Command()
     .helpOption(false)
     .allowUnknownOption()
     .allowExcessArguments()
     .addOption(new Option('--profile <profile>').choices(['production', 'development']).default('production'))
+    .addOption(new Option('--grant-scope <scope>').choices(['operation', 'session']).default('operation'))
     .exitOverride()
   parser.parse([...argv], { from: 'user' })
-  return parser.opts<{ profile: 'production' | 'development' }>().profile
+  return parser.opts<{ profile: 'production' | 'development'; grantScope: 'operation' | 'session' }>()
 }
 
 /** production 仍由 Core 按原规则解析；development 使用其目录下的独立子目录。 */
@@ -50,14 +54,18 @@ async function main(argv: readonly string[]): Promise<number> {
   let locus: LocusCore | undefined
   try {
     loadEnvironment()
-    const profile = parseProfile(argv)
+    const { profile, grantScope } = parseGlobalOptions(argv)
     let host: SecurityHost | undefined
     locus = createLocusCore({
       ...(profile === 'development' ? { dataDirectory: developmentDataDirectory() } : {}),
       components: [templatesComponent, remoteTargetsComponent, postgresComponent, giteaComponent],
       security: { profile, receiveHost(value) { host = value } },
     })
-    const program = createProgram(locus, { profile, ...(host === undefined ? {} : { host }) })
+    const program = createProgram(locus, {
+      profile,
+      grantScope,
+      ...(host === undefined ? {} : { host }),
+    })
     program.exitOverride()
     await program.parseAsync([...argv], { from: 'user' })
     return typeof process.exitCode === 'number' ? process.exitCode : 0

@@ -1,17 +1,18 @@
-import { parseCredentialRef } from '@locus/config-reference'
-import { defineComponent } from '@locus/core'
+import { defineComponent, parseCredentialRef } from '@locus/core'
 import type { CapabilityHandler, CredentialRef } from '@locus/core'
 import { createRemoteTargetsService } from './service.ts'
 import { RemoteTargetsFailure } from './types.ts'
 
 export interface RemoteRegisterPrivateKeyInput {
   readonly credential: CredentialRef
+  readonly targetBinding: string
   readonly privateKey: string
   readonly passphrase?: string
 }
 
 export interface RemoteRegisterPasswordInput {
   readonly credential: CredentialRef
+  readonly targetBinding: string
   readonly password: string
 }
 
@@ -25,6 +26,7 @@ export interface RemoteAccessInput {
 const registerPrivateKey: CapabilityHandler<RemoteRegisterPrivateKeyInput, { readonly registered: true }> = async (context, input) => {
   const reference = parseCredentialRef(input.credential)
   await context.registerCredential('ssh-private-key', reference, {
+    targetBinding: input.targetBinding,
     privateKey: input.privateKey,
     ...(input.passphrase === undefined ? {} : { passphrase: input.passphrase }),
   })
@@ -33,7 +35,10 @@ const registerPrivateKey: CapabilityHandler<RemoteRegisterPrivateKeyInput, { rea
 
 const registerPassword: CapabilityHandler<RemoteRegisterPasswordInput, { readonly registered: true }> = async (context, input) => {
   const reference = parseCredentialRef(input.credential)
-  await context.registerCredential('ssh-password', reference, { password: input.password })
+  await context.registerCredential('ssh-password', reference, {
+    targetBinding: input.targetBinding,
+    password: input.password,
+  })
   return { registered: true }
 }
 
@@ -42,14 +47,28 @@ function access(slot: 'ssh-private-key' | 'ssh-password'): CapabilityHandler<Rem
     const service = createRemoteTargetsService({
       root: input.root,
       security: {
-        withCredential: (_targetId, requestedSlot, credential, _operation, consume) => {
+        withCredential: (targetId, requestedSlot, credential, expectedBinding, consume) => {
+          if (targetId !== input.target) {
+            return Promise.reject(new RemoteTargetsFailure(
+              'invalid-spec',
+              `目标身份不一致：${targetId} != ${input.target}`,
+            ))
+          }
           if (requestedSlot !== slot) {
             return Promise.reject(new RemoteTargetsFailure(
               'invalid-spec',
               `目标认证方式与能力不匹配：需要 ${slot}，实际 ${requestedSlot}`,
             ))
           }
-          return context.withCredential(slot, credential, consume)
+          return context.withCredential(slot, credential, (values) => {
+            if (values.targetBinding !== expectedBinding) {
+              return Promise.reject(new RemoteTargetsFailure(
+                'target-config-mismatch',
+                `目标 ${input.target} 配置已变化；需要 Root 重新登记或确认`,
+              ))
+            }
+            return consume(values)
+          })
         },
       },
     })
@@ -67,7 +86,7 @@ function access(slot: 'ssh-private-key' | 'ssh-password'): CapabilityHandler<Rem
 
 export const remoteTargets = defineComponent({
   id: 'remote-targets',
-  version: '3',
+  version: '4',
   name: '远程目标',
   summary: '登记并通过 SSH 访问远程目标',
   kind: 'locus',
@@ -107,6 +126,7 @@ export const remoteTargets = defineComponent({
     {
       id: 'ssh-private-key',
       fields: [
+        { name: 'targetBinding', secret: false, required: true },
         { name: 'privateKey', secret: true, required: true },
         { name: 'passphrase', secret: true, required: false },
       ],
@@ -114,6 +134,7 @@ export const remoteTargets = defineComponent({
     {
       id: 'ssh-password',
       fields: [
+        { name: 'targetBinding', secret: false, required: true },
         { name: 'password', secret: true, required: true },
       ],
     },

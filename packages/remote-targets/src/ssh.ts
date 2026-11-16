@@ -75,7 +75,7 @@ export function buildSshInvocation(
 
   const knownHosts = resolveUnderRoot(
     root,
-    connectivity.trust?.knownHosts ?? `credentials/${target.id}/known_hosts`,
+    connectivity.trust?.knownHosts ?? `trust/${target.id}/known_hosts`,
   )
   const strict = connectivity.trust?.knownHosts === undefined ? 'accept-new' : 'yes'
   const args = [

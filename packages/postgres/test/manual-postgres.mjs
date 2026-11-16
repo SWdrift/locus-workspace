@@ -72,12 +72,19 @@ try {
     }
     await privileged(() => security.execute(
       { capability: 'register', resource: RESOURCE, parameters: {} },
-      (context) => api.register(context, { credential: REFERENCE, username: 'locus_app', password: APP_PASSWORD }),
+      (context) => api.register(context, {
+        credential: REFERENCE,
+        host: '127.0.0.1',
+        port: String(port),
+        database: 'locus_app',
+        username: 'locus_app',
+        password: APP_PASSWORD,
+      }),
     ))
     const result = await security.execute(
       { capability: 'list', resource: RESOURCE, parameters: {} },
       (context) => api.list(context, {
-        config: { host: '127.0.0.1', port, database: 'locus_app', credential: REFERENCE },
+        credential: REFERENCE,
         sql: 'select current_user as user, 1 as value',
       }),
     )

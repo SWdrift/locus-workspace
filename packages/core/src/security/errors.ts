@@ -31,6 +31,7 @@ const ACCESS_DENIED_REASONS = [
   'undeclared-capability',
   'resource-mismatch',
   'credential-binding-mismatch',
+  'credential-reference-owned',
   'credential-declaration-mismatch',
   'invalid-request',
   'invalid-session',

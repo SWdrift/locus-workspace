@@ -1,14 +1,18 @@
 import { emitKeypressEvents } from 'node:readline'
 import type { Key } from 'node:readline'
 import type { ReadStream, WriteStream } from 'node:tty'
-import { SecurityFailure } from '@locus/core'
-import type { CapabilityAuthority, CapabilityContext, ClearCapabilityLevelInput, ComponentSpec, CredentialBinding, CredentialCleanupResult, CredentialMetadata, CredentialRef, CredentialStatus, HostSecurity, SecurityHost, SecurityParameters, SecurityResource, SetCapabilityLevelInput } from '@locus/core'
+import { parseCredentialRef, SecurityFailure } from '@locus/core'
+import type { CapabilityAuthority, CapabilityContext, ClearCapabilityLevelInput, ComponentSpec, CredentialBinding, CredentialCleanupResult, CredentialMetadata, CredentialRef, CredentialStatus, HostSecurity, SecurityGrantScope, SecurityHost, SecurityParameters, SecurityResource, SetCapabilityLevelInput } from '@locus/core'
 
 /** 仅可信 CLI 组合根注入；普通组件不持有输入端口。 */
 export interface CliSecurityUI {
   readonly interactive: boolean
   readSecret(prompt: string): Promise<string>
   confirmLocalTakeover(warning: string): Promise<boolean>
+}
+
+export interface CliSecurityHostOptions {
+  readonly grantScope?: SecurityGrantScope
 }
 
 const RESET_WARNING = '警告：重置 Root 相当于本机管理接管，无需旧密码。此操作将替换 Root 验证材料、清除锁定并撤销旧授权；不会删除 Workspace，也不会删除或恢复资源凭据。同一 OS 用户仍可绕过本地软件边界。'
@@ -111,15 +115,16 @@ export function createTerminalSecurityUI(input: ReadStream = process.stdin, outp
 }
 
 function credentialReference(reference: string): CredentialRef {
-  if (!/^credential:[a-z][a-z0-9-]*$/.test(reference)) throw new SecurityFailure('access-denied', { reason: 'invalid-request' })
-  return reference as CredentialRef
+  return parseCredentialRef(reference)
 }
 
 /** Host 只来自 receiveHost 闭包；返回的命令编排不提供读取原始秘密的入口。 */
 export function createCliSecurityHost(
   host: SecurityHost,
   ui: CliSecurityUI = createTerminalSecurityUI(),
+  options: CliSecurityHostOptions = {},
 ) {
+  const grantScope = options.grantScope ?? 'operation'
   function requireInteractive(): void {
     if (!ui.interactive) throw new SecurityFailure('authentication-unavailable')
   }
@@ -148,8 +153,9 @@ export function createCliSecurityHost(
       let authenticated = false
       try {
         requireInteractive()
-        password = await ui.readSecret('Root 密码：')
-        const grant = await host.authenticate(challenge, password)
+        const label = `${challenge.componentId}:${challenge.capability} ${challenge.resource.type}/${challenge.resource.id}`
+        password = await ui.readSecret(`Root 密码（授权 ${label}）：`)
+        const grant = await host.authenticate(challenge, password, grantScope)
         password = ''
         authenticated = true
         // 只消费 Core 保存的原闭包，绝不再次提交可替换的动作或参数。

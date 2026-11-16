@@ -64,8 +64,8 @@ function approved(overrides = {}) {
   const calls = []
   return {
     calls,
-    async withCredential(targetId, slot, credential, operation, consume) {
-      calls.push({ targetId, slot, credential, operation })
+    async withCredential(targetId, slot, credential, _binding, consume) {
+      calls.push({ targetId, slot, credential })
       if (credential === 'credential:missing') throw new RemoteTargetsFailure('credential-missing', '测试用缺失凭据')
       const defaults = slot === 'ssh-password' ? { password: 'password-value' } : { privateKey: 'key-value' }
       return consume({ ...defaults, ...overrides })
@@ -108,8 +108,8 @@ test('登记、列举、按前缀查看与移除目标，默认值可预测', (t
   assert.equal(added.connectivity.remoteShell, 'cmd')
   assert.deepEqual(added.access.capabilities, ['exec', 'shell'])
   assert.equal(existsSync(join(root, 'targets.yaml')), true)
-  assert.equal(existsSync(join(root, 'credentials', 'win-x')), true)
-  assert.equal(existsSync(join(root, 'credentials', 'win-x', 'id_ed25519')), false)
+  assert.equal(existsSync(join(root, 'trust', 'win-x')), true)
+  assert.equal(existsSync(join(root, 'trust', 'win-x', 'id_ed25519')), false)
 
   assert.equal(service.list().length, 1)
   assert.equal(service.show('win').id, 'win-x')
@@ -183,7 +183,7 @@ test('密钥认证使用 OpenSSH 参数，显式 known_hosts 开启严格校验'
   assert.ok(invocation.args.includes('StrictHostKeyChecking=accept-new'))
   assert.equal(invocation.args.at(-1), 'whoami')
 
-  const strict = service.add('strict', spec({ trust: { knownHosts: 'credentials/strict/known_hosts' } }))
+  const strict = service.add('strict', spec({ trust: { knownHosts: 'trust/strict/known_hosts' } }))
   const strictInvocation = buildSshInvocation(strict, root, [], path)
   assert.ok(strictInvocation.args.includes('StrictHostKeyChecking=yes'))
   assert.equal(strictInvocation.args.at(-1), '127.0.0.1')
@@ -220,7 +220,6 @@ test('exec 通过 Core 交付临时凭据并在结束后清理，退出码与输
     targetId: 'win-x',
     slot: 'ssh-private-key',
     credential: 'credential:test-key',
-    operation: { operation: 'exec', command: ['whoami'] },
   }])
   assert.equal(runner.calls.length, 1)
   assert.equal(runner.calls[0].args.at(-1), 'whoami')
@@ -246,7 +245,6 @@ test('密码槽交付 password 字段，临时文件在结束后清理', async (
     targetId: 'pw',
     slot: 'ssh-password',
     credential: 'credential:test-password',
-    operation: { operation: 'exec', command: ['uname'] },
   }])
   assert.equal(runner.calls[0].command, 'plink.exe')
   assert.equal(runner.calls[0].args.at(-1), `'uname'`)

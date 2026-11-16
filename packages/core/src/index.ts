@@ -14,6 +14,7 @@ import type { LocusCore, LocusInfo } from './types.ts'
 export { LOCUS_VERSION } from './version.generated.ts'
 export { ComponentFailure, defineComponent, parseComponent } from './components/spec.ts'
 export { CapabilityFailure, SecurityFailure } from './security/errors.ts'
+export { isCredentialRef, parseCredentialRef } from './security/policy.ts'
 export { createMemoryCredentialProvider, createMemorySecurityStore } from './security/provider.ts'
 export { createSqliteSecurityStore } from './security/sqlite-store.ts'
 export { createKeyringCredentialProvider } from './security/keyring-provider.ts'
@@ -38,6 +39,7 @@ export type {
   RootPasswordVerifier,
   SecurityChallenge,
   SecurityGrant,
+  SecurityGrantScope,
   SecurityHost,
   SecurityInstallation,
   SecurityLevel,

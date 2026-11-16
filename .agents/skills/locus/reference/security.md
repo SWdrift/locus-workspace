@@ -17,14 +17,14 @@ status 不输出 Root 验证材料；list/bindings 只输出公开字段、slot 
 ## 组件命令
 
 ```sh
-locus pg register production --username app --credential credential:pg-production
-locus pg list production --host 127.0.0.1 --database app --credential credential:pg-production
+locus pg register production --host 127.0.0.1 --database app --username app --credential credential:pg-production
+locus pg list production --credential credential:pg-production
 locus remote-targets add win-x --spec target.json --file /absolute/selected-key
 locus remote-targets update-credential win-x --credential credential:server-key --method private-key --file /absolute/selected-key
 locus remote-targets update-credential win-x --credential credential:server-password --method password
 ```
 
-`pg register` 与 `remote-targets add/update-credential` 在 Root 批准后隐藏输入密码；私钥必须通过受控文件提供。`pg list` 与远程访问是 User 级，不触发 Root。不要替用户读取或输出秘密内容，不要把秘密放入 argv、环境变量或 `.env`。
+`pg register` 与 `remote-targets add/update-credential` 在 Root 批准后隐藏输入密码并固定目标；`pg list` 与远程访问是 User 级，不触发 Root，也不能替换登记目标。不要替用户读取或输出秘密内容，不要把秘密放入 argv、环境变量或 `.env`。
 
 ## 可信本地交互
 

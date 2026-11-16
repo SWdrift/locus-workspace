@@ -22,7 +22,7 @@
 
 - `<dataDirectory>/remote-targets/targets.yaml`：唯一可编辑真源，保存全部目标定义。
 - `<dataDirectory>/remote-targets/state.sqlite`：只保存最近一次探测结果，可删除并重建。
-- `<dataDirectory>/remote-targets/credentials/<id>/`：仅保存 `known_hosts` 等公开材料；`add` 创建目录但不创建秘密文件。
+- `<dataDirectory>/remote-targets/trust/<id>/`：仅保存 `known_hosts` 等公开材料；`add` 创建目录但不创建秘密文件。
 - 资源秘密保存在 OS Keyring；SQLite 只保存 CredentialRef 元数据与组件／能力／资源绑定。
 
 目标根目录由 CLI 从 Core 的 `dataDirectory` 派生，不在模块内推断默认位置。写入使用临时文件 + rename；读取时校验字段、id 唯一性、CredentialRef 格式与路径是否逃逸凭据根。
@@ -47,7 +47,8 @@
 - 传输组件未登记或状态非 `healthy` 时在连接前失败，不静默改用其他客户端。
 - 传输只调用系统 OpenSSH/Plink，不实现协议；主机密钥默认写入凭据根下的 `known_hosts`，密码认证必须钉死指纹。
 - 秘密值不进入配置、SQLite、输出或命令行参数；SSH 只接收受限临时文件路径。
-- 临时凭据目录在成功、异常、超时与取消后清理；不维护 lease、PID 追踪或崩溃恢复平台。
+- Core 在凭据公开字段保存目标安全配置摘要 `targetBinding`；host/port/login、能力、客户端、remoteShell 与 trust 锚变化后，访问在启动客户端前以 `target-config-mismatch` 失败，需 Root 重新确认。
+- 临时凭据目录在正常或异常返回后清理，probe 超时同样清理；exec/shell 未接取消信号，强杀可能残留同用户临时文件；不维护 lease、PID 追踪或崩溃恢复平台。
 
 ## 失败边界
 

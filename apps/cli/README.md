@@ -42,14 +42,14 @@ pnpm locus shell <workspace>
 
 ## 安全 Host 与 Profile
 
-仓库根 `.env` 是测试夹具，当前设置 `LOCUS_HOME=temp`、`LOCUS_FOLDER_NAME=.locus`；从仓库根运行命令时，测试数据目录就是 `temp/.locus`。CLI 加载该文件时已存在的环境变量优先。手工验证如果改用其他数据目录，应显式覆盖这两个变量或切换 CWD；不同初始化路径出现的 `security-uninitialized` 不是 Core 故障。
+仓库根 `.env` 不再随开发环境提供；开发 shell 使用 `.env.dev`（`LOCUS_HOME=temp`、`LOCUS_FOLDER_NAME=.locus`），由 bash/cmd 先加载，CLI 自身不读取 `.env.dev`。手工验证如果改用其他数据目录，应显式覆盖这两个变量或切换 CWD；不同初始化路径出现的 `security-uninitialized` 不是 Core 故障。开发环境变量与 Root 脚本约定见[开发与验证](../../docs/development.md)。
 
 
-CLI 组合根只通过 Core 的 receiveHost 回调取得可信管理端口；组件不能接管输入或伪造认证成功。TTY 输入隐藏，Ctrl+C 取消并恢复终端；Core 不读 stdin。Root 认证后只用 resume(grant) 执行原操作，不能替换参数。当前只支持单次操作授权，没有 `--grant-scope` 或 Session Grant。安全失败退出 2，`--json` stdout 含固定 code／可选 reason，诊断写 stderr，不输出秘密或后端异常对象。
+CLI 组合根只通过 Core 的 receiveHost 回调取得可信管理端口；组件不能接管输入或伪造认证成功。TTY 输入隐藏，Ctrl+C 取消并恢复终端；Core 不读 stdin。Root 认证后只用 resume(grant) 执行原操作，不能替换参数。`--grant-scope operation|session` 默认 operation；session 只在当前真实 Session 内复用，Session 结束、Root 重置或 Host 关闭即失效，不跨进程。CLI 每条命令创建并结束 Session，因此 session scope 不跨命令生效；复用要等常驻 Host。安全失败退出 2，`--json` stdout 含固定 code／可选 reason，诊断写 stderr，不输出秘密或后端异常对象。
 
 全局 `--profile production|development` 默认 production，原有 LOCUS_HOME 解析保持不变；development 使用生产解析目录下的 `profiles/development/`，包含独立 SQLite 与安装 UUID，Keyring 命名空间也独立。Profile 名和 LOCUS_HOME 不是 OS 级隔离；真实 Keyring 测试另需独立 OS 账户。
 
-`init`、`security reset-root/change-root-password`、`security capability set/reset`、`credential remove/status/cleanup` 是可信交互入口。`pg register/list` 当前只服务临时 PostgreSQL 验证消费者，验证完成后与包一起移除。`pg register` 通过组件能力登记字段并隐藏输入密码；`pg list` 以 User 级读取绑定字段。`credential list` 与 `credential bindings` 只查询公开 metadata，不读取秘密；`credential cleanup` 只按当前精确 service 报告或删除未登记元数据的孤立账户；没有 `credential put/bind`，也没有 get-secret。完整命令和成功判据由[命令手册](../../docs/commands.md#安全与凭据)维护，模型和恢复后果见[安全子系统](../../docs/subsystems/core-security.md)。
+`init`、`security reset-root/change-root-password`、`security capability set/reset`、`credential remove/status/cleanup` 是可信交互入口。`pg register/list` 当前只服务临时 PostgreSQL 验证消费者，验证完成后与包一起移除。`pg register` 通过组件能力登记目标与字段并隐藏输入密码；`pg list` 以 User 级读取登记时固定的目标与绑定字段，调用者不能再指定 host、port 或 database。`credential list` 与 `credential bindings` 只查询公开 metadata，不读取秘密；`credential cleanup` 只按当前精确 service 报告或删除未登记元数据的孤立账户；没有 `credential put/bind`，也没有 get-secret。完整命令和成功判据由[命令手册](../../docs/commands.md#安全与凭据)维护，模型和恢复后果见[安全子系统](../../docs/subsystems/core-security.md)。
 
 ## 项目模板
 
@@ -59,7 +59,7 @@ CLI 组合根只通过 Core 的 receiveHost 回调取得可信管理端口；组
 
 `locus remote-targets ...`（别名 `rt`）把目标登记与访问交给 `@locus/remote-targets`。定义保存在 `<dataDirectory>/remote-targets/targets.yaml`，探测结果保存在同目录 `state.sqlite`；CLI 只读取 `--spec` 并渲染结果，不解析目标字段。
 
-`add --spec <file|->` 接受 YAML 或 JSON，要求在 Root 批准后同时写入配置与凭证字段；`update-credential` 只更新凭证；`migrate` 显式导入旧文件后改写配置；`probe` 成功退出 0、失败退出 1；`exec` 与 `shell` 的远端退出码原样返回。命令语法见[命令手册](../../docs/commands.md#远程目标)，字段、默认值与失败码见 [Remote Targets](../../packages/remote-targets/README.md)。
+`add --spec <file|->` 接受 YAML 或 JSON，要求在 Root 批准后同时写入配置与凭证字段；`update-credential` 只更新凭证并重新确认目标安全摘要；`migrate` 显式导入旧文件后改写配置；目标 host/port/login、能力、客户端或信任锚变化后访问以 `target-config-mismatch` 失败，需 Root 重新 `update-credential` 或重新登记；`probe` 成功退出 0、失败退出 1；`exec` 与 `shell` 的远端退出码原样返回。命令语法见[命令手册](../../docs/commands.md#远程目标)，字段、默认值与失败码见 [Remote Targets](../../packages/remote-targets/README.md)。
 
 ## 组件
 
@@ -80,7 +80,7 @@ CLI 组合根只通过 Core 的 receiveHost 回调取得可信管理端口；组
 
 ## 数据与生命周期
 
-CLI 启动时读取工作目录下的 `.env`，已存在的环境变量优先；`version` 与 `--help` 不创建目录或数据库。数据目录由 `LOCUS_HOME`（可为相对，按工作目录解析）与 `LOCUS_FOLDER_NAME`（数据文件夹名，缺省 `.locus-workspace`）决定，完整规则由 [Core](../../packages/core/README.md#使用)维护。组件定义位于数据目录的 `components/`，Remote Targets 使用 `remote-targets/` 子目录。持久化、版本、备份与恢复由 [Core](../../packages/core/README.md#持久化与恢复)维护，CLI 不复制这些规则。
+CLI 启动时只读取工作目录下可选的 `.env`（如存在），已存在的环境变量优先；仓库开发环境改用 shell 加载 `.env.dev`；`version` 与 `--help` 不创建目录或数据库。数据目录由 `LOCUS_HOME`（可为相对，按工作目录解析）与 `LOCUS_FOLDER_NAME`（数据文件夹名，缺省 `.locus-workspace`）决定，完整规则由 [Core](../../packages/core/README.md#使用)维护。组件定义位于数据目录的 `components/`，Remote Targets 使用 `remote-targets/` 子目录。持久化、版本、备份与恢复由 [Core](../../packages/core/README.md#持久化与恢复)维护，CLI 不复制这些规则。
 
 ## 验证
 

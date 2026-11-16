@@ -48,8 +48,6 @@ importers:
         specifier: ^15.0.0
         version: 15.0.0
 
-  packages/config-reference: {}
-
   packages/core:
     dependencies:
       '@napi-rs/keyring':
@@ -64,18 +62,12 @@ importers:
 
   packages/gitea:
     dependencies:
-      '@locus/config-reference':
-        specifier: workspace:*
-        version: link:../config-reference
       '@locus/core':
         specifier: workspace:*
         version: link:../core
 
   packages/postgres:
     dependencies:
-      '@locus/config-reference':
-        specifier: workspace:*
-        version: link:../config-reference
       '@locus/core':
         specifier: workspace:*
         version: link:../core
@@ -85,9 +77,6 @@ importers:
 
   packages/remote-targets:
     dependencies:
-      '@locus/config-reference':
-        specifier: workspace:*
-        version: link:../config-reference
       '@locus/core':
         specifier: workspace:*
         version: link:../core

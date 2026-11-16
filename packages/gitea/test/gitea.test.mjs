@@ -10,20 +10,21 @@ import { api, component, createGiteaRequester } from '../lib/index.js'
 const PASSWORD = 'isolated-root-password'
 const TOKEN = 'gitea-sentinel-token'
 const REFERENCE = 'credential:gitea-local'
+const OTHER_REFERENCE = 'credential:gitea-other'
 const RESOURCE = { type: 'gitea', id: 'local' }
 
-function request(capability = 'request') {
-  return { capability, resource: RESOURCE, parameters: null }
+function request(capability = 'request', resource = RESOURCE) {
+  return { capability, resource, parameters: null }
 }
 
 /** register 是 root 能力：先捕获挑战，认证后由 Core 恢复同一闭包。 */
-async function register(host) {
+async function register(host, origin, reference = REFERENCE, resource = RESOURCE) {
   const session = host.createSession('agent')
   const port = host.bindComponent(session, component)
   let challenge
   try {
-    await port.execute(request('register'), (context) => api.register(context, {
-      credential: REFERENCE, token: TOKEN,
+    await port.execute(request('register', resource), (context) => api.register(context, {
+      credential: reference, origin, token: TOKEN,
     }))
   } catch (error) {
     if (error.code !== 'authentication-required') throw error
@@ -46,11 +47,11 @@ async function fixture(t) {
   return { core, host }
 }
 
-/** 每次请求都经组件 request 能力授权，凭据由 Core 注入。 */
-function requester(port, origin, { reference = REFERENCE, fetcher } = {}) {
+/** 每次请求都经组件 request 能力授权；origin 来自 Core 绑定字段。 */
+function requester(port, { reference = REFERENCE, fetcher, resource = RESOURCE } = {}) {
   return {
-    request: (path, init) => port.execute(request(), (context) => (
-      createGiteaRequester(context, reference, origin, fetcher).request(path, init)
+    request: (path, init) => port.execute(request('request', resource), (context) => (
+      createGiteaRequester(context, reference, fetcher).request(path, init)
     )),
   }
 }
@@ -66,9 +67,8 @@ async function server(t, handler) {
   return `http://127.0.0.1:${port}`
 }
 
-test('Gitea 只向绑定 origin 交付 Authorization，重定向不转发认证', async (t) => {
+test('Gitea 只向登记 origin 交付 Authorization，重定向不转发认证', async (t) => {
   const setup = await fixture(t)
-  const { port } = await register(setup.host)
   const seen = []
   let otherHits = 0
   const other = await server(t, (_request, response) => { otherHits += 1; response.end('other') })
@@ -91,7 +91,8 @@ test('Gitea 只向绑定 origin 交付 Authorization，重定向不转发认证'
     }
     response.end('ok')
   })
-  const gitea = requester(port, origin)
+  const { port } = await register(setup.host, origin)
+  const gitea = requester(port)
   const response = await gitea.request('/api/v1/version')
   assert.equal(response.kind, 'response')
   assert.equal(await response.response.text(), 'ok')
@@ -107,10 +108,10 @@ test('Gitea 只向绑定 origin 交付 Authorization，重定向不转发认证'
 
 test('Gitea 交付后清除请求头中的 Authorization', async (t) => {
   const setup = await fixture(t)
-  const { port } = await register(setup.host)
+  const { port } = await register(setup.host, 'http://127.0.0.1:9')
   let delivered
   let sent
-  const gitea = requester(port, 'http://127.0.0.1:9', {
+  const gitea = requester(port, {
     fetcher: async (_url, init) => {
       delivered = init.headers
       sent = new Headers(init.headers).get('authorization')
@@ -124,7 +125,7 @@ test('Gitea 交付后清除请求头中的 Authorization', async (t) => {
   assert.equal(delivered.has('authorization'), false)
 
   let failed
-  const failing = requester(port, 'http://127.0.0.1:9', {
+  const failing = requester(port, {
     fetcher: async (_url, init) => {
       failed = init.headers
       throw new Error('network down')
@@ -136,9 +137,9 @@ test('Gitea 交付后清除请求头中的 Authorization', async (t) => {
 
 test('Gitea 拒绝其他 origin、调用方 Authorization 与错误凭据引用', async (t) => {
   const setup = await fixture(t)
-  const { port } = await register(setup.host)
   const origin = await server(t, (_request, response) => response.end('ok'))
-  const gitea = requester(port, origin)
+  const { port } = await register(setup.host, origin)
+  const gitea = requester(port)
   await assert.rejects(
     () => gitea.request('http://127.0.0.1:1/api'),
     (error) => error.code === 'access-denied' && error.reason === 'resource-mismatch',
@@ -147,7 +148,7 @@ test('Gitea 拒绝其他 origin、调用方 Authorization 与错误凭据引用'
     () => gitea.request('/api', { headers: { Authorization: 'Bearer caller-supplied' } }),
     (error) => error.code === 'access-denied' && error.reason === 'resource-mismatch',
   )
-  const otherRef = requester(port, origin, { reference: 'credential:other' })
+  const otherRef = requester(port, { reference: OTHER_REFERENCE })
   await assert.rejects(
     () => otherRef.request('/api'),
     (error) => error.code === 'access-denied' && error.reason === 'credential-binding-mismatch',
@@ -156,16 +157,18 @@ test('Gitea 拒绝其他 origin、调用方 Authorization 与错误凭据引用'
 
 test('Gitea 将网络失败与认证失败分开', async (t) => {
   const setup = await fixture(t)
-  const { port } = await register(setup.host)
   const origin = await server(t, (_request, response) => response.end('ok'))
-  const opened = requester(port, origin)
+  const { port } = await register(setup.host, origin)
+  const opened = requester(port)
   const listener = createServer()
   const started = Promise.withResolvers()
   listener.listen(0, '127.0.0.1', started.resolve)
   await started.promise
   const { port: closedPort } = listener.address()
   await new Promise((resolve) => listener.close(resolve))
-  const closed = requester(port, `http://127.0.0.1:${closedPort}`)
+  const closedResource = { type: 'gitea', id: 'closed' }
+  const { port: closedBoundPort } = await register(setup.host, `http://127.0.0.1:${closedPort}`, OTHER_REFERENCE, closedResource)
+  const closed = requester(closedBoundPort, { reference: OTHER_REFERENCE, resource: closedResource })
   assert.deepEqual(await closed.request('/api'), { kind: 'network-failed' })
   const denied = await opened.request('/api')
   assert.equal(denied.kind, 'response')

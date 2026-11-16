@@ -228,7 +228,7 @@ test('add 经 Root 一次写入配置与密码凭据，update-credential 只更�
   assert.equal(added.error, undefined, added.stderr)
   assert.match(added.stdout, /已登记目标 pw-target（配置与凭证）/)
   assert.equal(addUI.prompts.length, 2)
-  assert.equal(addUI.prompts[0], 'Root 密码：')
+  assert.match(addUI.prompts[0], /^Root 密码（授权 remote-targets:register-password remote-target\/pw-target）：$/)
   assert.match(addUI.prompts[1], /SSH 密码/)
   for (const output of [added.stdout, added.stderr]) {
     assert.equal(output.includes('password-one'), false)
@@ -239,7 +239,7 @@ test('add 经 Root 一次写入配置与密码凭据，update-credential 只更�
   const config = readFileSync(targetsPath, 'utf8')
   assert.match(config, /id: pw-target/)
   assert.match(config, /credential:pw-target/)
-  assert.equal(existsSync(join(data, 'remote-targets', 'credentials', 'pw-target')), true)
+  assert.equal(existsSync(join(data, 'remote-targets', 'trust', 'pw-target')), true)
 
   const installation = await core.security.status()
   const key = { service: `locus:${installation.installationId}:production`, account: 'pw-target' }
@@ -256,7 +256,8 @@ test('add 经 Root 一次写入配置与密码凭据，update-credential 只更�
   ])
   assert.equal(metadataAfterAdd.length, 1)
   assert.equal(metadataAfterAdd[0].reference, 'credential:pw-target')
-  assert.deepEqual(Object.keys(metadataAfterAdd[0].fields), [])
+  assert.deepEqual(Object.keys(metadataAfterAdd[0].fields), ['targetBinding'])
+  assert.match(metadataAfterAdd[0].fields.targetBinding, /^[a-f0-9]{64}$/)
 
   const updateUI = trustedUI([ROOT_PASSWORD, 'password-two'])
   const updated = await invoke(core, [
@@ -279,7 +280,8 @@ test('add 经 Root 一次写入配置与密码凭据，update-credential 只更�
   assert.deepEqual(bindingSnapshot(bindingsAfterUpdate), bindingSnapshot(bindingsAfterAdd))
   assert.equal(metadataAfterUpdate.length, 1)
   assert.equal(metadataAfterUpdate[0].reference, 'credential:pw-target')
-  assert.deepEqual(Object.keys(metadataAfterUpdate[0].fields), [])
+  assert.deepEqual(Object.keys(metadataAfterUpdate[0].fields), ['targetBinding'])
+  assert.match(metadataAfterUpdate[0].fields.targetBinding, /^[a-f0-9]{64}$/)
 })
 
 test('migrate 经真实 Root 授权登记密码、建立绑定并改写目标，秘密不进入输出', async (t) => {
@@ -328,7 +330,8 @@ test('migrate 经真实 Root 授权登记密码、建立绑定并改写目标，
   ])
   assert.equal(credentials.length, 1)
   assert.equal(credentials[0].reference, 'credential:legacy-password')
-  assert.deepEqual(Object.keys(credentials[0].fields), [])
+  assert.deepEqual(Object.keys(credentials[0].fields), ['targetBinding'])
+  assert.match(credentials[0].fields.targetBinding, /^[a-f0-9]{64}$/)
 
   const shown = await invoke(core, ['--json', 'remote-targets', 'show', 'legacy'], { host })
   assert.equal(shown.error, undefined, shown.stderr)

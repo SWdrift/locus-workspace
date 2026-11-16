@@ -113,18 +113,13 @@ export interface ComponentGate {
 
 export type RemoteCredentialSlot = 'ssh-private-key' | 'ssh-password'
 
-export interface RemoteCredentialOperation {
-  readonly operation: 'probe' | 'exec' | 'shell'
-  readonly command: readonly string[]
-}
-
 /** 组合根注入 Core 授权与字段交付；组件状态与目标 access 不能代替它。 */
 export interface RemoteSecurity {
   withCredential<T>(
     targetId: string,
     slot: RemoteCredentialSlot,
     credential: CredentialRef,
-    operation: RemoteCredentialOperation,
+    targetBinding: string,
     consume: (values: CredentialValues) => Promise<T>,
   ): Promise<T>
 }
@@ -158,6 +153,7 @@ export type RemoteTargetsFailureCode =
   | 'credential-missing'
   | 'credential-too-large'
   | 'capability-unsupported'
+  | 'target-config-mismatch'
   | 'component-unavailable'
   | 'access-denied'
   | 'migration-required'

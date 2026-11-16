@@ -22,6 +22,11 @@ const CLI = fileURLToPath(new URL('../lib/index.js', import.meta.url))
 const ROOT_PASSWORD = 'Root-CLI隔离测试-2026'
 const NEW_PASSWORD = 'Root-CLI替换测试-2026'
 const SECRET = 'credential-CLI-sentinel-不得输出'
+const PG_TARGET = ['--host', '127.0.0.1', '--database', 'example']
+
+function pgRegisterArgs(resource, credential) {
+  return ['pg', 'register', resource, ...PG_TARGET, '--username', 'tester', '--credential', credential]
+}
 
 function failure(code) {
   return (error) => {
@@ -66,6 +71,7 @@ function fixture(t) {
   const events = []
   const sessions = []
   const challenges = []
+  const authentications = []
   const provider = {
     id: memory.id,
     get(key) { events.push('provider:get'); return memory.get(key) },
@@ -124,12 +130,16 @@ function fixture(t) {
         unbindCredential: record('request:unbind', port.unbindCredential),
       }
     },
-    authenticate(challenge, password) { events.push('authenticate'); return host.authenticate(challenge, password) },
+    authenticate(challenge, password, scope) {
+      events.push('authenticate')
+      authentications.push(scope)
+      return host.authenticate(challenge, password, scope)
+    },
     resume(grant) { events.push('resume'); return host.resume(grant) },
     cancelChallenge(challenge) { events.push('cancel'); return host.cancelChallenge(challenge) },
   }
   return {
-    root, core, host, observedHost, store, provider, memory, events, sessions, challenges,
+    root, core, host, observedHost, store, provider, memory, events, sessions, challenges, authentications,
     initialize: () => host.initializeRoot(ROOT_PASSWORD, ROOT_PASSWORD),
     key(reference) {
       const installation = store.transaction((transaction) => transaction.getInstallation())
@@ -292,10 +302,10 @@ test('createProgram通过receiveHost闭包编排真实scrypt，初始化、登�
 
   const registerUI = scriptedUI([ROOT_PASSWORD, SECRET])
   const stored = success(await invoke(t, f, [
-    '--json', 'pg', 'register', 'local', '--username', 'tester', '--credential', 'credential:cli-test',
+    '--json', ...pgRegisterArgs('local', 'credential:cli-test'),
   ], registerUI))
-  assert.deepEqual(stored, { resource: 'local', credential: 'credential:cli-test', registered: true })
-  assert.deepEqual(registerUI.prompts, ['Root 密码：', 'PostgreSQL 密码（隐藏输入）：'])
+  assert.deepEqual(stored, { resource: 'local', credential: 'credential:cli-test', host: '127.0.0.1', database: 'example', registered: true })
+  assert.deepEqual(registerUI.prompts, ['Root 密码（授权 postgres:register database/local）：', 'PostgreSQL 密码（隐藏输入）：'])
   assert.deepEqual(f.events, ['request:bind', 'request:execute', 'authenticate', 'resume', 'provider:set', 'provider:get'])
   assert.deepEqual(JSON.parse(await f.memory.get(f.key('credential:cli-test'))), { password: SECRET })
   assert.equal(f.sessions.every((session) => !session.active), true)
@@ -305,7 +315,7 @@ test('createProgram通过receiveHost闭包编排真实scrypt，初始化、登�
   assert.equal(listed.length, 1)
   assert.equal(listed[0].reference, 'credential:cli-test')
   assert.equal(listed[0].providerId, f.memory.id)
-  assert.deepEqual(listed[0].fields, { username: 'tester' })
+  assert.deepEqual(listed[0].fields, { host: '127.0.0.1', database: 'example', username: 'tester' })
   assert.equal('kind' in listed[0], false)
   assert.equal('secret' in listed[0], false)
   assert.deepEqual(f.events, beforeList)
@@ -373,7 +383,7 @@ test('change-root-password只恢复原密码变更，必须以旧Root认证，�
   failure('authentication-failed')(old.error)
   assert.equal(f.events.includes('provider:delete'), false)
   success(await invoke(t, f, [
-    '--json', 'pg', 'register', 'local', '--username', 'tester', '--credential', 'credential:new-root',
+    '--json', ...pgRegisterArgs('local', 'credential:new-root'),
   ], scriptedUI([NEW_PASSWORD, SECRET])))
   assert.deepEqual(JSON.parse(await f.memory.get(f.key('credential:new-root'))), { password: SECRET })
 })
@@ -382,7 +392,7 @@ test('reset-root必须明确确认本机接管，保留Workspace/凭据并使既
   const f = fixture(t)
   await f.initialize()
   success(await invoke(t, f, [
-    '--json', 'pg', 'register', 'local', '--username', 'tester', '--credential', 'credential:retained',
+    '--json', ...pgRegisterArgs('local', 'credential:retained'),
   ], scriptedUI([ROOT_PASSWORD, SECRET])))
   const workspace = f.core.workspaces.create('重置后仍保留')
   const session = f.host.createSession('human')
@@ -437,7 +447,7 @@ test('命令参数先验证ref与capability且不提供秘密导出或reset --ye
   assert.equal(f.events.length, 0)
   f.provider.get = async () => 'different-test-readback'
   const result = await invoke(t, f, [
-    '--json', 'pg', 'register', 'local', '--username', 'tester', '--credential', 'credential:unverified',
+    '--json', ...pgRegisterArgs('local', 'credential:unverified'),
   ], scriptedUI([ROOT_PASSWORD, SECRET]))
   failure('provider-unavailable')(result.error)
   assert.equal(result.stdout, '')
@@ -449,18 +459,18 @@ test('pg register 建立共享槽绑定，credential list/bindings/status 只输
   const f = fixture(t)
   await f.initialize()
   const missing = await invoke(t, f, [
-    '--json', 'pg', 'list', 'local', '--host', '127.0.0.1', '--database', 'example',
+    '--json', 'pg', 'list', 'local',
   ], scriptedUI([], true, false))
   assert.equal(missing.error.code, 'access-denied')
   assert.equal(missing.error.reason, 'credential-binding-mismatch')
   assert.deepEqual(success(await invoke(t, f, [
-    '--json', 'pg', 'register', 'local', '--username', 'tester', '--credential', 'credential:postgres-local',
+    '--json', ...pgRegisterArgs('local', 'credential:postgres-local'),
   ], scriptedUI([ROOT_PASSWORD, SECRET]))), {
-    resource: 'local', credential: 'credential:postgres-local', registered: true,
+    resource: 'local', credential: 'credential:postgres-local', host: '127.0.0.1', database: 'example', registered: true,
   })
   const listed = success(await invoke(t, f, ['--json', 'credential', 'list'], scriptedUI([], true, false)))
   assert.equal(listed.length, 1)
-  assert.deepEqual(listed[0].fields, { username: 'tester' })
+  assert.deepEqual(listed[0].fields, { host: '127.0.0.1', database: 'example', username: 'tester' })
   assert.equal('kind' in listed[0], false)
   const bindings = success(await invoke(t, f, ['--json', 'credential', 'bindings'], scriptedUI([], true, false)))
   assert.deepEqual(bindings.map((item) => `${item.componentId}:${item.capability}`), ['postgres:list', 'postgres:register'])
@@ -469,7 +479,7 @@ test('pg register 建立共享槽绑定，credential list/bindings/status 只输
   assert.equal(bindings.every((item) => item.reference === 'credential:postgres-local'), true)
   const status = success(await invoke(t, f, ['--json', 'credential', 'status', 'credential:postgres-local'], scriptedUI([ROOT_PASSWORD])))
   assert.equal(status.present, true)
-  assert.deepEqual(status.metadata.fields, { username: 'tester' })
+  assert.deepEqual(status.metadata.fields, { host: '127.0.0.1', database: 'example', username: 'tester' })
   assert.equal('kind' in status.metadata, false)
   assert.deepEqual(
     success(await invoke(t, f, ['--json', 'credential', 'remove', 'credential:postgres-local'], scriptedUI([ROOT_PASSWORD]))),
@@ -479,11 +489,24 @@ test('pg register 建立共享槽绑定，credential list/bindings/status 只输
   assert.deepEqual(success(await invoke(t, f, ['--json', 'credential', 'list'], scriptedUI([], true, false))), [])
 })
 
+test('CLI 将 grant-scope 传给可信 Host，默认 operation', async (t) => {
+  const f = fixture(t)
+  await f.initialize()
+  success(await invoke(t, f, [
+    '--grant-scope', 'session', '--json', ...pgRegisterArgs('local', 'credential:session-scope'),
+  ], scriptedUI([ROOT_PASSWORD, SECRET])))
+  assert.equal(f.authentications.at(-1), 'session')
+  success(await invoke(t, f, [
+    '--json', ...pgRegisterArgs('local', 'credential:operation-scope'),
+  ], scriptedUI([ROOT_PASSWORD, SECRET])))
+  assert.equal(f.authentications.at(-1), 'operation')
+})
+
 test('credential cleanup 只删除当前 service 的孤立条目，--yes 才执行', async (t) => {
   const f = fixture(t)
   await f.initialize()
   success(await invoke(t, f, [
-    '--json', 'pg', 'register', 'local', '--username', 'tester', '--credential', 'credential:known',
+    '--json', ...pgRegisterArgs('local', 'credential:known'),
   ], scriptedUI([ROOT_PASSWORD, SECRET])))
   const key = f.key('credential:known')
   await f.memory.set({ service: key.service, account: 'orphan-cli' }, 'orphan-secret')
@@ -520,7 +543,7 @@ test('security capability list/set/reset 管理默认与Root覆盖等级', async
   )
   const userUI = scriptedUI([SECRET])
   success(await invoke(t, f, [
-    '--json', 'pg', 'register', 'local', '--username', 'tester', '--credential', 'credential:override',
+    '--json', ...pgRegisterArgs('local', 'credential:override'),
   ], userUI))
   assert.deepEqual(userUI.prompts, ['PostgreSQL 密码（隐藏输入）：'])
   assert.deepEqual(
@@ -529,9 +552,9 @@ test('security capability list/set/reset 管理默认与Root覆盖等级', async
   )
   const rootUI = scriptedUI([ROOT_PASSWORD, SECRET])
   success(await invoke(t, f, [
-    '--json', 'pg', 'register', 'local', '--username', 'tester', '--credential', 'credential:override-2',
+    '--json', ...pgRegisterArgs('local', 'credential:override-2'),
   ], rootUI))
-  assert.deepEqual(rootUI.prompts, ['Root 密码：', 'PostgreSQL 密码（隐藏输入）：'])
+  assert.deepEqual(rootUI.prompts, ['Root 密码（授权 postgres:register database/local）：', 'PostgreSQL 密码（隐藏输入）：'])
 })
 
 test('remote-targets migrate 显式导入旧私钥、回读后改写配置且保留原文件', async (t) => {

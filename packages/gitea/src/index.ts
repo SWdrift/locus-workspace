@@ -1,5 +1,4 @@
-import { parseCredentialRef } from '@locus/config-reference'
-import { defineComponent, SecurityFailure } from '@locus/core'
+import { defineComponent, parseCredentialRef, SecurityFailure } from '@locus/core'
 import type { CapabilityContext, CapabilityHandler, CredentialRef } from '@locus/core'
 
 export type GiteaResult =
@@ -9,32 +8,56 @@ export type GiteaResult =
 
 export interface GiteaRegisterInput {
   readonly credential: CredentialRef
+  readonly origin: string
   readonly token: string
 }
 
 export interface GiteaRequestInput {
-  readonly origin: string
-  readonly path: string
   readonly credential: CredentialRef
+  readonly path: string
   readonly init?: RequestInit
+}
+
+/** Origin 在 Root 登记时固定；请求阶段不再接受调用者指定的目标。 */
+function normalizeOrigin(value: string): string {
+  let url: URL
+  try {
+    url = new URL(value)
+  } catch {
+    throw new SecurityFailure('access-denied', { reason: 'invalid-request' })
+  }
+  if (
+    (url.protocol !== 'https:' && url.protocol !== 'http:') ||
+    url.username.length > 0 ||
+    url.password.length > 0 ||
+    url.pathname !== '/' ||
+    url.search.length > 0 ||
+    url.hash.length > 0
+  ) {
+    throw new SecurityFailure('access-denied', { reason: 'invalid-request' })
+  }
+  return url.origin
 }
 
 const register: CapabilityHandler<GiteaRegisterInput, { readonly registered: true }> = async (context, input) => {
   const reference = parseCredentialRef(input.credential)
-  await context.registerCredential('api-token', reference, { token: input.token })
+  await context.registerCredential('api-token', reference, {
+    origin: normalizeOrigin(input.origin),
+    token: input.token,
+  })
   return { registered: true }
 }
 
 const request: CapabilityHandler<GiteaRequestInput, GiteaResult> = async (context, input) => {
   const reference = parseCredentialRef(input.credential)
-  return createGiteaRequester(context, reference, input.origin).request(input.path, input.init)
+  return createGiteaRequester(context, reference).request(input.path, input.init)
 }
 
 export const gitea = defineComponent({
   id: 'gitea',
-  version: '2',
+  version: '3',
   name: 'Gitea',
-  summary: '使用 Core 绑定的令牌访问固定 origin',
+  summary: '使用 Core 绑定的固定 origin 与令牌访问',
   kind: 'locus',
   capabilities: [
     {
@@ -56,6 +79,7 @@ export const gitea = defineComponent({
     {
       id: 'api-token',
       fields: [
+        { name: 'origin', secret: false, required: true },
         { name: 'token', secret: true, required: true },
       ],
     },
@@ -65,27 +89,24 @@ export const gitea = defineComponent({
 export const component = gitea.component
 export const api = gitea.api
 
-/** 只向绑定的 origin 发认证请求；重定向作为普通响应返回，不自动转发认证。 */
+/** 只向登记时绑定的 origin 发认证请求；重定向作为普通响应返回，不自动转发认证。 */
 export function createGiteaRequester(
   context: CapabilityContext,
   reference: CredentialRef,
-  origin: string,
   fetcher: typeof fetch = fetch,
 ) {
-  const base = new URL(origin)
-  if (base.username || base.password || (base.protocol !== 'https:' && base.protocol !== 'http:')) {
-    throw new SecurityFailure('access-denied', { reason: 'invalid-request' })
-  }
   return {
     async request(path: string, init?: RequestInit): Promise<GiteaResult> {
-      const url = new URL(path, base)
-      const headers = new Headers(init?.headers)
-      if (url.origin !== base.origin || url.username || url.password || headers.has('authorization')) {
-        throw new SecurityFailure('access-denied', { reason: 'resource-mismatch' })
-      }
       return context.withCredential('api-token', reference, async (values): Promise<GiteaResult> => {
         const token = values.token
-        if (token === undefined) throw new SecurityFailure('delivery-failed')
+        const origin = values.origin
+        if (token === undefined || origin === undefined) throw new SecurityFailure('delivery-failed')
+        const base = new URL(origin)
+        const url = new URL(path, base)
+        const headers = new Headers(init?.headers)
+        if (url.origin !== base.origin || url.username || url.password || headers.has('authorization')) {
+          throw new SecurityFailure('access-denied', { reason: 'resource-mismatch' })
+        }
         headers.set('Authorization', `Bearer ${token}`)
         try {
           const response = await fetcher(url, { ...init, headers, redirect: 'manual' })

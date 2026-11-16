@@ -19,8 +19,7 @@
   },
   "dependencies": {
     "@locus/core": "workspace:*",
-    "pg": "catalog:",
-    "@locus/config-reference": "workspace:*"
+    "pg": "catalog:"
   },
   "devDependencies": {}
 }

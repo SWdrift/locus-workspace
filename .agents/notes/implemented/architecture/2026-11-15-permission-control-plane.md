@@ -251,9 +251,15 @@ interface CapabilityContext {
 ### 配置引用与原子登记
 
 - 配置文件只保存 `credential:<id>`。
-- 独立 `@locus/config-reference` subsystem package 只负责解析与校验引用，不读取 Keyring、不读取文件、不执行迁移。
+- CredentialRef 解析归 Core；Compose 只消费解析后的引用，不读取 Keyring、不读取文件、不执行迁移。
 - `locus pg register` 先校验组件输入，再由 handler 调用 `registerCredential` 原子完成写密钥与绑定。
 - 不提供用户侧通用 `credential put/bind`；普通 User 不接触 Keyring、CredentialRef 绑定或字段结构。
+
+### Credential Owner
+
+决定：CredentialRef 持久化 owner，第一版一个引用只对应一个组件。写与消费都按 owner 判定；解绑不转移 owner，转移需 Root 删除后由新组件重新登记。选择持久 owner 而非“从绑定推导”，因为解绑会丢失归属，且无法阻止无绑定状态下的重新登记。多 owner、Root 共享绑定与 owner 转移延期。
+
+当前字段、错误、预检顺序与 schema v7 契约由 [Core Security](../../../../docs/subsystems/core-security.md#凭据字段登记与绑定)维护；这里只保留取舍与后果。旧开发库按仓库约定重建或一次性迁移。
 
 ## 备选方案
 
@@ -273,6 +279,10 @@ interface CapabilityContext {
 
 **slot 级 `required` / `readwrite` / `anyOf`**：第一版不采用。`read` 默认要求存在，`write` 不要求；`readwrite` 与多凭据替代方案等真实消费方出现再引入。
 
+**绑定推导 owner**：否决。没有绑定时会丢失归属，解绑后其他组件可以重新登记，无法表达持久 owner；因此把 owner 写入凭据元数据。
+
+**多 owner / Root 共享绑定**：延期。第一版一个 CredentialRef 对应一个组件；共享需要独立的消费绑定与 owner 转移语义，当前没有真实需求。
+
 **Session 整体放权**：否决。Core 不是常驻 Host，跨命令 Session 无法成立；不引入持久 Token 或 daemon。未来常驻 Host 再单独评估。
 
 ## 后果
@@ -284,13 +294,14 @@ interface CapabilityContext {
 - 有效等级为 Root 覆盖 > `defaultAuthLevel` > `user`；`security capability list/set/reset` 可管理。`write` 能力默认 root；Root 显式降为 user 时，普通用户覆盖凭据是预期行为，Core 不额外阻止。
 - 凭据用 `fields` 声明，公开字段进 SQLite，秘密字段 JSON 进 Keyring；删除 `CredentialKind`、`schema` 与 `format`。
 - 绑定键为 component + capability + resource + slot；共享 slot 一次登记建立多条绑定。
+- CredentialRef 持久化 `owner`，第一版单 owner；非 owner 不能写或消费；解绑不转移 owner，转移需 Root 删除后重新登记。
 - `CapabilityContext` 在授权后注入，`withCredential` / `registerCredential` 不重复 Challenge。
-- CLI 新增 `pg register/list`、`remote-targets register` 与统一 `executeComponent`；收回 `credential put/bind`、`--grant-scope` 与 Session Grant。
-- `@locus/config-reference` 建立，PostgreSQL/Gitea/Remote Targets 共用。
+- CLI 新增 `pg register/list`、`remote-targets register` 与统一 `executeComponent`；收回 `credential put/bind`，保留显式 `--grant-scope operation|session`。
+- CredentialRef 由 Core 统一解析，PostgreSQL/Gitea/Remote Targets 共用。
 
 验证证据：
 
-- `pnpm verify`：构建通过，184/184 测试通过，61 个 Markdown 检查通过。
+- `pnpm verify`：构建通过，186/186 测试通过，59 个 Markdown 检查通过。
 - `pnpm e2e`：36 次真实 CLI 调用通过。
 - PostgreSQL：临时 PostgreSQL 16、scram-sha-256 拒绝无密码登录，Core 交付字段后真实 `pg.Pool` 查询通过。
 - SSH：真实 OpenSSH 本地 sshd、精确目标绑定、临时私钥交付与清理、错误密钥拒绝通过。
@@ -303,5 +314,6 @@ interface CapabilityContext {
 - `fields` 让 Core 感知公开/秘密字段；若未来证明 opaque 载荷足够，应整体收敛，不能保留两套。
 - Keyring 单条容量作用于合并后的秘密 JSON；大私钥或证书链超限必须失败，不分片、不回退明文。
 - Root 级命令需要本地 TTY；这是有意边界，不是缺陷。
+- 单 owner 下解绑不会释放引用；组件移除后 owner 仍保留，Root 必须删除凭据或重新登记才能转移。
 - 常驻 Host、Session 整体放权、多资源复合请求与 `readwrite` 未实现。
 - 配置引用包若继续吸收迁移、展示或 Provider 逻辑，可能演变成第二套安全平台；必须保持只解析/校验。

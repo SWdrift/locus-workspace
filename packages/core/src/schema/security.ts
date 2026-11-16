@@ -34,6 +34,7 @@ export const SECURITY_SCHEMA = `
     fields TEXT NOT NULL,
     created_at INTEGER NOT NULL CHECK (created_at >= 0),
     updated_at INTEGER NOT NULL CHECK (updated_at >= created_at),
+    owner_component TEXT NOT NULL CHECK (length(trim(owner_component)) > 0),
     PRIMARY KEY (profile, reference)
   ) STRICT;
   CREATE TABLE security_credential_bindings (

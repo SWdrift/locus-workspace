@@ -24,7 +24,7 @@
 - capability 本地 id、全局限定规则与展示/存储分层。
 - CLI 命令到能力的映射、参数/展示、统一 Root 提权；不把 CLI 注册放进组件。
 - 组件命令的原子登记/绑定，例如 `pg register`、`remote-targets migrate`。
-- 独立 `@locus/config-reference` subsystem package：配置文件中的稳定引用。
+- Core 统一解析 `CredentialRef`；Compose 仅消费解析后的引用，不各自复制格式。
 - 不包含：Keyring 适配器、KDF、数据库/HTTP/SSH 协议、Session 生命周期、通用 Policy 引擎。
 
 ## Core Rules
@@ -47,12 +47,13 @@
 - 一条组件命令对应一次 Core 操作、一次 Root 批准；内部 `withCredential`/`registerCredential` 不重复触发 Challenge。
 - 同一凭据槽可被多个能力共用；登记时为组件内所有声明该槽的能力建立绑定，读取时仍按当前 capability 精确校验。
 - 删除 `action` 与 `operation`：请求只含 capability/resource/parameters；Challenge/Grant 用限定 capability 展示。
-- 删除 `CredentialKind` 与 Session Grant；当前只支持单次操作授权。
+- 保留 `operation` 与 `session` 两种 Grant；session 只绑定真实 Session，不跨进程。
 - 授权门先于凭据门：Root 不足返回 Challenge 并由 CLI 提权；凭据缺失/未绑定返回独立错误，不触发 Root 提权。
 - Core 不返回 CLI 命令名；它返回 code + component/capability/slot，CLI 将其映射为组件登记/修复命令。
 - `execute` 前预检能力、资源与 read 槽的绑定/元数据；Keyring 内容在 `withCredential` 读取时判定 Missing。组件不得在首次读取密钥前产生不可逆副作用。write 槽不要求凭据预先存在。
 - `register` 类命令必须原子完成“写密钥 + 绑定 + 组件配置更新”，不能留下半完成状态。
-- 配置文件中的 `credential:<id>` 由独立 package 解析与校验；组件不各自实现一套引用规则。
+- 配置文件中的 `credential:<id>` 由 Core 的 `parseCredentialRef` 解析与校验；组件不各自实现一套引用规则。
+- `CredentialMetadata` 持久化 `owner`；第一版一个 CredentialRef 只对应一个组件。非 owner 不能写或消费；解绑不转移 owner，转移需 Root 删除后重新登记。
 - 不新增 daemon、跨进程 Token 或 Session 整体放权；相关边界见[生命周期管理](./cp-2026-11-15-lifecycle.md)。
 - 行为变更必须有自动测试或真实运行证据；未运行不得写成已交付。
 - capability 只声明 resourceType；请求与绑定使用精确 resource id。多实例共享同一能力，但每个资源必须有独立绑定；不得用通配 resource 授权。
@@ -72,12 +73,14 @@
 - [x] capability 只声明 resourceType；请求/绑定使用精确 resource；不使用全局当前实例。
 - [x] 冻结 `CapabilityContext` 公共方法与错误分类；确认 `withCredential` 不重复授权。
 - [x] 错误回执保留 code/reason，不写 CLI 字符串；CLI 负责映射组件命令。
-- [x] `@locus/config-reference` 已建立：只解析/校验引用，不读取 Keyring。
+- [x] CredentialRef 解析已归 Core；Compose 不各自维护引用正则。
+- [x] 冻结单 owner：`CredentialMetadata.owner`、非 owner 拒绝、解绑不转移；schema v7。
 
 ### Core 与组件
 
 - [x] 认证等级覆盖存储、有效等级计算与 Root 设置入口已实现；组件 `level` 直接生效路径已移除。
 - [x] `CapabilityContext`、`registerCredential` 与 `withCredential` 已实现，内部复用单次 Grant。
+- [x] 凭据 owner 持久化与单 owner 读写校验已实现；旧开发库按最新 schema 重建/一次性迁移。
 - [x] PostgreSQL 组件提供 `register` / `list` 能力 API。
 - [x] Gitea 组件提供 `register` / `request` 能力 API；第一版不暴露 CLI 命令。
 - [x] Remote Targets 提供独立登记/访问能力；`migrate` 经组件 API 登记并保留配置更新边界。
@@ -86,13 +89,13 @@
 
 - [x] `apps/cli` 增加 `pg register/list` 与统一 `executeComponent`；组件包不引入 Commander。
 - [x] CLI 根据组件命令输入描述生成字段提示；Core 不发起交互输入。
-- [x] 统一 Root 提权包装已实现，删除 `--grant-scope`。
-- [x] 收回用户侧 `credential put/bind`、`--grant-scope session` 与 Session Grant。
+- [x] 统一 Root 提权包装已实现，支持显式 `--grant-scope operation|session`。
+- [x] 收回用户侧 `credential put/bind`；CLI 提供显式 `--grant-scope operation|session`。
 - [x] 增加 `security capability list/set/reset`。
 
 ### 配置引用
 
-- [x] `packages/config-reference` 已建立，PostgreSQL/Gitea/Remote Targets 共用。
+- [x] CredentialRef 由 Core 统一解析，PostgreSQL/Gitea/Remote Targets 共用。
 - [x] 配置读取只保存 `credential:<id>`；缺失、非法与未绑定分别可判。
 - [x] 明文密钥迁移到引用保留显式确认，不自动删除源文件。
 
@@ -107,9 +110,9 @@
 
 ## 验证记录
 
-- `pnpm verify`：构建通过，184/184 测试通过，文档检查 61 个 Markdown 通过。
+- `pnpm verify`：构建通过，186/186 测试通过，文档检查 59 个 Markdown 通过。
 - `pnpm e2e`：最近一次 36 次真实 CLI 调用通过；最终 add/错误分层改动后入口处于 2 小时冷却，未使用 `--force` 重跑。
-- Core 测试覆盖字段拆分、共享 slot 绑定、Root 覆盖、单次 Challenge/Grant、跨进程锁定与 schema v6。
+- Core 测试覆盖字段拆分、共享 slot 绑定、Root 覆盖、单次 Challenge/Grant、跨进程锁定与 schema v7。
 - PostgreSQL：临时 PG16、scram、Core 字段、真实 `pg.Pool` 查询通过。
 - SSH：真实 OpenSSH sshd、精确绑定、临时私钥清理、错误密钥拒绝通过。
 - Keyring：独立 Windows 临时账户、2560/2561 边界、Missing、跨进程与清理通过。
@@ -368,7 +371,7 @@ credentials: [
 - 凭据结构由组件声明的 `fields` 决定；Core 只区分公开/秘密字段，不理解 PostgreSQL、SSH 或 Gitea 的业务语义。
 - 主机指纹、`known_hosts` 等信任锚属于连接/信任配置，不进入凭据秘密。
 - 能力、资源和凭据槽的绑定仍由 Core 精确校验；组件 API 不能自行选择其他组件的密钥。
-- 配置中的 `credential:<id>` 由 `@locus/config-reference` 解析；组件 API 只消费解析后的引用。
+- 配置中的 `credential:<id>` 由 Core 的 `parseCredentialRef` 解析；组件 API 只消费解析后的引用。
 - CLI 的 Root 提权只包裹一次 `api` 调用；`withCredential`/`registerCredential` 不重复触发 Challenge。
 
 ## 实施前差距（已闭合）
@@ -382,7 +385,7 @@ credentials: [
 | Workspace 与 Security 共用 `ResourceReference.namespace` | Workspace 保持 `namespace`；Security 拆出 `SecurityResource.type` |
 | PostgreSQL/Gitea 只有低层 helper | 提供能力 API 与组件命令 |
 | CLI 接触 CredentialRef/绑定 | CLI 只传参数、处理提权、渲染 |
-| 配置文件各自解析引用 | 独立 `@locus/config-reference` |
+| 配置文件各自解析引用 | Core 统一解析 `CredentialRef` |
 | `pg register` 与绑定分离 | 一次 Core 操作完成登记与绑定 |
 | `capabilities`/`credentials` 物化为可编辑 YAML | 代码契约只读；YAML 只保留描述性元数据 |
 | 单一 `kind` + 字符串秘密 | 已改为 `fields` 字段表；公开字段元数据、秘密字段 Keyring，合并交付 |
@@ -391,4 +394,4 @@ credentials: [
 | capability 静态枚举每个 resource | capability 声明 resourceType；请求/绑定使用精确 resource id |
 | capability id 自带组件前缀 | 本地 id；全局限定名按需派生 |
 | 权限不足与凭据缺失混在一起 | 先授权门，后凭据门；Missing 不提权 |
-| Session Grant 与 `--grant-scope` | 已删除；只保留单次操作授权 |
+| Session Grant 与 `--grant-scope` | `operation` 与 `session` 两种 scope；session 绑定真实 Session |

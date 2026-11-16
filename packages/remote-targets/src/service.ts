@@ -1,7 +1,8 @@
 import { mkdirSync } from 'node:fs'
 import { dirname, isAbsolute } from 'node:path'
+import { isCredentialRef } from '@locus/core'
 import type { CredentialRef } from '@locus/core'
-import { normalizeTargetFromSpec, parseAddSpecText } from './config.ts'
+import { normalizeTargetFromSpec, parseAddSpecText, targetBinding } from './config.ts'
 import { withCredentialFile } from './credentials.ts'
 import { buildSshInvocation, createProcessRunner, resolveUnderRoot } from './ssh.ts'
 import { createStateStore } from './state.ts'
@@ -103,8 +104,6 @@ export function createRemoteTargetsService(options: {
 
   async function withCredential<T>(
     target: RemoteTarget,
-    operation: 'probe' | 'exec' | 'shell',
-    command: readonly string[],
     consume: (credentialPath: string) => Promise<T>,
   ): Promise<T> {
     if (options.security === undefined) throw new RemoteTargetsFailure('access-denied', '远程执行需要组合根注入 Core 授权与凭据交付')
@@ -113,7 +112,7 @@ export function createRemoteTargetsService(options: {
       throw new RemoteTargetsFailure('migration-required', `目标 ${target.id} 仍使用旧文件认证；需要显式迁移到 CredentialRef`)
     }
     const slot = credentialSlot(auth.method)
-    return options.security.withCredential(target.id, slot, auth.credential, { operation, command }, async (values) => {
+    return options.security.withCredential(target.id, slot, auth.credential, targetBinding(target), async (values) => {
       const secret = slot === 'ssh-password' ? values.password : values.privateKey
       if (secret === undefined) throw new RemoteTargetsFailure('invalid-spec', `目标 ${target.id} 缺少 ${slot} 字段`)
       if (slot === 'ssh-private-key' && values.passphrase !== undefined) {
@@ -134,7 +133,7 @@ export function createRemoteTargetsService(options: {
     }
     if (addOptions?.dryRun !== true) {
       // known_hosts 默认位于目标目录；不创建或保存任何秘密文件。
-      mkdirSync(dirname(resolveUnderRoot(root, `credentials/${target.id}/known_hosts`)), {
+      mkdirSync(dirname(resolveUnderRoot(root, `trust/${target.id}/known_hosts`)), {
         recursive: true,
         mode: 0o700,
       })
@@ -173,7 +172,7 @@ export function createRemoteTargetsService(options: {
       return { method: auth.method, path: resolveUnderRoot(auth.root ?? root, auth.path) }
     },
     useCredential(reference, credential): RemoteTarget {
-      if (!/^credential:[a-z][a-z0-9-]*$/.test(credential)) throw new RemoteTargetsFailure('invalid-spec', '必须使用 credential:<id> 引用')
+      if (!isCredentialRef(credential)) throw new RemoteTargetsFailure('invalid-spec', '必须使用 credential:<id> 引用')
       const targets = store.load()
       const target = resolveTarget(targets, reference)
       const auth = target.identity.auth
@@ -192,7 +191,7 @@ export function createRemoteTargetsService(options: {
     async probe(reference): Promise<ProbeResult> {
       const target = resolveTarget(store.load(), reference)
       requireTransport(target)
-      const probe = await withCredential(target, 'probe', ['whoami'], async (credentialPath) => {
+      const probe = await withCredential(target, async (credentialPath) => {
         const invocation = buildSshInvocation(target, root, ['whoami'], credentialPath)
         const result = await runner.run(invocation.command, invocation.args, { timeoutMs: 15_000 })
         const detail = (result.exitCode === 0 ? result.stdout : result.stderr).trim()
@@ -214,7 +213,7 @@ export function createRemoteTargetsService(options: {
       if (command.length === 0) {
         throw new RemoteTargetsFailure('invalid-spec', 'exec 需要至少一条远端命令')
       }
-      return withCredential(target, 'exec', command, async (credentialPath) => {
+      return withCredential(target, async (credentialPath) => {
         const invocation = buildSshInvocation(target, root, command, credentialPath)
         const result = await runner.run(invocation.command, invocation.args)
         return { targetId: target.id, ...result }
@@ -224,7 +223,7 @@ export function createRemoteTargetsService(options: {
       const target = resolveTarget(store.load(), reference)
       requireCapability(target, 'shell')
       requireTransport(target)
-      return withCredential(target, 'shell', [], async (credentialPath) => {
+      return withCredential(target, async (credentialPath) => {
         const invocation = buildSshInvocation(target, root, [], credentialPath)
         return runner.interactive(invocation.command, invocation.args)
       })

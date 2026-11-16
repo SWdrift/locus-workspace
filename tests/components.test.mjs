@@ -28,9 +28,9 @@ test('每个组件包导出合法且唯一的组件定义与能力表', async ()
     modules.set(component.id, { manifest, module })
   }
   assert.deepEqual([...seen].sort(), ['gitea', 'postgres', 'remote-targets', 'template'])
-  assert.equal(modules.get('postgres').module.component.version, '2')
-  assert.equal(modules.get('gitea').module.component.version, '2')
-  assert.equal(modules.get('remote-targets').module.component.version, '3')
+  assert.equal(modules.get('postgres').module.component.version, '3')
+  assert.equal(modules.get('gitea').module.component.version, '3')
+  assert.equal(modules.get('remote-targets').module.component.version, '4')
   assert.equal(modules.get('template').module.component.version, '1')
 
   assert.deepEqual(Object.keys(modules.get('postgres').module.api).sort(), ['list', 'register'])

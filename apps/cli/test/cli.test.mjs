@@ -223,15 +223,18 @@ test('组件：物化包定义、动态登记、顶层入口与手动升级', (t
   assert.equal('info' in initial.components[0], false)
   assert.equal(existsSync(join(f.data, 'components', 'remote-targets.yaml')), true)
   const materialized = readFileSync(join(f.data, 'components', 'remote-targets.yaml'), 'utf8')
-  assert.match(materialized, /version: "3"/)
+  assert.match(materialized, /version: "4"/)
   assert.doesNotMatch(materialized, /capabilities:/)
   assert.doesNotMatch(materialized, /credentials:/)
 
   const postgres = parseJson(f.run(['--json', 'component', 'show', 'postgres']).stdout)
-  assert.equal(postgres.version, '2')
+  assert.equal(postgres.version, '3')
   assert.deepEqual(postgres.capabilities.map((capability) => capability.id), ['register', 'list'])
   assert.deepEqual(postgres.capabilities.map((capability) => capability.resourceType), ['database', 'database'])
   assert.deepEqual(postgres.credentials[0].fields, [
+    { name: 'host', secret: false, required: true },
+    { name: 'port', secret: false, required: false },
+    { name: 'database', secret: false, required: true },
     { name: 'username', secret: false, required: true },
     { name: 'password', secret: true, required: true },
   ])
@@ -239,11 +242,11 @@ test('组件：物化包定义、动态登记、顶层入口与手动升级', (t
   const postgresText = f.run(['component', 'show', 'postgres']).stdout
   assert.match(postgresText, /postgres:register/)
   assert.match(postgresText, /postgres:list/)
-  assert.match(postgresText, /database-auth（username（公开，必填）, password（秘密，必填））/)
+  assert.match(postgresText, /database-auth（host（公开，必填）, port（公开，可选）, database（公开，必填）, username（公开，必填）, password（秘密，必填））/)
   const gitea = parseJson(f.run(['--json', 'component', 'show', 'gitea']).stdout)
-  assert.equal(gitea.version, '2')
+  assert.equal(gitea.version, '3')
   assert.equal(gitea.capabilities[0].id, 'register')
-  assert.equal(parseJson(f.run(['--json', 'component', 'show', 'remote-targets']).stdout).version, '3')
+  assert.equal(parseJson(f.run(['--json', 'component', 'show', 'remote-targets']).stdout).version, '4')
 
   const bareTemplate = parseJson(f.run(['--json', 'template']).stdout)
   assert.equal(bareTemplate.id, 'template')
@@ -306,12 +309,12 @@ credentials: []
   const file = join(f.data, 'components', 'remote-targets.yaml')
   writeFileSync(
     file,
-    readFileSync(file, 'utf8').replace('version: "3"', 'version: "0"'),
+    readFileSync(file, 'utf8').replace('version: "4"', 'version: "0"'),
     'utf8',
   )
   const pending = parseJson(f.run(['--json', 'component', 'show', 'remote-targets']).stdout)
   assert.equal(pending.needsUpgrade, true)
-  assert.equal(pending.codeVersion, '3')
+  assert.equal(pending.codeVersion, '4')
   const upgraded = f.run(['--json', 'component', 'upgrade', 'remote-targets'])
   assert.equal(upgraded.code, 0, upgraded.stderr)
   assert.equal(parseJson(upgraded.stdout).needsUpgrade, false)

@@ -271,7 +271,7 @@ test('SQLite Store 构造与空目录读取不 IO，首次 setter 建库而回�
   await opened.initialize()
   assert.equal(
     withDatabase(setup.dataDirectory, (database) => database.prepare('PRAGMA user_version').get().user_version),
-    6,
+    7,
   )
   const status = await opened.core.security.status()
   assert.equal(status.initialized, true)
@@ -291,6 +291,7 @@ test('SQLite 事务真实回滚所有安全字段，禁止异步与嵌套事务�
   const metadata = {
     reference: REFERENCE,
     profile: 'development',
+    owner: 'postgres',
     providerId: 'memory',
     fields: { username: 'app' },
     createdAt: NOW,
@@ -389,6 +390,7 @@ test('Root 固定格式与失败租约边界在写入前校验，凭据、绑定
   const metadata = {
     reference: REFERENCE,
     profile: 'development',
+    owner: 'postgres',
     providerId: 'memory',
     fields: { username: 'app' },
     createdAt: NOW,
@@ -398,6 +400,8 @@ test('Root 固定格式与失败租约边界在写入前校验，凭据、绑定
     { profile: 'Development' },
     { reference: 'credential:Invalid' },
     { reference: 'credential:postgres_local' },
+    { owner: '' },
+    { owner: 'postgres\0invalid' },
     { providerId: '' },
     { providerId: ' memory' },
     { providerId: 'memory\0invalid' },
@@ -609,6 +613,7 @@ test('安装 UUID 随目录移动保持稳定，Profile 隔离 metadata 与 Prov
   assert.deepEqual(normalizeMetadata(metadata), {
     reference: REFERENCE,
     profile: 'development',
+    owner: 'postgres',
     providerId: 'memory',
     fields: { username: 'app' },
     createdAt: NOW,
@@ -726,6 +731,7 @@ test('损坏 Root、安装、Profile、凭据、绑定与等级材料只显式�
     transaction.setCredential({
       reference: REFERENCE,
       profile: 'development',
+      owner: 'postgres',
       providerId: 'memory',
       fields: { username: 'app' },
       createdAt: NOW,

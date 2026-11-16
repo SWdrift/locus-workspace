@@ -9,6 +9,9 @@ import { api, component, createPostgresPool } from '../lib/index.js'
 const PASSWORD = 'isolated-root-password'
 const SECRET = 'postgres-sentinel-secret'
 const USERNAME = 'controlled-user'
+const HOST = '127.0.0.1'
+const PORT = '6543'
+const DATABASE = 'controlled'
 const REFERENCE = 'credential:postgres-local'
 const SLOT = 'database-auth'
 const RESOURCE = { type: 'database', id: 'local' }
@@ -24,7 +27,7 @@ async function register(host) {
   let challenge
   try {
     await port.execute(request('register'), (context) => api.register(context, {
-      credential: REFERENCE, username: USERNAME, password: SECRET,
+      credential: REFERENCE, host: HOST, port: PORT, database: DATABASE, username: USERNAME, password: SECRET,
     }))
   } catch (error) {
     if (error.code !== 'authentication-required') throw error
@@ -47,7 +50,7 @@ async function fixture(t) {
   return { core, host }
 }
 
-test('PostgreSQL 驱动参数来自 Core 绑定，不构造密码 URL，dispose 清除可控引用', async (t) => {
+test('PostgreSQL 目标与驱动参数来自 Core 绑定，不构造密码 URL，dispose 清除可控引用', async (t) => {
   const setup = await fixture(t)
   const { session, port } = await register(setup.host)
   const management = setup.host.forSession(session)
@@ -59,17 +62,21 @@ test('PostgreSQL 驱动参数来自 Core 绑定，不构造密码 URL，dispose 
   ])
   const metadata = (await management.listCredentials()).find((item) => item.reference === REFERENCE)
   assert.ok(metadata)
-  assert.deepEqual({ ...metadata.fields }, { username: USERNAME })
+  assert.deepEqual({ ...metadata.fields }, {
+    host: HOST, port: PORT, database: DATABASE, username: USERNAME,
+  })
 
   let owned
   const lease = await port.execute(request('list'), (context) => createPostgresPool(
-    context, SLOT, REFERENCE, { host: '127.0.0.1', database: 'controlled' },
+    context, SLOT, REFERENCE,
     (parameters) => {
       owned = parameters
       return { async end() {} }
     },
   ))
-  assert.deepEqual({ ...owned }, { host: '127.0.0.1', database: 'controlled', user: USERNAME, password: SECRET })
+  assert.deepEqual({ ...owned }, {
+    host: HOST, port: Number(PORT), database: DATABASE, user: USERNAME, password: SECRET,
+  })
   assert.equal('connectionString' in owned, false)
   assert.equal(leasedConnectionString(lease.pool), undefined)
   await lease.dispose()
@@ -86,8 +93,25 @@ test('调用方不能改用其他 CredentialRef', async (t) => {
   const { port } = await register(setup.host)
   await assert.rejects(
     () => port.execute(request('list'), (context) => createPostgresPool(
-      context, SLOT, 'credential:other', { host: 'h', database: 'd' }, () => assert.fail('不应创建连接池'),
+      context, SLOT, 'credential:other', () => assert.fail('不应创建连接池'),
     )),
     (error) => error.code === 'access-denied' && error.reason === 'credential-binding-mismatch',
   )
+})
+
+test('调用方不能再指定连接目标', async (t) => {
+  const setup = await fixture(t)
+  const { port } = await register(setup.host)
+  let observed
+  const lease = await port.execute(request('list'), (context) => createPostgresPool(
+    context, SLOT, REFERENCE,
+    (parameters) => {
+      observed = parameters
+      return { async end() {} }
+    },
+  ))
+  assert.equal(observed.host, HOST)
+  assert.equal(observed.port, Number(PORT))
+  assert.equal(observed.database, DATABASE)
+  await lease.dispose()
 })

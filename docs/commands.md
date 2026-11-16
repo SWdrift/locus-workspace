@@ -38,7 +38,7 @@
 
 ## 安全与凭据
 
-以下参数接在 `locus` 后；全局 `--profile production|development` 默认 production，development 数据隔离见 [CLI](../apps/cli/README.md#安全-host-与-profile)。Root 密码与凭据秘密只由可信本地 TTY 隐藏输入；非交互失败，不支持通过 argv、环境变量、`.env` 或普通 stdin spec 提交。Root 提权按单次操作生效，没有 `--grant-scope`，也不宣传跨命令 Session 放行。
+以下参数接在 `locus` 后；全局 `--profile production|development` 默认 production，development 数据隔离见 [CLI](../apps/cli/README.md#安全-host-与-profile)。Root 密码与凭据秘密只由可信本地 TTY 隐藏输入；非交互失败，不支持通过 argv、环境变量、`.env` 或普通 stdin spec 提交。`--grant-scope operation|session` 默认 operation；operation 按单次操作生效，session 只在当前真实 Session 内复用，Session 结束、Root 重置或 Host 关闭即失效，不跨进程；CLI 每条命令结束 Session，因此不跨命令生效。
 
 ### 组件命令
 
@@ -46,8 +46,8 @@
 
 | 参数 | 行为与成功判据 |
 | --- | --- |
-| `pg register <resource> --username <name> [--credential <ref>]` | 隐藏输入 PostgreSQL 密码；一次 Root 批准内登记 `database-auth` 的公开用户名与秘密密码，并为 `register` 与 `list` 建立精确绑定 |
-| `pg list <resource> --host <host> --database <name> [--port <port>] [--sql <sql>] [--credential <ref>]` | User 级读取绑定字段，使用真实 `pg.Pool` 连接并返回查询结果；缺少绑定或字段不匹配时不触发 Root |
+| `pg register <resource> --host <host> --database <name> [--port <port>] --username <name> [--credential <ref>]` | Root 批准并隐藏输入 PostgreSQL 密码；一次登记 `database-auth` 的可信目标、公开用户名与秘密密码，并为 `register` 与 `list` 建立精确绑定 |
+| `pg list <resource> [--sql <sql>] [--credential <ref>]` | User 级读取登记时固定的目标与绑定字段，使用真实 `pg.Pool` 连接；调用者不能再指定 host、port 或 database；缺少绑定或字段不匹配时不触发 Root |
 | `security capability list` | 列出组件能力、默认等级、Root 覆盖与最终来源；需要已初始化 Root 元数据 |
 | `security capability set <component:capability> <user\|root>` | Root 覆盖该能力的认证等级；`write` 能力默认 root，Root 降为 user 即显式委派覆盖权，覆盖是预期行为 |
 | `security capability reset <component:capability>` | Root 清除覆盖，恢复组件 `defaultAuthLevel` 或 `user` |
@@ -101,7 +101,7 @@
 | 参数 | 行为与成功判据 |
 | --- | --- |
 | `remote-targets add <id> --spec <file\|-> [--file <path>] [--dry-run]` | 校验目标；Root 批准后同时写入配置与凭证字段，要求 CredentialRef；私钥必须用 `--file`，密码隐藏输入；`--dry-run` 只校验不落盘 |
-| `remote-targets update-credential <target> --credential <ref> --method private-key\|password [--file <path>]` | 只更新目标已引用的私钥或密码字段，不改目标配置；别名 `register` |
+| `remote-targets update-credential <target> --credential <ref> --method private-key\|password [--file <path>]` | 只更新目标已引用的私钥或密码字段，不改目标配置；同时由 Root 重新确认当前目标安全摘要；别名 `register` |
 | `remote-targets list` | 列出目标；空集合不是错误 |
 | `remote-targets show <target>` | 显示身份、CredentialRef、能力、连接与最近探测；不输出凭据值 |
 | `remote-targets migrate <target> --credential <credential:id> --yes` | 显式导入旧凭据文件到 Core、回读验证、绑定目标资源后改写配置；原文件保留；带口令私钥明确阻塞 |
@@ -112,7 +112,7 @@
 
 字段、默认值与失败码见 [Remote Targets](../packages/remote-targets/README.md#配置与契约)。
 
-密钥认证要求 `openssh` 组件为 `healthy`，密码认证要求 `plink` 组件；随后通过 Core 主体授权与凭据绑定，未初始化时需先在本地 TTY 运行 init。普通 User 访问不触发 Root；没有授权入口或绑定不能启动客户端。新目标只接受 `method: private-key|password` 与 `credential:<id>`；旧 `auth.path/root` 仅供 `migrate` 读取。迁移与阻塞条件见 [Remote Targets](../packages/remote-targets/README.md#凭据交付与迁移)。
+密钥认证要求 `openssh` 组件为 `healthy`，密码认证要求 `plink` 组件；随后通过 Core 主体授权与凭据绑定，未初始化时需先在本地 TTY 运行 init。普通 User 访问不触发 Root；没有授权入口或绑定不能启动客户端。新目标只接受 `method: private-key|password` 与 `credential:<id>`；旧 `auth.path/root` 仅供 `migrate` 读取。目标 host/port/login、能力、客户端或信任锚变化后，访问以 `target-config-mismatch` 失败，需 Root 重新执行 `update-credential` 或重新登记。迁移与阻塞条件见 [Remote Targets](../packages/remote-targets/README.md#凭据交付与迁移)。
 
 ## 组件操作
 

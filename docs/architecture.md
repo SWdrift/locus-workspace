@@ -17,7 +17,6 @@ Workspace 可以没有目录，关系目标是领域解释的 `namespace` / `id`
 | `packages/core/` | Workspace、组件、统一权限平面、凭据保管、绑定、Grant 与 SQLite 元数据；不依赖 HTTP、CLI 或具体业务消费者 |
 | `packages/postgres/` | 临时 PostgreSQL 验证消费者：声明 `register` / `list` 能力与 `database-auth` 字段槽；不是长期产品包，验证完成后移除 |
 | `packages/gitea/` | Gitea Compose：声明 `register` / `request` 能力与 `api-token` 字段槽，用绑定 origin 的 Authorization Header 发起请求 |
-| `packages/config-reference/` | 配置引用：解析、校验与脱敏 `credential:<id>`；不读取 Keyring、不承担迁移 |
 | `apps/cli/` | 独立 `locus` bin：参数解析、调用 Core/Templates/Remote Targets/Compose 定义、人类/JSON 渲染、统一 shell 与退出码；不重新实现领域规则 |
 | `apps/web/` | 占位，无可运行入口；等真实接口消费需求再实现 |
 | `packages/templates/` | 复制模板文件夹、计算 digest、写实例 `.template.json`；导出 `locus` 组件定义 |
@@ -94,7 +93,7 @@ flowchart TB
     class SQLITE,YAML,FS,EXECA,SSH,NATIVE,KEYRING infra
 ```
 
-Core 使用 Node、yaml、组件 runner 的 execa，并懒加载 Keyring；PostgreSQL 与 Gitea 各自依赖 Core 与 config-reference，PostgreSQL 运行时使用 `pg`。Remote Targets 依赖 Core、yaml、execa 与 node:sqlite。CLI 显式组合各包和 Commander；Core 不反向依赖任何消费者。
+Core 使用 Node、yaml、组件 runner 的 execa，并懒加载 Keyring；PostgreSQL 与 Gitea 各自依赖 Core，PostgreSQL 运行时使用 `pg`。Remote Targets 依赖 Core、yaml、execa 与 node:sqlite。CLI 显式组合各包和 Commander；Core 不反向依赖任何消费者。
 
 ## 边界
 
@@ -115,7 +114,7 @@ Core 使用 Node、yaml、组件 runner 的 execa，并懒加载 Keyring；Postg
 
 ## 数据与恢复
 
-Core 独占 core.sqlite（当前 schema v6），保存 Workspace、组件状态、Root 覆盖等级、凭据公开字段、引用元数据与组件／能力／资源／slot 绑定；资源秘密在 OS Keyring，Root 派生验证材料单独持久化。组件定义、Remote Targets 的 targets.yaml/state.sqlite 仍各有归属。开发阶段数据库不承诺旧 schema 兼容，结构变更按当前 schema 重建；停写备份由 [Core](../packages/core/README.md#持久化与恢复)维护，秘密和备份后果由[安全子系统](subsystems/core-security.md#持久化错误与备份)维护。
+Core 独占 core.sqlite（当前 schema v7），保存 Workspace、组件状态、Root 覆盖等级、凭据公开字段与 owner、引用元数据与组件／能力／资源／slot 绑定；资源秘密在 OS Keyring，Root 派生验证材料单独持久化。组件定义、Remote Targets 的 targets.yaml/state.sqlite 仍各有归属。开发阶段数据库不承诺旧 schema 兼容，结构变更按当前 schema 重建；停写备份由 [Core](../packages/core/README.md#持久化与恢复)维护，秘密和备份后果由[安全子系统](subsystems/core-security.md#持久化错误与备份)维护。
 
 ## 控制与演进
 

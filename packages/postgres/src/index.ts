@@ -1,26 +1,19 @@
-import { parseCredentialRef } from '@locus/config-reference'
-import { defineComponent, SecurityFailure } from '@locus/core'
+import { parseCredentialRef, SecurityFailure } from '@locus/core'
 import type { CapabilityContext, CapabilityHandler, CredentialRef } from '@locus/core'
+import { defineComponent } from '@locus/core'
 import { Pool } from 'pg'
-
-export interface PostgresOptions {
-  readonly host: string
-  readonly port?: number
-  readonly database: string
-}
-
-export interface PostgresConfig extends PostgresOptions {
-  readonly credential: CredentialRef
-}
 
 export interface PostgresRegisterInput {
   readonly credential: CredentialRef
+  readonly host: string
+  readonly port?: string
+  readonly database: string
   readonly username: string
   readonly password: string
 }
 
 export interface PostgresQueryInput {
-  readonly config: PostgresConfig
+  readonly credential: CredentialRef
   readonly sql: string
   readonly values?: readonly unknown[]
 }
@@ -35,9 +28,36 @@ export interface PostgresQueryResult {
   readonly rowCount: number
 }
 
+export interface PostgresPoolParameters {
+  readonly host: string
+  readonly port?: number
+  readonly database: string
+  readonly user: string
+  password: string
+}
+
+function poolParameters(values: Readonly<Record<string, string>>): PostgresPoolParameters {
+  const host = values.host
+  const database = values.database
+  const user = values.username
+  const password = values.password
+  if (host === undefined || database === undefined || user === undefined || password === undefined) {
+    throw new SecurityFailure('delivery-failed')
+  }
+  const portValue = values.port
+  const port = portValue === undefined ? undefined : Number(portValue)
+  if (portValue !== undefined && (!Number.isInteger(port) || (port as number) < 1 || (port as number) > 65535)) {
+    throw new SecurityFailure('delivery-failed')
+  }
+  return { host, database, user, password, ...(port === undefined ? {} : { port }) }
+}
+
 const register: CapabilityHandler<PostgresRegisterInput, { readonly registered: true }> = async (context, input) => {
   const reference = parseCredentialRef(input.credential)
   await context.registerCredential('database-auth', reference, {
+    host: input.host,
+    ...(input.port === undefined ? {} : { port: input.port }),
+    database: input.database,
     username: input.username,
     password: input.password,
   })
@@ -45,14 +65,8 @@ const register: CapabilityHandler<PostgresRegisterInput, { readonly registered: 
 }
 
 const list: CapabilityHandler<PostgresQueryInput, PostgresQueryResult> = async (context, input) => {
-  const reference = parseCredentialRef(input.config.credential)
-  const lease = await createPostgresPool(
-    context,
-    'database-auth',
-    reference,
-    input.config,
-    (parameters) => new Pool(parameters),
-  )
+  const reference = parseCredentialRef(input.credential)
+  const lease = await createPostgresPool(context, 'database-auth', reference, (parameters) => new Pool(parameters))
   try {
     const result = await lease.pool.query(input.sql, input.values ?? [])
     return { rows: result.rows, rowCount: result.rowCount ?? result.rows.length }
@@ -63,9 +77,9 @@ const list: CapabilityHandler<PostgresQueryInput, PostgresQueryResult> = async (
 
 export const postgres = defineComponent({
   id: 'postgres',
-  version: '2',
+  version: '3',
   name: 'PostgreSQL',
-  summary: '使用 Core 绑定的数据库字段建立驱动连接',
+  summary: '使用 Core 绑定的可信目标与数据库字段建立驱动连接',
   kind: 'locus',
   capabilities: [
     {
@@ -87,6 +101,9 @@ export const postgres = defineComponent({
     {
       id: 'database-auth',
       fields: [
+        { name: 'host', secret: false, required: true },
+        { name: 'port', secret: false, required: false },
+        { name: 'database', secret: false, required: true },
         { name: 'username', secret: false, required: true },
         { name: 'password', secret: true, required: true },
       ],
@@ -97,19 +114,15 @@ export const postgres = defineComponent({
 export const component = postgres.component
 export const api = postgres.api
 
-/** 密码只进入驱动参数；连接池生存期内保留必要引用，不构造连接 URL。 */
+/** 身份、目标与密码全部来自 Core 绑定字段；调用者不能再指定连接目标。 */
 export async function createPostgresPool<T extends PostgresPool>(
   context: CapabilityContext,
   slot: string,
   reference: CredentialRef,
-  options: PostgresOptions,
-  createPool: (parameters: PostgresOptions & { readonly user: string; readonly password: string }) => T | Promise<T>,
+  createPool: (parameters: PostgresPoolParameters) => T | Promise<T>,
 ): Promise<{ readonly pool: T; dispose(): Promise<void> }> {
   return context.withCredential(slot, reference, async (values) => {
-    const username = values.username
-    const password = values.password
-    if (username === undefined || password === undefined) throw new SecurityFailure('delivery-failed')
-    const parameters = { ...options, user: username, password }
+    const parameters = poolParameters(values)
     let pool: T | undefined
     try {
       pool = await createPool(parameters)
@@ -118,15 +131,18 @@ export async function createPostgresPool<T extends PostgresPool>(
       throw new SecurityFailure('delivery-failed')
     }
     let disposed = false
-    return { get pool() {
-      if (pool === undefined) throw new SecurityFailure('delivery-failed')
-      return pool
-    }, async dispose() {
-      if (disposed) return
-      disposed = true
-      const current = pool!
-      pool = undefined
-      try { await current.end() } catch { throw new SecurityFailure('delivery-failed') } finally { parameters.password = '' }
-    } }
+    return {
+      get pool() {
+        if (pool === undefined) throw new SecurityFailure('delivery-failed')
+        return pool
+      },
+      async dispose() {
+        if (disposed) return
+        disposed = true
+        const current = pool!
+        pool = undefined
+        try { await current.end() } catch { throw new SecurityFailure('delivery-failed') } finally { parameters.password = '' }
+      },
+    }
   })
 }

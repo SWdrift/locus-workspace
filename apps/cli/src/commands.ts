@@ -1,8 +1,8 @@
 import { existsSync, readFileSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import { Command, Option } from 'commander'
-import { SecurityFailure } from '@locus/core'
-import type { ComponentView, CredentialRef, LocusCore, Mount, SecurityHost, Workspace, WorkspaceRelation } from '@locus/core'
+import { isCredentialRef, SecurityFailure } from '@locus/core'
+import type { ComponentView, CredentialRef, LocusCore, Mount, SecurityGrantScope, SecurityHost, Workspace, WorkspaceRelation } from '@locus/core'
 import { component as templatesComponent, createTemplateService } from '@locus/templates'
 import { api as postgresApi, component as postgresComponent } from '@locus/postgres'
 import { component as giteaComponent } from '@locus/gitea'
@@ -12,6 +12,7 @@ import {
   component as remoteTargetsComponent,
   createRemoteTargetsService,
   readCredentialFile,
+  targetBinding,
 } from '@locus/remote-targets'
 import type { RemoteTarget, RemoteTargetView } from '@locus/remote-targets'
 import { createCliSecurityHost } from './security-host.ts'
@@ -197,13 +198,20 @@ export interface CreateProgramOptions {
   readonly host?: SecurityHost
   readonly ui?: CliSecurityUI
   readonly profile?: 'production' | 'development'
+  readonly grantScope?: SecurityGrantScope
 }
 
-function securityHostFactory(options: CreateProgramOptions): () => ReturnType<typeof createCliSecurityHost> {
+function securityHostFactory(
+  options: CreateProgramOptions,
+  currentGrantScope: () => SecurityGrantScope | undefined,
+): () => ReturnType<typeof createCliSecurityHost> {
   let trusted: ReturnType<typeof createCliSecurityHost> | undefined
   return () => {
     if (options.host === undefined) throw new SecurityFailure('authentication-unavailable')
-    trusted ??= createCliSecurityHost(options.host, options.ui)
+    const grantScope = options.grantScope ?? currentGrantScope()
+    trusted ??= createCliSecurityHost(options.host, options.ui, {
+      ...(grantScope === undefined ? {} : { grantScope }),
+    })
     return trusted
   }
 }
@@ -319,7 +327,10 @@ function parseQualifiedCapability(value: string, command: Command): { componentI
 export function createProgram(locus: LocusCore, options: CreateProgramOptions = {}): Command {
   let program: Command
   const templates = createTemplateService()
-  const trustedSecurityHost = securityHostFactory(options)
+  const trustedSecurityHost = securityHostFactory(
+    options,
+    () => program.opts<{ readonly grantScope?: SecurityGrantScope }>().grantScope,
+  )
   const remoteTargets = createRemoteTargetsService({
     root: join(locus.dataDirectory, 'remote-targets'),
     components: {
@@ -358,6 +369,7 @@ export function createProgram(locus: LocusCore, options: CreateProgramOptions = 
     .exitOverride()
     .description('Locus 本地工作空间：Workspace 身份与显式长期关系。')
     .option('--json', '输出机器可读 JSON，诊断仍写入 stderr')
+    .addOption(new Option('--grant-scope <scope>', 'Root 提权范围').choices(['operation', 'session']).default('operation'))
     .addOption(new Option('--profile <profile>', '隔离安全 Profile 与 development 数据目录').choices(['production', 'development']).default(options.profile ?? 'production'))
     .usage('[options] [command]')
     .showHelpAfterError()
@@ -384,13 +396,16 @@ export function createProgram(locus: LocusCore, options: CreateProgramOptions = 
 
   const pg = program.command('pg').description('PostgreSQL 组件命令：登记凭据与查询')
   const pgRegister = pg.command('register <resource>')
-    .description('登记 PostgreSQL 账号/密码并绑定到精确 database 资源；密码隐藏输入')
+    .description('登记 PostgreSQL 目标与账号/密码并绑定到精确 database 资源；密码隐藏输入')
+    .requiredOption('--host <host>', 'PostgreSQL 主机')
+    .requiredOption('--database <database>', '数据库名')
+    .option('--port <port>', 'PostgreSQL 端口')
     .requiredOption('--username <name>', 'PostgreSQL 登录名')
     .option('--credential <ref>', '稳定 CredentialRef；缺省为 credential:pg-<resource>')
   pgRegister.action(async (resource: string) => {
-    const options = pgRegister.opts<{ username: string; credential?: string }>()
+    const options = pgRegister.opts<{ host: string; database: string; port?: string; username: string; credential?: string }>()
     const credential = options.credential ?? `credential:pg-${resource}`
-    if (!/^credential:[a-z][a-z0-9-]*$/.test(credential)) {
+    if (!isCredentialRef(credential)) {
       pgRegister.error('credential 必须是 credential:<id>', { exitCode: 1 })
     }
     await trustedSecurityHost().executeComponent(
@@ -400,22 +415,26 @@ export function createProgram(locus: LocusCore, options: CreateProgramOptions = 
       {},
       async (context) => {
         const password = await trustedSecurityHost().readSecret('PostgreSQL 密码（隐藏输入）：')
-        return postgresApi.register?.(context, { credential: credential as CredentialRef, username: options.username, password })
+        return postgresApi.register?.(context, {
+          credential: credential as CredentialRef,
+          host: options.host,
+          database: options.database,
+          ...(options.port === undefined ? {} : { port: options.port }),
+          username: options.username,
+          password,
+        })
       },
     )
-    emit(pgRegister, { resource, credential, registered: true }, `已登记 PostgreSQL ${resource}；凭据 ${credential}。`)
+    emit(pgRegister, { resource, credential, host: options.host, database: options.database, registered: true }, `已登记 PostgreSQL ${resource}；目标 ${options.host}/${options.database}；凭据 ${credential}。`)
   })
   const pgList = pg.command('list <resource>')
-    .description('使用绑定的 database-auth 字段连接并查询 PostgreSQL')
-    .requiredOption('--host <host>', 'PostgreSQL 主机')
-    .requiredOption('--database <database>', '数据库名')
-    .option('--port <port>', 'PostgreSQL 端口', (value) => Number(value))
+    .description('使用登记时绑定的目标与 database-auth 字段连接并查询 PostgreSQL')
     .option('--sql <sql>', '查询语句', 'select 1')
     .option('--credential <ref>', '稳定 CredentialRef；缺省为 credential:pg-<resource>')
   pgList.action(async (resource: string) => {
-    const options = pgList.opts<{ host: string; database: string; port?: number; sql: string; credential?: string }>()
+    const options = pgList.opts<{ sql: string; credential?: string }>()
     const credential = options.credential ?? `credential:pg-${resource}`
-    if (!/^credential:[a-z][a-z0-9-]*$/.test(credential)) {
+    if (!isCredentialRef(credential)) {
       pgList.error('credential 必须是 credential:<id>', { exitCode: 1 })
     }
     let result
@@ -426,7 +445,7 @@ export function createProgram(locus: LocusCore, options: CreateProgramOptions = 
         { type: 'database', id: resource },
         {},
         async (context) => postgresApi.list?.(context, {
-          config: { host: options.host, database: options.database, ...(options.port === undefined ? {} : { port: options.port }), credential: credential as CredentialRef },
+          credential: credential as CredentialRef,
           sql: options.sql,
         }),
       )
@@ -435,7 +454,7 @@ export function createProgram(locus: LocusCore, options: CreateProgramOptions = 
         error.code === 'credential-fields-mismatch' ||
         (error.code === 'access-denied' && error.reason === 'credential-binding-mismatch')
       )) {
-        process.stderr.write(`提示：先运行 locus pg register ${resource} --username <name>${options.credential === undefined ? '' : ` --credential ${credential}`} 登记字段。\n`)
+        process.stderr.write(`提示：先运行 locus pg register ${resource} --host <host> --database <database> --username <name>${options.credential === undefined ? '' : ` --credential ${credential}`} 登记字段。\n`)
       }
       throw error
     }
@@ -583,6 +602,7 @@ export function createProgram(locus: LocusCore, options: CreateProgramOptions = 
     method: 'private-key' | 'password',
     file: string | undefined,
     operation: 'add' | 'update-credential',
+    binding: string,
     beforeRegister?: () => void,
     rollback?: () => void,
   ): Promise<void> {
@@ -599,11 +619,11 @@ export function createProgram(locus: LocusCore, options: CreateProgramOptions = 
         try {
           if (method === 'password') {
             const password = await trustedSecurityHost().readSecret('SSH 密码（隐藏输入）：')
-            await handler(context, { credential, password })
+            await handler(context, { credential, targetBinding: binding, password })
           } else {
             const privateKey = await readCredentialFile(resolve(file!))
             await assertUnencryptedPrivateKey(privateKey)
-            await handler(context, { credential, privateKey })
+            await handler(context, { credential, targetBinding: binding, privateKey })
           }
         } catch (error) {
           if (rollback !== undefined) {
@@ -654,6 +674,7 @@ export function createProgram(locus: LocusCore, options: CreateProgramOptions = 
       auth.method,
       options.file,
       'add',
+      targetBinding(preview),
       () => { remoteTargets.addFromText(id, text) },
       () => { remoteTargets.remove(preview.id) },
     )
@@ -683,7 +704,7 @@ export function createProgram(locus: LocusCore, options: CreateProgramOptions = 
     .option('--file <path>', '私钥文件；私钥认证必须提供，密码认证不使用')
   targetUpdate.action(async (reference: string) => {
     const options = targetUpdate.opts<{ credential: string; method: 'private-key' | 'password'; file?: string }>()
-    if (!/^credential:[a-z][a-z0-9-]*$/.test(options.credential)) {
+    if (!isCredentialRef(options.credential)) {
       targetUpdate.error('credential 必须是 credential:<id>', { exitCode: 1 })
     }
     const shown = remoteTargets.show(reference)
@@ -705,6 +726,7 @@ export function createProgram(locus: LocusCore, options: CreateProgramOptions = 
       options.method,
       options.file,
       'update-credential',
+      targetBinding(shown),
     )
     emit(targetUpdate, { target: shown.id, credential: options.credential, method: options.method }, `已更新目标 ${shown.id} 的 ${options.method} 字段；目标配置未改写。`)
   })
@@ -718,7 +740,7 @@ export function createProgram(locus: LocusCore, options: CreateProgramOptions = 
     const capability = legacy.method === 'password' ? 'register-password' : 'register-private-key'
     let secret = ''
     try {
-      if (!/^credential:[a-z][a-z0-9-]*$/.test(credential)) throw new SecurityFailure('access-denied', { reason: 'invalid-request' })
+      if (!isCredentialRef(credential)) throw new SecurityFailure('access-denied', { reason: 'invalid-request' })
       const shown = remoteTargets.show(reference)
       const handler = remoteTargetsApi[capability]
       if (handler === undefined) throw new SecurityFailure('access-denied', { reason: 'unsupported-capability' })
@@ -731,8 +753,8 @@ export function createProgram(locus: LocusCore, options: CreateProgramOptions = 
           secret = await readCredentialFile(legacy.path)
           if (capability === 'register-private-key') await assertUnencryptedPrivateKey(secret)
           const input = capability === 'register-private-key'
-            ? { credential: credential as CredentialRef, privateKey: secret }
-            : { credential: credential as CredentialRef, password: secret }
+            ? { credential: credential as CredentialRef, targetBinding: targetBinding(shown), privateKey: secret }
+            : { credential: credential as CredentialRef, targetBinding: targetBinding(shown), password: secret }
           await handler(context, input)
         },
       )

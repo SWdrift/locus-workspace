@@ -15,7 +15,7 @@
 
 包组件只允许 `kind: locus`；动态组件只允许 `kind: external`。纯 Locus 组件与依赖外部的 Locus 组件不是两种 kind，后者用 `requires` 表达。
 
-提供组件的包导出 `component` 与 `api`，作为包的一部分参与类型检查，并由 CLI 组合根传给 `createLocusCore()`；`config-reference` 这类非组件包不导出组件。没有包的外部软件（如 Docker）只登记 YAML。
+提供组件的包导出 `component` 与 `api`，作为包的一部分参与类型检查，并由 CLI 组合根传给 `createLocusCore()`；没有包的外部软件（如 Docker）只登记 YAML。
 
 ## 定义
 

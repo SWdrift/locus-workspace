@@ -91,6 +91,41 @@ function emptyComponent() {
   })
 }
 
+function secondaryComponent() {
+  return defineComponent({
+    id: 'secondary',
+    version: '1',
+    name: 'secondary',
+    summary: '跨组件引用隔离测试',
+    kind: 'locus',
+    capabilities: [
+      {
+        id: 'register',
+        resourceType: 'thing',
+        defaultAuthLevel: 'root',
+        secrets: [{ slot: 'secondary-auth', access: 'write' }],
+        run: async (context, input) => {
+          await context.registerCredential('secondary-auth', input.credential, { value: input.value })
+          return { registered: true }
+        },
+      },
+      {
+        id: 'read',
+        resourceType: 'thing',
+        defaultAuthLevel: 'user',
+        secrets: [{ slot: 'secondary-auth', access: 'read' }],
+        run: (context, input) => context.withCredential('secondary-auth', input.credential, (values) => values.value),
+      },
+    ],
+    credentials: [
+      {
+        id: 'secondary-auth',
+        fields: [{ name: 'value', secret: true, required: true }],
+      },
+    ],
+  })
+}
+
 function connectRequest(overrides = {}) {
   return { capability: 'connect', resource: DATABASE, parameters: null, ...overrides }
 }
@@ -418,16 +453,120 @@ test('Root 能力创建一次 Challenge，resume 后 execute 内交付凭据不�
   const grant = await setup.host.authenticate(pending, ROOT_PASSWORD)
   assert.deepEqual(Object.keys(grant).sort(), [
     'authorizedBy', 'capability', 'componentId', 'expiresAt',
-    'grantId', 'operationId', 'resource', 'sessionId', 'subject',
+    'grantId', 'operationId', 'resource', 'scope', 'sessionId', 'subject',
   ])
   assert.equal(grant.subject, 'user')
   assert.equal(grant.authorizedBy, 'root')
-  assert.equal('scope' in grant, false)
+  assert.equal(grant.scope, 'operation')
+  assert.equal(typeof grant.expiresAt, 'number')
   assert.equal(reads, 0)
   assert.deepEqual(await setup.host.resume(grant), { username: 'app', password: SECRET })
   assert.equal(reads, 1)
   await assert.rejects(() => setup.host.resume(grant), failure('grant-consumed'))
   await challenge(() => port.execute(adminRequest(), () => assert.fail()))
+})
+
+test('Session Grant 在同一 Session 内复用，结束或 Root 重置后失效', async (t) => {
+  const setup = fixture(t)
+  await setup.initialize()
+  await registerWith(setup)
+  const { session, port } = databasePort(setup)
+  const pending = await challenge(() => port.execute(
+    adminRequest(),
+    (context) => setup.defined[0].api.admin(context, { credential: DATABASE_REFERENCE }),
+  ))
+  const grant = await setup.host.authenticate(pending, ROOT_PASSWORD, 'session')
+  assert.equal(grant.scope, 'session')
+  assert.equal(grant.expiresAt, null)
+  assert.deepEqual(await setup.host.resume(grant), { username: 'app', password: SECRET })
+  await assert.rejects(() => setup.host.resume(grant), failure('grant-consumed'))
+
+  // 同一 Session、同组件/能力/精确资源：不再 Challenge。
+  assert.deepEqual(
+    await port.execute(adminRequest(), (context) => setup.defined[0].api.admin(context, { credential: DATABASE_REFERENCE })),
+    { username: 'app', password: SECRET },
+  )
+
+  // 不同资源仍需新的授权；这里只创建挑战，随后结束会话撤销。
+  await registerWith(setup, { resource: OTHER_DATABASE })
+  await challenge(() => port.execute(
+    adminRequest({ resource: OTHER_DATABASE }),
+    () => assert.fail(),
+  ))
+
+  setup.host.endSession(session)
+  await assert.rejects(() => setup.host.resume(grant), failure('grant-revoked'))
+  const next = databasePort(setup)
+  const nextPending = await challenge(() => next.port.execute(
+    adminRequest(),
+    (context) => setup.defined[0].api.admin(context, { credential: DATABASE_REFERENCE }),
+  ))
+  const nextGrant = await setup.host.authenticate(nextPending, ROOT_PASSWORD, 'session')
+  assert.deepEqual(await setup.host.resume(nextGrant), { username: 'app', password: SECRET })
+  await setup.host.resetRoot('重置后的隔离测试密码', '重置后的隔离测试密码')
+  await challenge(() => next.port.execute(adminRequest(), () => assert.fail()))
+  await assert.rejects(() => setup.host.resume(nextGrant), failure('grant-revoked'))
+})
+
+test('user 级写能力不能覆盖其他组件的 CredentialRef', async (t) => {
+  const setup = fixture(t, { components: [databaseComponent(), secondaryComponent()] })
+  await setup.initialize()
+  const session = setup.host.createSession('agent')
+  const secondaryPort = setup.host.bindComponent(session, setup.defined[1].component)
+  const secondaryResource = { type: 'thing', id: 'secondary' }
+  let challenge
+  try {
+    await secondaryPort.execute(
+      { capability: 'register', resource: secondaryResource, parameters: null },
+      (context) => setup.defined[1].api.register(context, {
+        credential: 'credential:secondary-auth',
+        value: 'original-secondary',
+      }),
+    )
+  } catch (error) {
+    assert.equal(error.code, 'authentication-required')
+    challenge = error.challenge
+  }
+  assert.ok(challenge)
+  await setup.host.resume(await setup.host.authenticate(challenge, ROOT_PASSWORD))
+
+  const databasePort = setup.host.bindComponent(session, setup.defined[0].component)
+  await assert.rejects(
+    () => databasePort.execute(registerRequest('credential:secondary-auth', DATABASE), (context) => (
+      setup.defined[0].api.register(context, {
+        credential: 'credential:secondary-auth',
+        values: { username: 'attacker', password: 'attacker-secret' },
+      })
+    )),
+    failure('access-denied', 'credential-reference-owned'),
+  )
+  const value = await secondaryPort.execute(
+    { capability: 'read', resource: secondaryResource, parameters: null },
+    (context) => setup.defined[1].api.read(context, { credential: 'credential:secondary-auth' }),
+  )
+  assert.equal(value, 'original-secondary')
+
+  // 删除所有绑定后 owner 仍保留；不能靠解绑把引用“变成无主”。
+  const management = setup.host.forSession(session)
+  for (const capability of ['register', 'read']) {
+    await privileged(setup, () => management.unbindCredential({
+      componentId: 'secondary',
+      capability,
+      resource: secondaryResource,
+      slot: 'secondary-auth',
+    }))
+  }
+  await assert.rejects(
+    () => databasePort.execute(registerRequest('credential:secondary-auth', DATABASE), (context) => (
+      setup.defined[0].api.register(context, {
+        credential: 'credential:secondary-auth',
+        values: { username: 'attacker', password: 'attacker-secret' },
+      })
+    )),
+    failure('access-denied', 'credential-reference-owned'),
+  )
+  const metadata = (await management.listCredentials()).find((item) => item.reference === 'credential:secondary-auth')
+  assert.equal(metadata?.owner, 'secondary')
 })
 
 test('公开字段进入元数据，秘密字段只进入 Provider，并在交付时合并', async (t) => {

@@ -2,9 +2,9 @@
 
 ## 简述
 
-Core Security 是 Locus 的统一权限真源与凭据保管平面。它提供本机 Root／User 身份、进程内 Session、可信组件能力目录、Root 认证等级覆盖、单次操作 Grant、按 slot 精确绑定、公开／秘密字段拆分，以及 OS Keyring 保管。Compose 用一份 `defineComponent` 声明能力、凭据字段与 handler；CLI 在组件命令中完成参数、提示与 Root 提权，普通 User 通过已授权组件能力消费字段。
+Core Security 是 Locus 的统一权限真源与凭据保管平面。它提供本机 Root／User 身份、进程内 Session、可信组件能力目录、Root 认证等级覆盖、operation／session 两种 Grant、按 slot 精确绑定、公开／秘密字段拆分，以及 OS Keyring 保管。Compose 用一份 `defineComponent` 声明能力、凭据字段与 handler；CLI 在组件命令中完成参数、提示与 Root 提权，普通 User 通过已授权组件能力消费字段。
 
-Core 不实现 PostgreSQL、HTTP、SSH 或具体业务协议。各 Compose 在自己的普通包中提供能力 handler：`@locus/postgres`、`@locus/gitea` 和 `@locus/remote-targets`。配置中的 `credential:<id>` 由独立 `@locus/config-reference` 解析/校验。CLI 是可信本地认证 Host，Web 仍占位。
+Core 不实现 PostgreSQL、HTTP、SSH 或具体业务协议。各 Compose 在自己的普通包中提供能力 handler：`@locus/postgres`、`@locus/gitea` 和 `@locus/remote-targets`。配置中的 `credential:<id>` 由 Core 的 `parseCredentialRef` 校验；Compose 不各自复制引用格式。CLI 是可信本地认证 Host，Web 仍占位。
 
 ## 职责
 
@@ -20,11 +20,11 @@ Session 保存 sessionId、userId、source、startedAt、endedAt 和活动状态
 
 `core.security` 只公开安全状态与 Provider 状态查询。可信组合根通过 `security.receiveHost` 得到管理端口，再把绑定后的组件窄接口注入消费者；普通组件没有初始化、认证或身份选择入口。组件绑定要求装配时同一可信 `ComponentSpec` 对象；同名复制对象、可编辑 YAML 和 external 登记不会自动取得信任。
 
-Root 操作抛出带不透明 Challenge 的 `SecurityFailure`。Host 在可信输入后调用 `authenticate(challenge, password)`；只有密码验证成功才签发 Grant。当前只支持单次操作授权：
+Root 操作抛出带不透明 Challenge 的 `SecurityFailure`。Host 在可信输入后调用 `authenticate(challenge, password, scope)`；只有密码验证成功才签发 Grant。scope 支持 `operation` 与 `session`：
 
-- Grant 默认 60 秒；只恢复 Core 捕获的原操作，首次恢复后消费，失败不返还。
-- Session 结束、Root 重置、Host 关闭与 Core dispose 都撤销未消费 Grant。
-- 不提供 Session Grant、跨命令放权、`--grant-scope` 或环境变量／文件 Token。
+- `operation` 默认 60 秒；只恢复 Core 捕获的原操作，首次恢复后消费，失败不返还。
+- `session` 绑定真实进程内 Session，同组件、能力与精确资源可复用；Session 结束、Root 重置、Host 关闭与 Core dispose 都撤销，不跨进程。当前 CLI 每条命令创建并结束 Session，因此 `--grant-scope session` 只在命令内有效，不能跨 CLI 命令；常驻 Host 尚未交付。
+- 两种 Grant 都绑定主体、Session、组件、能力、资源与 scope；Session Grant 不扩大为全局 Root，也不接受环境变量／文件 Token。
 - 并发恢复同一未消费 Grant 只能有一个成功；已消费、过期、撤销与取消分别可判。
 
 ## 组件能力与等级
@@ -72,9 +72,10 @@ defineComponent(...)
 - 登记时校验必填、未知字段与字段名；读取时合并公开/秘密字段，字段与当前声明不一致以 `credential-fields-mismatch` 失败。
 - 字段变化显式重登记，不做静默转换；秘密字段合并后超过 Keyring 单条容量即失败。
 - 凭据绑定键为 `component + capability + resource + slot`。同一 slot 被多个能力共用时，登记一次会为组件内所有声明该 slot 的能力建立绑定；读取仍按当前 capability、`access` 与精确资源校验。
+- `CredentialMetadata` 持久化 `owner` 组件 id；第一版一个 CredentialRef 只对应一个 owner 组件。写保护按 owner 校验，其他组件已绑定的 ref 不能覆盖；没有跨组件共享的 Root bind 入口。同一组件内多个能力仍可共享 slot。
 - `access: read` 在 `execute` 前预检绑定与元数据；`access: write` 不要求预先存在。Keyring 内容缺失在 `withCredential` 读取时判定。
 - 凭据缺失、未绑定或字段不匹配不触发 Root 提权；Root 不足才返回 Challenge。
-- 配置只保存 `credential:<id>`，由 `@locus/config-reference` 解析/校验；它不读取 Keyring、不读文件、不承担迁移。
+- 配置只保存 `credential:<id>`，由 Core 的 `parseCredentialRef` 解析/校验；它不读取 Keyring、不读文件、不承担迁移。
 
 登记由组件能力调用 `CapabilityContext.registerCredential` 完成。Core 在一个逻辑操作内写 Provider、公开字段元数据与所有相关 capability 绑定；Provider 写后回读验证，数据库提交失败时按前值补偿。配置文件更新属于组件边界，CLI 以显式补偿处理失败，不宣称跨存储 2PC。
 
@@ -96,7 +97,7 @@ CLI 只传参数与展示结果，不接触 Keyring、字段拆分或绑定内�
 
 ## Root 认证与恢复
 
-初始化入口在可信本地 TTY 隐藏输入两次密码；重复初始化不覆盖验证材料，不删除已有 Workspace。Core 不读取 stdin。Root 密码不得来自 argv、环境、.env、普通配置、Credential Provider、Prompt 或普通 Bash 参数；不能进入日志、JSON、Challenge 或 Grant。非交互或输入中断明确失败。
+初始化入口在可信本地 TTY 隐藏输入两次密码；重复初始化不覆盖验证材料，不删除已有 Workspace。Core 不读取 stdin。生产/常规 CLI 的 Root 密码不得来自 argv、环境、.env、普通配置、Credential Provider、Prompt 或普通 Bash 参数；不能进入日志、JSON、Challenge 或 Grant。开发/迭代的 `_LOCUS_ROOT_PASSWORD` 约定由[开发与验证](../development.md)维护，不进入 CLI/Core 常规路径。非交互或输入中断明确失败。
 
 验证使用 Node 原生异步 scrypt，固定 N=32768、r=8、p=1、maxmem=64 MiB，随机 16 字节 Salt，32 字节派生结果，固定长度 timingSafeEqual 比较。SQLite 保存版本、算法与参数、Salt、派生验证值和认证世代，不保存明文。
 
@@ -106,7 +107,7 @@ CLI 只传参数与展示结果，不接触 Keyring、字段拆分或绑定内�
 
 ## 消费者交付边界
 
-PostgreSQL、Gitea 与 Remote Targets 各自负责协议、能力 handler 与秘密载体；Core 只负责字段拆分、精确绑定与交付。具体 API、失败与平台限制由各包 README 维护：
+PostgreSQL、Gitea 与 Remote Targets 各自负责协议、目标领域约束、能力 handler 与秘密载体；Core 只负责字段拆分、精确绑定与交付。PostgreSQL 在 Root 登记时固定 host/port/database，Gitea 固定 origin，SSH 使用目标配置中的 host/port/login 与信任锚，并由 Remote Targets 保存目标安全摘要；配置变化需要 Root 重新确认；这些端点不由 User 请求参数替换。具体 API、失败与平台限制由各包 README 维护：
 
 - [PostgreSQL](../../packages/postgres/README.md)：临时验证消费者，验证完成后移除。
 - [Gitea](../../packages/gitea/README.md)：绑定 origin 的 Bearer 请求。
@@ -118,11 +119,11 @@ SSH 协议、目标模型、迁移流程与临时文件交付归 Remote Targets�
 
 ## 持久化、错误与备份
 
-Core SQLite 当前 `user_version=6`，包含 Workspace、关系、挂载、组件状态，以及安装、Root 验证材料、失败计数／租约／世代、Profile、凭据公开字段、能力等级覆盖和组件／能力／资源／slot 绑定。安全表不保存资源秘密。开发阶段不维护旧 schema 逐版本迁移；版本不符时要求备份后重建数据目录，未知版本、冲突结构或损坏验证材料明确拒绝，不重建覆盖；没有自动备份。备份仍按 [Core 约定](../../packages/core/README.md#持久化与恢复)停写后复制整个目录。
+Core SQLite 当前 `user_version=7`，包含 Workspace、关系、挂载、组件状态，以及安装、Root 验证材料、失败计数／租约／世代、Profile、凭据公开字段与 owner、能力等级覆盖和组件／能力／资源／slot 绑定。安全表不保存资源秘密。开发阶段不维护旧 schema 逐版本迁移；版本不符时要求备份后重建数据目录，未知版本、冲突结构或损坏验证材料明确拒绝，不重建覆盖；没有自动备份。备份仍按 [Core 约定](../../packages/core/README.md#持久化与恢复)停写后复制整个目录。
 
 数据库备份包含敏感离线验证材料，但不包含 Keyring 秘密；恢复引用和绑定不等于恢复秘密。Session／Challenge／Grant 不持久化，重启不能恢复授权。丢失 Keyring 或换机须重新录入资源凭据。
 
-`SecurityFailure` 保留 Core 的固定 code／reason，不携带原始 Provider／消费者异常或 cause。组件可显式抛出 `CapabilityFailure` 保留自己的能力错误码；Core 原样透传。通用组件异常仍收为 `operation-failed`，避免错误消息泄漏秘密。CLI 只负责把已知类型渲染为命令结果与退出码。未初始化、拒绝、需要认证、错误密码、取消、非交互、锁定、Challenge／Grant 过期或撤销、已消费、凭据缺失、字段不匹配、Provider 不可用、超限、交付失败和 IO 分别可判。CLI 安全错误在 JSON stdout 返回 code／reason，诊断写 stderr、退出 2；Gitea 交付返回认证失败／网络失败的独立结果。
+`SecurityFailure` 保留 Core 的固定 code／reason，不携带原始 Provider／消费者异常或 cause。组件可显式抛出 `CapabilityFailure` 保留自己的能力错误码；Core 原样透传。通用组件异常仍收为 `operation-failed`，避免错误消息泄漏秘密。CLI 只负责把已知类型渲染为命令结果与退出码。未初始化、拒绝、需要认证、错误密码、取消、非交互、锁定、Challenge／Grant 过期或撤销、已消费、凭据缺失、字段不匹配、Provider 不可用、超限、交付失败和安全存储 IO 分别可判；Provider 原生 IO 合并为不可用。CLI 安全错误在 JSON stdout 返回 code／reason，诊断写 stderr、退出 2；Gitea 交付返回认证失败／网络失败的独立结果。
 
 ## 平台证据与安全边界
 

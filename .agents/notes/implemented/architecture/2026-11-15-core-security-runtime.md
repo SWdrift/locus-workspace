@@ -10,7 +10,7 @@ Locus 需要让 Compose 使用 PostgreSQL、SSH、Gitea 等业务能力，但 Us
 
 Core 是统一的权限真源与凭据保管者：固定 Root／User 身份、进程内 Session、固定能力目录、Root Challenge／Grant、CredentialRef 元数据、组件／能力／资源绑定和 Provider。Compose 在 ComponentSpec 中声明 `capabilities` 与 `credentials` 槽；声明不授予权限。Root 登记凭据并绑定到组件能力与精确资源，User 通过已授权 Compose 消费。
 
-普通使用与 Root 认证保持两条流程。Grant 支持 `operation` 与 `session`：操作级 60 秒、首次恢复后消费；Session 级绑定真实进程内 Session，同组件、能力、动作与资源可复用，Session 结束、Root 重置或 Host 关闭时撤销。Grant 对象依赖 Core 内部记录与对象身份，恢复只执行预先捕获的原操作，不接受新回调；不引入持久 Token、Daemon 或跨进程授权。
+普通使用与 Root 认证保持两条流程。Grant 支持 `operation` 与 `session`：操作级 60 秒、首次恢复后消费；Session 级绑定真实进程内 Session，同组件、能力与精确资源可复用，Session 结束、Root 重置或 Host 关闭时撤销。Grant 对象依赖 Core 内部记录与对象身份，恢复只执行预先捕获的原操作，不接受新回调；不引入持久 Token、Daemon 或跨进程授权。
 
 凭据只保存稳定 `credential:<id>`。Core 持久化绑定，`withCredential()` 必须使用配置中的引用且与绑定完全一致；调用方不能自行选择其他引用。凭据缺失、类型不匹配、Provider 不可用与权限拒绝分开，Missing 不触发 Root。
 

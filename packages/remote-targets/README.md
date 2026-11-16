@@ -35,7 +35,7 @@
 | `connectivity.port` | 否 | `22` | 1-65535 |
 | `connectivity.remoteShell` | 否 | 按资源类型 | `posix` 或 `cmd` |
 | `connectivity.client` | 否 | `ssh` / `plink` | 客户端可执行文件 |
-| `connectivity.trust.knownHosts` | 否 | `credentials/<id>/known_hosts` | 显式提供时使用 `StrictHostKeyChecking=yes` |
+| `connectivity.trust.knownHosts` | 否 | `trust/<id>/known_hosts` | 显式提供时使用 `StrictHostKeyChecking=yes` |
 | `connectivity.trust.fingerprint` | 密码认证必填 | 无 | Plink `-hostkey` 使用 |
 
 未知字段直接拒绝，不静默忽略。目标引用顺序：精确 id → 唯一前缀 → 唯一标签；歧义时列出候选并失败。
@@ -46,7 +46,11 @@
 
 ## 凭据交付与迁移
 
-Core 返回秘密后，本包在操作系统临时目录创建独占目录与文件：POSIX 目录 0700、文件 0600；Windows 在写入秘密前建立并核验仅当前 SID、SYSTEM 与 Administrators 的 DACL。OpenSSH/Plink 结束后删除目录；成功、异常、超时与取消都走同一清理路径。不维护 lease、PID 追踪或崩溃恢复平台；强杀进程可能留下同用户可读的临时文件，这是接受的残留窗口。
+Core 返回秘密后，本包在操作系统临时目录创建独占目录与文件：POSIX 目录 0700、文件 0600；Windows 在写入秘密前建立并核验仅当前 SID、SYSTEM 与 Administrators 的 DACL。OpenSSH/Plink 正常或异常返回后删除目录；probe 的 15 秒超时也走同一清理路径。exec/shell 当前未接取消信号，强杀进程可能留下同用户可读的临时文件；不维护 lease、PID 追踪或崩溃恢复平台，这是接受的残留窗口。
+
+升级后已有远程目标凭据缺少 `targetBinding`，读取会以 `credential-fields-mismatch` 失败；Root 需重新执行 `update-credential`（或重新登记目标）补齐。
+
+Core 把目标安全配置摘要 `targetBinding` 作为凭据公开字段保存。摘要覆盖 host、port、login、`access.capabilities`、`remoteShell`、客户端与 trust 锚；认证方法、CredentialRef 与仅展示字段不纳入。读取凭据时比较当前目标摘要与登记值，不一致以 `target-config-mismatch` 在启动客户端前失败。修改 `targets.yaml` 的安全字段后，必须由 Root 重新执行 `update-credential`（或重新登记目标）才能恢复访问。
 
 旧 `auth.path/root` 不再参与运行时。`remote-targets migrate <target> --credential <ref> --yes` 读取旧文件、经对应 `register-*` 能力写入 Core 并回读验证，随后绑定到该精确目标资源，再改写目标配置；原文件保留。私钥迁移先用受限临时副本执行 `ssh-keygen -y -P ''` 预检，带口令或无法解析时以 `encrypted-key-unsupported` 阻塞，不自动去口令、不删除原支持、不把口令放入 argv/env。密码迁移把旧密码文件写入 Core，之后由 Plink 临时文件交付。真实 Plink 登录未在当前环境验证。
 
@@ -64,6 +68,7 @@ Core 返回秘密后，本包在操作系统临时目录创建独占目录与文
 | `capability-unsupported` | 目标未声明 `exec` 或 `shell` |
 | `component-unavailable` | 所需 `openssh`/`plink` 组件未登记或状态非 `healthy`；在连接前失败 |
 | `access-denied` | 未注入 Core 授权，或 Core 拒绝精确目标能力／引用绑定；不启动客户端 |
+| `target-config-mismatch` | 目标安全字段与 Root 登记的 `targetBinding` 不一致；需要 Root 重新确认 |
 | `migration-required` | 目标仍是旧 `auth.path/root`；先显式迁移 |
 | `already-migrated` | 目标已使用 CredentialRef，重复迁移 |
 | `encrypted-key-unsupported` | 私钥带口令或无法解析；不自动去口令 |
@@ -74,7 +79,7 @@ Core 返回秘密后，本包在操作系统临时目录创建独占目录与文
 
 - 只实现 SSH；S3 与 HTTP 未实现。
 - `access.capabilities` 仍是目标级能力；Locus 主体授权由注入的 Core 提供，不由目标配置自行决定。
-- 没有 `edit` 与交互式补全；修改需重写 `targets.yaml` 或重新 `add`。
+- 没有 `edit` 与交互式补全；修改需重写 `targets.yaml` 或重新 `add`。安全字段变化后访问失败，必须由 Root 重新 `update-credential` 或重新登记目标。
 - 探测结果只保留最近一次；`state.sqlite` 可删除并由下一次探测重建。
 - 密码认证依赖 Plink，非 Windows 环境需自行提供可执行文件；未验证真实 Plink 登录。
 - 带口令私钥没有 CredentialRef 交付契约，迁移明确阻塞。

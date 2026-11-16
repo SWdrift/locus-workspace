@@ -6,7 +6,7 @@ import { SECURITY_SCHEMA } from './schema/security.ts'
 import { WORKSPACE_SCHEMA } from './schema/workspace.ts'
 
 /** Workspace、组件与安全元数据共用同一个数据库与版本号。 */
-export const CORE_SCHEMA_VERSION = 6
+export const CORE_SCHEMA_VERSION = 7
 
 const SECURITY_TABLES = [
   'security_installation',
@@ -35,7 +35,7 @@ const SECURITY_COLUMNS: Readonly<Record<typeof SECURITY_TABLES[number], readonly
     'attempt_id', 'attempt_expires_at',
   ],
   security_profiles: ['name', 'installation_id'],
-  security_credentials: ['profile', 'reference', 'provider_id', 'fields', 'created_at', 'updated_at'],
+  security_credentials: ['profile', 'reference', 'provider_id', 'fields', 'created_at', 'updated_at', 'owner_component'],
   security_credential_bindings: [
     'profile', 'component_id', 'capability', 'slot', 'resource_type', 'resource_id',
     'reference', 'created_at', 'updated_at',

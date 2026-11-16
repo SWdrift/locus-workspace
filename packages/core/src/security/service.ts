@@ -27,6 +27,7 @@ import type {
   RootAuthenticationState,
   SecurityChallenge,
   SecurityGrant,
+  SecurityGrantScope,
   SecurityHost,
   SecurityLevel,
   SecurityOptions,
@@ -70,6 +71,7 @@ interface ChallengeRecord {
 
 interface GrantRecord {
   readonly grant: SecurityGrant
+  readonly session: SessionRecord
   readonly parametersHash: string
   readonly generation: number
   state: GrantState
@@ -191,6 +193,7 @@ class SecurityRuntime {
   readonly #liveSessions = new Set<SessionRecord>()
   readonly #challenges = new WeakMap<SecurityChallenge, ChallengeRecord>()
   readonly #grants = new WeakMap<SecurityGrant, GrantRecord>()
+  readonly #sessionGrants = new WeakMap<SessionRecord, Map<string, GrantRecord>>()
   #disposed = false
   #hostClosed = false
 
@@ -228,7 +231,9 @@ class SecurityRuntime {
       forSession: (session: SecuritySession) => this.#forSession(session),
       initializeRoot: (password: string, confirmation: string) => this.#initializeRoot(password, confirmation),
       resetRoot: (password: string, confirmation: string) => this.#replaceRoot(password, confirmation),
-      authenticate: (challenge: SecurityChallenge, password: string) => this.#authenticate(challenge, password),
+      authenticate: (challenge: SecurityChallenge, password: string, scope?: SecurityGrantScope) => (
+        this.#authenticate(challenge, password, scope)
+      ),
       cancelChallenge: (challenge: SecurityChallenge) => this.#cancelChallenge(challenge),
       resume: <T>(grant: SecurityGrant) => this.#resume<T>(grant),
       close: () => this.#closeHost(),
@@ -300,6 +305,7 @@ class SecurityRuntime {
         this.#terminate(operation, 'revoked')
       }
     }
+    this.#revokeSessionGrants(record)
     record.endedAt = this.#clock()
     this.#liveSessions.delete(record)
     if (failure !== undefined) throw failure
@@ -343,6 +349,10 @@ class SecurityRuntime {
     const declaration = component.componentId === 'host' ? undefined : capabilityDeclaration(component, request)
     this.#preflight(component, declaration, request)
     if (level === 'user') {
+      return this.#run(session, run, request, root.generation)
+    }
+    const sessionGrant = this.#sessionGrant(current, component.componentId, request, root.generation)
+    if (sessionGrant !== undefined) {
       return this.#run(session, run, request, root.generation)
     }
     const operationId = randomUUID()
@@ -412,6 +422,7 @@ class SecurityRuntime {
         if (binding === undefined) deny('credential-binding-mismatch')
         const metadata = transaction.getCredential(this.#profile, binding.reference)
         if (metadata === undefined) throw new SecurityFailure('credential-missing')
+        if (metadata.owner !== component.componentId) deny('credential-reference-owned')
         if (metadata.providerId !== provider.id) throw new SecurityFailure('provider-unavailable')
       }
     })
@@ -443,6 +454,27 @@ class SecurityRuntime {
     if (this.#root(transaction).generation !== generation) throw new SecurityFailure('grant-revoked')
   }
 
+  /** Session Grant 只复用同一真实 Session 内、同组件/能力/精确资源的授权。 */
+  #sessionGrant(
+    session: SessionRecord,
+    componentId: string,
+    request: SecurityRequest,
+    generation: number,
+  ): GrantRecord | undefined {
+    const grants = this.#sessionGrants.get(session)
+    if (grants === undefined) return undefined
+    const key = JSON.stringify([componentId, request.capability, request.resource.type, request.resource.id])
+    const grant = grants.get(key)
+    if (grant === undefined) return undefined
+    if (grant.state !== 'active' || grant.generation !== generation) {
+      grant.state = 'revoked'
+      grant.operation = undefined
+      grants.delete(key)
+      return undefined
+    }
+    return grant
+  }
+
   #credentialFor(component: BoundComponent, slot: string): ComponentCredential {
     if (typeof slot !== 'string' || !SLOT.test(slot)) deny('invalid-request')
     const credential = component.credentials.find((value) => value.id === slot)
@@ -471,14 +503,25 @@ class SecurityRuntime {
       this.#authorizeGeneration(transaction, session, generation)
       const previous = transaction.getCredential(this.#profile, reference)
       if (previous !== undefined && previous.providerId !== provider.id) throw new SecurityFailure('provider-unavailable')
+      if (previous !== undefined && previous.owner !== component.componentId) deny('credential-reference-owned')
       return { key: this.#providerKey(transaction, reference), previous }
     })
     let previousSecret: string | undefined
+    let written = false
     try {
       previousSecret = previous === undefined ? undefined : await provider.get(key)
       await provider.set(key, secretJson)
+      written = true
       if (await provider.get(key) !== secretJson) throw new SecurityFailure('provider-unavailable')
     } catch (error) {
+      if (written) {
+        try {
+          if (previousSecret === undefined) await provider.delete(key)
+          else await provider.set(key, previousSecret)
+        } catch {
+          throw new SecurityFailure('io')
+        }
+      }
       throw providerFailure(error)
     }
     try {
@@ -486,10 +529,12 @@ class SecurityRuntime {
         this.#authorizeGeneration(transaction, session, generation)
         const current = transaction.getCredential(this.#profile, reference)
         if (current !== undefined && current.providerId !== provider.id) throw new SecurityFailure('provider-unavailable')
+        if (current !== undefined && current.owner !== component.componentId) deny('credential-reference-owned')
         const now = this.#clock()
         transaction.setCredential({
           reference,
           profile: this.#profile,
+          owner: current?.owner ?? component.componentId,
           providerId: provider.id,
           fields: normalized.publicFields,
           createdAt: current?.createdAt ?? now,
@@ -557,6 +602,7 @@ class SecurityRuntime {
       if (binding === undefined || binding.reference !== reference) deny('credential-binding-mismatch')
       const metadata = transaction.getCredential(this.#profile, reference)
       if (metadata === undefined) throw new SecurityFailure('credential-missing')
+      if (metadata.owner !== component.componentId) deny('credential-reference-owned')
       if (metadata.providerId !== provider.id) throw new SecurityFailure('provider-unavailable')
       return { metadata, key: this.#providerKey(transaction, reference) }
     })
@@ -646,13 +692,14 @@ class SecurityRuntime {
         if (metadata !== undefined && metadata.providerId !== provider.id) throw new SecurityFailure('provider-unavailable')
         return this.#providerKey(transaction, reference)
       })
+      this.#session(session)
+      // 先移除授权与元数据，确保删除中途失败时该引用不能被继续使用；残留 Keyring 条目交由 cleanup 处理。
+      this.#transaction((transaction) => transaction.deleteCredential(this.#profile, reference))
       try {
         await provider.delete(key)
       } catch (error) {
         throw providerFailure(error)
       }
-      this.#session(session)
-      this.#transaction((transaction) => transaction.deleteCredential(this.#profile, reference))
     })
   }
 
@@ -823,7 +870,12 @@ class SecurityRuntime {
     })
   }
 
-  async #authenticate(challenge: SecurityChallenge, password: string): Promise<SecurityGrant> {
+  async #authenticate(
+    challenge: SecurityChallenge,
+    password: string,
+    scope: SecurityGrantScope = 'operation',
+  ): Promise<SecurityGrant> {
+    if (scope !== 'operation' && scope !== 'session') deny('invalid-request')
     const { record, operation } = this.#challenge(challenge)
     if (record.state === 'authenticating') throw new SecurityFailure('authentication-unavailable')
     if (typeof password !== 'string') throw new SecurityFailure('authentication-failed')
@@ -877,14 +929,34 @@ class SecurityRuntime {
       componentId: challenge.componentId,
       capability: challenge.capability,
       resource: challenge.resource,
-      expiresAt: this.#clock() + GRANT_TTL,
+      scope,
+      expiresAt: scope === 'operation' ? this.#clock() + GRANT_TTL : null,
     })
-    const grantRecord: GrantRecord = { grant, parametersHash: operation.parametersHash, generation: operation.generation, state: 'active', operation }
+    const grantRecord: GrantRecord = {
+      grant,
+      session: operation.session,
+      parametersHash: operation.parametersHash,
+      generation: operation.generation,
+      state: 'active',
+      operation,
+    }
     operation.grant = grantRecord
     record.state = 'used'
     record.operation = undefined
     this.#grants.set(grant, grantRecord)
-    this.#expireAfter(operation, GRANT_TTL)
+    if (scope === 'session') {
+      const key = JSON.stringify([grant.componentId, grant.capability, grant.resource.type, grant.resource.id])
+      let grants = this.#sessionGrants.get(operation.session)
+      if (grants === undefined) {
+        grants = new Map()
+        this.#sessionGrants.set(operation.session, grants)
+      }
+      grants.set(key, grantRecord)
+      clearTimeout(operation.timer)
+      operation.timer = undefined
+    } else {
+      this.#expireAfter(operation, GRANT_TTL)
+    }
     return grant
   }
 
@@ -947,32 +1019,78 @@ class SecurityRuntime {
     this.#assertHost()
     const record = this.#grants.get(grant)
     if (record === undefined) deny('invalid-grant')
+    if (grant.scope !== record.grant.scope) throw new SecurityFailure('grant-revoked')
     if (record.state === 'consumed') throw new SecurityFailure('grant-consumed')
     if (record.state === 'expired') throw new SecurityFailure('grant-expired')
-    if (record.state === 'revoked' || record.operation === undefined) throw new SecurityFailure('grant-revoked')
+    if (record.state === 'revoked') throw new SecurityFailure('grant-revoked')
     const operation = record.operation
+    this.#session(record.session.session)
+    if (grant.scope === 'session') {
+      if (record.state !== 'active') throw new SecurityFailure('grant-consumed')
+      this.#transaction((transaction) => {
+        if (this.#root(transaction).generation !== record.generation) {
+          this.#revokeSessionGrant(record)
+          throw new SecurityFailure('grant-revoked')
+        }
+      })
+      if (operation === undefined) throw new SecurityFailure('grant-consumed')
+      const execute = operation.execute!
+      operation.session.pending.delete(operation)
+      clearTimeout(operation.timer)
+      operation.timer = undefined
+      operation.execute = undefined
+      operation.grant = undefined
+      record.operation = undefined
+      try {
+        return await execute() as T
+      } catch (error) {
+        capabilityOrOperationFailure(error)
+      }
+    }
+    if (record.operation === undefined) throw new SecurityFailure('grant-revoked')
+    const pending = record.operation
+    if (grant.expiresAt === null) throw new SecurityFailure('grant-revoked')
     if (this.#clock() >= grant.expiresAt) {
-      this.#terminate(operation, 'expired')
+      this.#terminate(pending, 'expired')
       throw new SecurityFailure('grant-expired')
     }
-    this.#session(operation.session.session)
-    if (record.parametersHash !== operation.parametersHash) {
-      this.#terminate(operation, 'revoked')
+    if (record.parametersHash !== pending.parametersHash) {
+      this.#terminate(pending, 'revoked')
       throw new SecurityFailure('grant-revoked')
     }
     this.#transaction((transaction) => {
-      if (this.#root(transaction).generation !== operation.generation) {
-        this.#terminate(operation, 'revoked')
+      if (this.#root(transaction).generation !== pending.generation) {
+        this.#terminate(pending, 'revoked')
         throw new SecurityFailure('grant-revoked')
       }
     })
-    const execute = operation.execute!
-    this.#terminate(operation, 'consumed')
+    const execute = pending.execute!
+    this.#terminate(pending, 'consumed')
     try {
       return await execute() as T
     } catch (error) {
       capabilityOrOperationFailure(error)
     }
+  }
+
+  #revokeSessionGrant(record: GrantRecord): void {
+    if (record.state === 'active') record.state = 'revoked'
+    record.operation = undefined
+    const grants = this.#sessionGrants.get(record.session)
+    if (grants === undefined) return
+    for (const [key, value] of grants) {
+      if (value === record) grants.delete(key)
+    }
+  }
+
+  #revokeSessionGrants(session: SessionRecord): void {
+    const grants = this.#sessionGrants.get(session)
+    if (grants === undefined) return
+    for (const record of grants.values()) {
+      if (record.state === 'active') record.state = 'revoked'
+      record.operation = undefined
+    }
+    grants.clear()
   }
 
   #expireAfter(operation: PendingOperation, milliseconds: number): void {
@@ -1030,6 +1148,7 @@ class SecurityRuntime {
     })
     for (const session of this.#liveSessions) {
       for (const operation of session.pending) this.#terminate(operation, 'revoked')
+      this.#revokeSessionGrants(session)
     }
   }
 

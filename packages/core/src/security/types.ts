@@ -2,6 +2,7 @@ import type { ComponentSpec } from '../components/spec.ts'
 
 export type SecurityLevel = 'user' | 'root'
 export type SecuritySource = 'human' | 'agent' | 'component'
+export type SecurityGrantScope = 'operation' | 'session'
 export type CredentialRef = `credential:${string}`
 export type CredentialValues = Readonly<Record<string, string>>
 export type SecurityParameters = null | boolean | number | string | readonly SecurityParameters[] | { readonly [key: string]: SecurityParameters }
@@ -109,10 +110,12 @@ export interface SecurityGrant {
   readonly sessionId: string
   readonly subject: 'user'
   readonly authorizedBy: 'root'
+  readonly scope: SecurityGrantScope
   readonly componentId: string
   readonly capability: string
   readonly resource: SecurityResource
-  readonly expiresAt: number
+  /** operation 为固定有效期；session 在 Session 结束时失效，故为 null。 */
+  readonly expiresAt: number | null
 }
 
 /** 组件 handler 的唯一凭据入口；Core 在授权后注入。 */
@@ -146,6 +149,8 @@ export interface ComponentSecurity {
 export interface CredentialMetadata {
   readonly reference: CredentialRef
   readonly profile: string
+  /** 拥有该 CredentialRef 的组件 id；第一版单 owner。 */
+  readonly owner: string
   readonly providerId: string
   readonly fields: Readonly<Record<string, string>>
   readonly createdAt: number
@@ -188,7 +193,11 @@ export interface SecurityHost {
   forSession(session: SecuritySession): HostSecurity
   initializeRoot(password: string, confirmation: string): Promise<void>
   resetRoot(password: string, confirmation: string): Promise<void>
-  authenticate(challenge: SecurityChallenge, password: string): Promise<SecurityGrant>
+  authenticate(
+    challenge: SecurityChallenge,
+    password: string,
+    scope?: SecurityGrantScope,
+  ): Promise<SecurityGrant>
   cancelChallenge(challenge: SecurityChallenge): void
   resume<T = unknown>(grant: SecurityGrant): Promise<T>
   /** Host 退出时撤销全部会话、待处理挑战与授权。 */

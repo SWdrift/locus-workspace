@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto'
 import type { ComponentCapability, ComponentCredential, ComponentSpec } from '../components/spec.ts'
 import { deny } from './errors.ts'
-import type { SecurityLevel, SecurityParameters, SecurityRequest } from './types.ts'
+import type { CredentialRef, SecurityLevel, SecurityParameters, SecurityRequest } from './types.ts'
 
 interface HostRule {
   readonly resourceType: string
@@ -26,8 +26,20 @@ function concrete(value: unknown): value is string {
   return typeof value === 'string' && value.length > 0 && value === value.trim() && !/[\u0000*?[\]]/.test(value)
 }
 
+const CREDENTIAL_REF = /^credential:[a-z][a-z0-9-]*$/
+
 export function assertCredentialRef(value: unknown): asserts value is `credential:${string}` {
-  if (typeof value !== 'string' || !/^credential:[a-z][a-z0-9-]*$/.test(value)) deny('invalid-request')
+  if (typeof value !== 'string' || !CREDENTIAL_REF.test(value)) deny('invalid-request')
+}
+
+/** Core 是 CredentialRef 的唯一解析入口；Compose 不各自维护引用格式。 */
+export function parseCredentialRef(value: unknown): CredentialRef {
+  assertCredentialRef(value)
+  return value
+}
+
+export function isCredentialRef(value: unknown): value is CredentialRef {
+  return typeof value === 'string' && CREDENTIAL_REF.test(value)
 }
 
 function snapshotParameters(value: SecurityParameters, seen: Set<object>): SecurityParameters {

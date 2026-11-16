@@ -9,7 +9,6 @@ CLI 是 Locus 的统一入口：把命令解析成领域调用，把结果投影
 | `apps/cli` | 命令树、参数与名称解析、确认、渲染、退出码、shell 启动 |
 | `packages/core` | Workspace、组件、统一权限平面、凭据保管与持久化；CLI 只调用公开服务及可信组合根 Host 端口 |
 | `packages/postgres`、`packages/gitea` | Compose 能力、凭据字段与 handler；CLI 调用 `api`，不决定权限 |
-| `packages/config-reference` | 配置引用解析与校验；不读取 Keyring |
 | `packages/templates` | 模板复制与实例记录；导出 `locus` 组件定义；CLI 解析目标路径并投影结果 |
 | `packages/remote-targets` | 远程目标定义、校验、探测与执行；导出 `locus` 组件定义；CLI 读取 `--spec` 并投影结果 |
 | `.agents/skills/locus` | Agent 的调用参考与只读脚本；经 CLI 的 JSON 契约工作 |

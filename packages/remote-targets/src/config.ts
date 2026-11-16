@@ -1,4 +1,6 @@
+import { createHash } from 'node:crypto'
 import { isAbsolute } from 'node:path'
+import { isCredentialRef } from '@locus/core'
 import { parse as parseYaml, stringify as stringifyYaml } from 'yaml'
 import {
   RemoteTargetsFailure,
@@ -16,7 +18,6 @@ import {
 type JsonObject = Record<string, unknown>
 
 const ID_PATTERN = /^[a-z0-9][a-z0-9._-]*$/
-const CREDENTIAL_REF = /^credential:[a-z][a-z0-9-]*$/
 const CAPABILITIES: readonly Capability[] = ['exec', 'shell']
 const DOCUMENT_VERSION = 1
 
@@ -111,7 +112,7 @@ function normalizeIdentity(value: unknown, path: string, id: string): RemoteIden
     if (method === 'private-key' && credential === undefined) {
       failure(`${path}.auth.credential 在 private-key 认证时必填`)
     }
-    if (credential === undefined || !CREDENTIAL_REF.test(credential)) {
+    if (credential === undefined || !isCredentialRef(credential)) {
       failure(`${path}.auth.credential 必须是 credential:<id> 稳定引用`)
     }
     if (credentialPath !== undefined || credentialRoot !== undefined) {
@@ -270,6 +271,29 @@ export function parseDocument(text: string): readonly RemoteTarget[] {
 
 export function parseAddSpecText(text: string, id: string): RemoteTarget {
   return normalizeTargetFromSpec(parseText(text), id)
+}
+
+/** 目标安全配置摘要；认证材料与方法由 Core capability/slot 绑定负责，不纳入此摘要。 */
+export function targetBinding(target: RemoteTarget): string {
+  const view = {
+    resource: { kind: target.resource.kind },
+    identity: { login: target.identity.login },
+    access: { capabilities: [...target.access.capabilities].sort() },
+    connectivity: {
+      transport: target.connectivity.transport,
+      host: target.connectivity.host,
+      port: target.connectivity.port,
+      remoteShell: target.connectivity.remoteShell,
+      ...(target.connectivity.client === undefined ? {} : { client: target.connectivity.client }),
+      ...(target.connectivity.trust === undefined ? {} : {
+        trust: {
+          ...(target.connectivity.trust.fingerprint === undefined ? {} : { fingerprint: target.connectivity.trust.fingerprint }),
+          ...(target.connectivity.trust.knownHosts === undefined ? {} : { knownHosts: target.connectivity.trust.knownHosts }),
+        },
+      }),
+    },
+  }
+  return createHash('sha256').update(JSON.stringify(view)).digest('hex')
 }
 
 export function serializeDocument(targets: readonly RemoteTarget[]): string {

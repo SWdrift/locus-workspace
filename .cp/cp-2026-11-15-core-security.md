@@ -48,12 +48,12 @@
 | 范围 | 当前代码与已观察结果 |
 | --- | --- |
 | Core／SQLite | 安全服务与可信 Host 端口同步装配；当前 schema v5 含凭据与绑定；未知版本／冲突结构拒绝覆盖 |
-| CLI | init／security／credential 诊断与 `security capability` 已接；`credential put/bind` 与 `--grant-scope` 已收回；真实 TTY 初始化／改密／重置历史证据；scrypt 单次 84 ms |
+| CLI | init／security／credential 诊断与 `security capability` 已接；`credential put/bind` 已收回，`--grant-scope operation|session` 已提供；真实 TTY 初始化／改密／重置历史证据；scrypt 单次 84 ms |
 | Keyring | 2.1.2、独立临时非管理员 Windows 账户、UTF-8 原始字节、ASCII／Unicode／RSA PEM、原生 2560/2561 边界、Missing／跨进程／删除通过（本次运行） |
 | PostgreSQL | 临时 PostgreSQL 16、scram-sha-256 拒绝无密码登录、Core 交付密码、真实 `pg.Pool` 查询通过 |
 | Gitea | 真实 Node fetch 本地 HTTP 服务，Header、跨源、重定向、401、网络失败通过 |
 | SSH | 真实 OpenSSH 9.5 客户端与本地 Git sshd 9.4；Core CredentialRef、正确密钥、错误密钥、固定 known_hosts、临时文件清理通过；Plink 真实登录未验证 |
 | 迁移 | 私钥／密码迁移入口；带口令私钥明确阻塞；原文件保留 |
-| 最终门禁 | `pnpm verify`：163/163 自动测试通过、`pnpm docs:check` 通过；`pnpm e2e` 36 次真实调用通过；真实 PostgreSQL／SSH 手工脚本通过 |
+| 最终门禁 | `pnpm verify`：186/186 自动测试通过、`pnpm docs:check` 通过；真实 PostgreSQL／SSH 手工脚本通过；e2e 最近一次 36 次调用通过，本次改动后处于冷却窗口未重跑 |
 
 未验证范围统一见[平台矩阵](../docs/subsystems/core-security.md#平台证据与安全边界)。

@@ -3,6 +3,7 @@ import { join } from 'node:path'
 import type { DatabaseSync } from 'node:sqlite'
 import { openCoreDatabase } from '../database.ts'
 import { SecurityFailure } from './errors.ts'
+import { isCredentialRef } from './policy.ts'
 import type {
   CapabilityLevelRecord,
   CredentialBinding,
@@ -19,7 +20,6 @@ import type {
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/
 const PROFILE = /^[a-z][a-z0-9-]{0,63}$/
-const REFERENCE = /^credential:[a-z][a-z0-9-]*$/
 const COMPONENT_ID = /^[a-z][a-z0-9-]{0,63}$/
 const CAPABILITY = /^[a-z][a-z0-9]*(?:[.-][a-z0-9]+)*$/
 const SLOT = /^[a-z][a-z0-9-]{0,63}$/
@@ -67,7 +67,7 @@ function assertProfile(value: string): void {
 }
 
 function assertReference(value: CredentialRef): void {
-  if (typeof value !== 'string' || !REFERENCE.test(value)) corrupt()
+  if (!isCredentialRef(value)) corrupt()
 }
 
 function assertResource(value: SecurityResource): void {
@@ -89,6 +89,7 @@ function assertMetadata(value: CredentialMetadata): void {
   if (value === null || typeof value !== 'object') corrupt()
   assertProfile(value.profile)
   assertReference(value.reference)
+  if (typeof value.owner !== 'string' || !COMPONENT_ID.test(value.owner)) corrupt()
   if (
     typeof value.providerId !== 'string' || value.providerId.length === 0 ||
     value.providerId !== value.providerId.trim() || /[\u0000-\u001f\u007f]/.test(value.providerId) ||
@@ -179,6 +180,7 @@ function readMetadata(row: Row): CredentialMetadata {
   const value = Object.freeze({
     reference: row.reference,
     profile: row.profile,
+    owner: row.owner_component,
     providerId: row.provider_id,
     fields: parseFields(row.fields),
     createdAt: row.created_at,
@@ -333,11 +335,12 @@ export function createSqliteSecurityStore(dataDirectory: string, profile = 'prod
             assertMetadata(value)
             const connection = writable()
             registerProfile(connection, value.profile)
-            connection.prepare(`INSERT INTO security_credentials (profile, reference, provider_id, fields, created_at, updated_at)
-              VALUES (?, ?, ?, ?, ?, ?)
+            connection.prepare(`INSERT INTO security_credentials (profile, reference, provider_id, fields, created_at, updated_at, owner_component)
+              VALUES (?, ?, ?, ?, ?, ?, ?)
               ON CONFLICT (profile, reference) DO UPDATE SET provider_id = excluded.provider_id,
-                fields = excluded.fields, created_at = excluded.created_at, updated_at = excluded.updated_at`).run(
-              value.profile, value.reference, value.providerId, JSON.stringify(value.fields), value.createdAt, value.updatedAt,
+                fields = excluded.fields, created_at = excluded.created_at, updated_at = excluded.updated_at,
+                owner_component = excluded.owner_component`).run(
+              value.profile, value.reference, value.providerId, JSON.stringify(value.fields), value.createdAt, value.updatedAt, value.owner,
             )
           },
           deleteCredential(name, reference) {
