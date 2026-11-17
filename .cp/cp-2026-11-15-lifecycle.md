@@ -12,7 +12,7 @@
 
 - [cp-meta](./cp-meta.md)：控制平面结构、命名与更新规则。
 - [Core Security CP](./cp-2026-11-15-core-security.md)：密钥、Root、CredentialRef 与平台证据。
-- [权限控制面 CP](./cp-2026-11-15-permission-plane.md)：能力注册、有效等级、组件 API 与 CLI 消费。
+- [统一资源调用](../docs/subsystems/invocation.md)：operation 授权、凭证绑定与调用面；权限控制面 CP 已收束。
 - [Core Security 契约](../docs/subsystems/core/security.md#身份session-与grant)：Session、Grant 与 Root 认证的当前事实。
 - [CLI](../apps/cli/README.md#安全-host-与-profile)：可信 Host、TTY 与命令生命周期。
 - [测试](../docs/testing.md#安全与平台验证)：自动测试与真实验证入口。

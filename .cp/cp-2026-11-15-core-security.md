@@ -4,7 +4,7 @@
 
 本平面控制 Core Security 的统一权限与凭据平面重构。Core、CLI 可信 Host、Keyring、Compose 消费者和 remote-targets CredentialRef 切换已实现；带口令 SSH 私钥仍明确阻塞，不把部分交付称为完整后量子或全平台能力。
 
-当前契约唯一归[安全子系统](../docs/subsystems/core/security.md)，公开用法归模块 README，取舍归[已实施记录](../.agents/notes/implemented/architecture/2026-11-15-core-security-runtime.md)。[剩余提案](../.agents/notes/proposed/architecture/2026-11-15-core-security.md)只保留带口令私钥交付。[权限控制面](./cp-2026-11-15-permission-plane.md)控制能力注册、Root 覆盖与组件消费模型；[生命周期管理](./cp-2026-11-15-lifecycle.md)控制 Session 与常驻 Host 演进。本平面不重复。Workspace 与目标登录模型仍由各自子系统拥有。
+当前契约唯一归[安全子系统](../docs/subsystems/core/security.md)，公开用法归模块 README，取舍归[已实施记录](../.agents/notes/implemented/architecture/2026-11-15-core-security-runtime.md)。[剩余提案](../.agents/notes/proposed/architecture/2026-11-15-core-security.md)只保留带口令私钥交付。operation 授权、凭证命名空间与绑定键归[统一资源调用](../docs/subsystems/invocation.md)与[调用 API 决策](../.agents/notes/implemented/architecture/2026-11-17-invocation-api.md)；[生命周期管理](./cp-2026-11-15-lifecycle.md)控制 Session 与常驻 Host 演进。本平面不重复。Workspace 与目标登录模型仍由各自子系统拥有。
 
 ## Meta Reference
 
