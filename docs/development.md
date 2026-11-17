@@ -31,10 +31,12 @@ set -a
 set +a
 ```
 
-文件包含 `LOCUS_HOME=temp`、`LOCUS_FOLDER_NAME=.locus` 与开发用 `_LOCUS_ROOT_PASSWORD`。
 文件包含开发数据目录 `LOCUS_HOME=temp/.locus` 与开发用 `_LOCUS_ROOT_PASSWORD`。设置 `LOCUS_HOME` 时它就是完整数据目录，不需要 `LOCUS_FOLDER_NAME`；解析规则由 [Core](../packages/core/README.md#使用)维护。
 
 pro（生产）环境的配置放在同结构的 `.env.pro`：生产数据目录 `LOCUS_HOME=~/.locus` 与生产用 `_LOCUS_ROOT_PASSWORD`。它不属于开发默认流程，同样由 shell 显式加载（`. ./.env.pro`）。`~` 由 shell 在赋值时展开；CLI 只对 `.env` 调用 `process.loadEnvFile`，那条路径不做展开，所以不要把 `~` 依赖写进 `.env`。
+
+`temp/.locus` 是测试数据目录，对应 `.env.dev`；本机注册与备份脚本默认读取 `.env.pro`，需要操作测试数据时显式传 `--env .env.dev`，见[实用命令](commands.md#本机注册与备份)。这些脚本自行展开 `LOCUS_HOME` 的 `~`，不依赖 shell 加载。
+
 `_LOCUS_ROOT_PASSWORD` 是 Locus Root 凭据的登记位置：密码只存在于环境文件，不登记进 Core 的 SQLite、Keyring、日志或命令行，Core 只保存 scrypt 派生验证值。人通过 `locus init` 与 Root 提示在可信本地 TTY 输入；Agent 从当前环境读取该变量完成认证，不需要人代输。
 
 - 常规 `locus` 命令仍只从可信本地 TTY 读取 Root 密码，不自行读取环境变量；
