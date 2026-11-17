@@ -5,15 +5,14 @@ import { openCoreDatabase } from '../database.ts'
 import { SecurityFailure } from './errors.ts'
 import { isCredentialRef } from './policy.ts'
 import type {
-  CapabilityLevelRecord,
   CredentialBinding,
   CredentialMetadata,
   CredentialRef,
+  OperationLevelRecord,
   RootAuthenticationState,
   RootPasswordVerifier,
   SecurityInstallation,
   SecurityLevel,
-  SecurityResource,
   SecurityStore,
   SecurityStoreTransaction,
 } from './types.ts'
@@ -21,9 +20,9 @@ import type {
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/
 const PROFILE = /^[a-z][a-z0-9-]{0,63}$/
 const COMPONENT_ID = /^[a-z][a-z0-9-]{0,63}$/
-const CAPABILITY = /^[a-z][a-z0-9]*(?:[.-][a-z0-9]+)*$/
+const OPERATION = /^[a-z][a-z0-9]*(?:[.-][a-z0-9]+)*$/
 const SLOT = /^[a-z][a-z0-9-]{0,63}$/
-const RESOURCE_TYPE = /^[a-z][a-z0-9-]{0,63}$/
+const RESOURCE_KEY_LIMIT = 2048
 type Row = Record<string, unknown>
 
 function corrupt(): never {
@@ -70,11 +69,10 @@ function assertReference(value: CredentialRef): void {
   if (!isCredentialRef(value)) corrupt()
 }
 
-function assertResource(value: SecurityResource): void {
+function assertResourceKey(value: string): void {
   if (
-    value === null || typeof value !== 'object' ||
-    typeof value.type !== 'string' || !RESOURCE_TYPE.test(value.type) ||
-    typeof value.id !== 'string' || value.id.length === 0 || value.id !== value.id.trim()
+    typeof value !== 'string' || value.length === 0 || value.length > RESOURCE_KEY_LIMIT ||
+    value !== value.trim() || /[\u0000-\u001f\u007f]/.test(value)
   ) corrupt()
 }
 
@@ -102,21 +100,20 @@ function assertBinding(value: CredentialBinding): void {
   if (value === null || typeof value !== 'object') corrupt()
   assertProfile(value.profile)
   assertReference(value.reference)
-  assertResource(value.resource)
   if (
     typeof value.componentId !== 'string' || !COMPONENT_ID.test(value.componentId) ||
-    typeof value.capability !== 'string' || !CAPABILITY.test(value.capability) ||
     typeof value.slot !== 'string' || !SLOT.test(value.slot) ||
+    typeof value.resourceKey !== 'string' || value.resourceKey.length === 0 || value.resourceKey !== value.resourceKey.trim() ||
     !timestamp(value.createdAt) || !timestamp(value.updatedAt) || value.updatedAt < value.createdAt
   ) corrupt()
 }
 
-function assertLevel(value: CapabilityLevelRecord): void {
+function assertLevel(value: OperationLevelRecord): void {
   if (value === null || typeof value !== 'object') corrupt()
   assertProfile(value.profile)
   if (
     typeof value.componentId !== 'string' || !COMPONENT_ID.test(value.componentId) ||
-    typeof value.capability !== 'string' || !CAPABILITY.test(value.capability) ||
+    typeof value.operation !== 'string' || !OPERATION.test(value.operation) ||
     (value.level !== 'user' && value.level !== 'root') ||
     !timestamp(value.updatedAt)
   ) corrupt()
@@ -194,9 +191,8 @@ function readBinding(row: Row): CredentialBinding {
   const value = Object.freeze({
     profile: row.profile,
     componentId: row.component_id,
-    capability: row.capability,
     slot: row.slot,
-    resource: Object.freeze({ type: row.resource_type, id: row.resource_id }),
+    resourceKey: row.resource_key,
     reference: row.reference,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
@@ -205,14 +201,14 @@ function readBinding(row: Row): CredentialBinding {
   return value
 }
 
-function readLevel(row: Row): CapabilityLevelRecord {
+function readLevel(row: Row): OperationLevelRecord {
   const value = Object.freeze({
     profile: row.profile,
     componentId: row.component_id,
-    capability: row.capability,
+    operation: row.operation,
     level: row.level,
     updatedAt: row.updated_at,
-  }) as CapabilityLevelRecord
+  }) as OperationLevelRecord
   assertLevel(value)
   return value
 }
@@ -352,23 +348,22 @@ export function createSqliteSecurityStore(dataDirectory: string, profile = 'prod
             database!.prepare('DELETE FROM security_credential_bindings WHERE profile = ? AND reference = ?').run(name, reference)
             database!.prepare('DELETE FROM security_credentials WHERE profile = ? AND reference = ?').run(name, reference)
           },
-          getBinding(name, componentId, capability, resource, slot) {
+          getBinding(name, componentId, slot, resourceKey) {
             assertActive()
             assertProfile(name)
-            if (!COMPONENT_ID.test(componentId) || !CAPABILITY.test(capability) || !SLOT.test(slot)) corrupt()
-            assertResource(resource)
+            if (!COMPONENT_ID.test(componentId) || !SLOT.test(slot)) corrupt()
+            assertResourceKey(resourceKey)
             if (!begun) return undefined
             const row = database!.prepare(`SELECT * FROM security_credential_bindings
-              WHERE profile = ? AND component_id = ? AND capability = ? AND slot = ?
-                AND resource_type = ? AND resource_id = ?`)
-              .get(name, componentId, capability, slot, resource.type, resource.id)
+              WHERE profile = ? AND component_id = ? AND slot = ? AND resource_key = ?`)
+              .get(name, componentId, slot, resourceKey)
             return row === undefined ? undefined : readBinding(row)
           },
           listBindings(name) {
             assertActive()
             assertProfile(name)
             return Object.freeze(begun ? database!.prepare(`SELECT * FROM security_credential_bindings
-              WHERE profile = ? ORDER BY component_id, capability, slot, resource_type, resource_id`).all(name).map(readBinding) : [])
+              WHERE profile = ? ORDER BY component_id, slot, resource_key`).all(name).map(readBinding) : [])
           },
           setBinding(value) {
             assertActive()
@@ -376,64 +371,63 @@ export function createSqliteSecurityStore(dataDirectory: string, profile = 'prod
             const connection = writable()
             registerProfile(connection, value.profile)
             connection.prepare(`INSERT INTO security_credential_bindings
-              (profile, component_id, capability, slot, resource_type, resource_id, reference, created_at, updated_at)
-              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-              ON CONFLICT (profile, component_id, capability, slot, resource_type, resource_id) DO UPDATE SET
+              (profile, component_id, slot, resource_key, reference, created_at, updated_at)
+              VALUES (?, ?, ?, ?, ?, ?, ?)
+              ON CONFLICT (profile, component_id, slot, resource_key) DO UPDATE SET
                 reference = excluded.reference, created_at = excluded.created_at, updated_at = excluded.updated_at`).run(
-              value.profile, value.componentId, value.capability, value.slot,
-              value.resource.type, value.resource.id, value.reference, value.createdAt, value.updatedAt,
+              value.profile, value.componentId, value.slot,
+              value.resourceKey, value.reference, value.createdAt, value.updatedAt,
             )
           },
-          deleteBinding(name, componentId, capability, resource, slot) {
+          deleteBinding(name, componentId, slot, resourceKey) {
             assertActive()
             assertProfile(name)
-            if (!COMPONENT_ID.test(componentId) || !CAPABILITY.test(capability) || !SLOT.test(slot)) corrupt()
-            assertResource(resource)
+            if (!COMPONENT_ID.test(componentId) || !SLOT.test(slot)) corrupt()
+            assertResourceKey(resourceKey)
             if (!begun) return
             written = true
             database!.prepare(`DELETE FROM security_credential_bindings
-              WHERE profile = ? AND component_id = ? AND capability = ? AND slot = ?
-                AND resource_type = ? AND resource_id = ?`)
-              .run(name, componentId, capability, slot, resource.type, resource.id)
+              WHERE profile = ? AND component_id = ? AND slot = ? AND resource_key = ?`)
+              .run(name, componentId, slot, resourceKey)
           },
-          getCapabilityLevel(name, componentId, capability) {
+          getOperationLevel(name, componentId, operation) {
             assertActive()
             assertProfile(name)
-            if (!COMPONENT_ID.test(componentId) || !CAPABILITY.test(capability)) corrupt()
+            if (!COMPONENT_ID.test(componentId) || !OPERATION.test(operation)) corrupt()
             if (!begun) return undefined
-            const row = database!.prepare(`SELECT level FROM security_capability_levels
-              WHERE profile = ? AND component_id = ? AND capability = ?`).get(name, componentId, capability)
+            const row = database!.prepare(`SELECT level FROM security_operation_levels
+              WHERE profile = ? AND component_id = ? AND operation = ?`).get(name, componentId, operation)
             if (row === undefined) return undefined
             if (row.level !== 'user' && row.level !== 'root') corrupt()
             return row.level as SecurityLevel
           },
-          listCapabilityLevels(name) {
+          listOperationLevels(name) {
             assertActive()
             assertProfile(name)
-            return Object.freeze(begun ? database!.prepare(`SELECT * FROM security_capability_levels
-              WHERE profile = ? ORDER BY component_id, capability`).all(name).map(readLevel) : [])
+            return Object.freeze(begun ? database!.prepare(`SELECT * FROM security_operation_levels
+              WHERE profile = ? ORDER BY component_id, operation`).all(name).map(readLevel) : [])
           },
-          setCapabilityLevel(value) {
+          setOperationLevel(value) {
             assertActive()
             assertLevel(value)
             const connection = writable()
             registerProfile(connection, value.profile)
-            connection.prepare(`INSERT INTO security_capability_levels
-              (profile, component_id, capability, level, updated_at)
+            connection.prepare(`INSERT INTO security_operation_levels
+              (profile, component_id, operation, level, updated_at)
               VALUES (?, ?, ?, ?, ?)
-              ON CONFLICT (profile, component_id, capability) DO UPDATE SET
+              ON CONFLICT (profile, component_id, operation) DO UPDATE SET
                 level = excluded.level, updated_at = excluded.updated_at`).run(
-              value.profile, value.componentId, value.capability, value.level, value.updatedAt,
+              value.profile, value.componentId, value.operation, value.level, value.updatedAt,
             )
           },
-          deleteCapabilityLevel(name, componentId, capability) {
+          deleteOperationLevel(name, componentId, operation) {
             assertActive()
             assertProfile(name)
-            if (!COMPONENT_ID.test(componentId) || !CAPABILITY.test(capability)) corrupt()
+            if (!COMPONENT_ID.test(componentId) || !OPERATION.test(operation)) corrupt()
             if (!begun) return
             written = true
-            database!.prepare(`DELETE FROM security_capability_levels
-              WHERE profile = ? AND component_id = ? AND capability = ?`).run(name, componentId, capability)
+            database!.prepare(`DELETE FROM security_operation_levels
+              WHERE profile = ? AND component_id = ? AND operation = ?`).run(name, componentId, operation)
           },
         }
         const result = operation(transaction)

@@ -13,9 +13,9 @@ import {
 import { connect } from 'node:net'
 import { basename, dirname, join, resolve, sep } from 'node:path'
 import { stringify } from 'yaml'
+import type { OperationMetadata } from '../invocation.ts'
 import {
   ComponentFailure,
-  type ComponentCapability,
   type ComponentConfig,
   type ComponentCredential,
   type ComponentInfo,
@@ -53,7 +53,7 @@ export interface ComponentView {
   readonly codeVersion?: string
   readonly needsUpgrade: boolean
   readonly requires: readonly string[]
-  readonly capabilities?: readonly ComponentCapability[]
+  readonly operations?: readonly OperationMetadata[]
   readonly credentials?: readonly ComponentCredential[]
   readonly source: 'package' | 'dynamic'
   readonly definitionPath: string
@@ -149,13 +149,13 @@ function withConfig(spec: ComponentSpec, config: ComponentConfig | undefined): C
     summary: spec.summary,
     kind: spec.kind,
     ...(spec.requires === undefined ? {} : { requires: spec.requires }),
-    ...(spec.capabilities === undefined ? {} : { capabilities: spec.capabilities }),
+    ...(spec.operations === undefined ? {} : { operations: spec.operations }),
     ...(spec.credentials === undefined ? {} : { credentials: spec.credentials }),
     ...(config === undefined ? {} : { config }),
     ...(spec.probe === undefined ? {} : { probe: spec.probe }),
     ...(spec.deploy === undefined ? {} : { deploy: spec.deploy }),
     ...(spec.info === undefined ? {} : { info: spec.info }),
-  }, { allowCapabilities: true })
+  }, { allowContract: true })
 }
 
 function classifyProbe(
@@ -278,7 +278,7 @@ export function createComponentService(options: ComponentServiceOptions): Compon
   const packageIds = new Set<string>()
   const packageDefinitions: ComponentSpec[] = []
   for (const definition of options.definitions ?? []) {
-    const spec = parseComponent(definition, { allowCapabilities: true })
+    const spec = parseComponent(definition, { allowContract: true })
     if (spec.kind !== 'locus') {
       throw new ComponentFailure('invalid-spec', `包组件必须是 locus：${spec.id}`)
     }
@@ -366,12 +366,12 @@ export function createComponentService(options: ComponentServiceOptions): Compon
           `定义 id 与文件不一致：${parsed.id} != ${spec.id}`,
         )
       }
-      // YAML 只保存描述性元数据；能力与凭据字段来自包代码，不写回可编辑文件。
+      // YAML 只保存描述性元数据；operation 与凭据字段来自包代码，不写回可编辑文件。
       const merged = parseComponent({
         ...parsed,
-        ...(spec.capabilities === undefined ? {} : { capabilities: spec.capabilities }),
+        ...(spec.operations === undefined ? {} : { operations: spec.operations }),
         ...(spec.credentials === undefined ? {} : { credentials: spec.credentials }),
-      }, { allowCapabilities: true })
+      }, { allowContract: true })
       return {
         id: spec.id,
         source: 'package',
@@ -539,7 +539,7 @@ export function createComponentService(options: ComponentServiceOptions): Compon
       ...(entry.codeVersion === undefined ? {} : { codeVersion: entry.codeVersion }),
       needsUpgrade: entry.needsUpgrade,
       requires: spec.requires ?? [],
-      ...(spec.capabilities === undefined ? {} : { capabilities: spec.capabilities }),
+      ...(spec.operations === undefined ? {} : { operations: spec.operations }),
       ...(spec.credentials === undefined ? {} : { credentials: spec.credentials }),
       source: entry.source,
       definitionPath: entry.path,

@@ -1,22 +1,19 @@
 import { randomUUID } from 'node:crypto'
-import type { ComponentCapability, ComponentCredential, ComponentSpec } from '../components/spec.ts'
+import type { ComponentCredential, ComponentSpec } from '../components/spec.ts'
 import { assertNewPassword, createRootVerifier, verifyRootPassword } from './authenticator.ts'
-import { capabilityOrOperationFailure, deny, operationFailure, providerFailure, SecurityFailure } from './errors.ts'
+import { deny, domainOrOperationFailure, operationFailure, providerFailure, SecurityFailure } from './errors.ts'
 import {
   assertCredentialRef,
+  assertResourceKey,
   bindTrustedComponent,
-  capabilityDeclaration,
-  declaredSecret,
-  hostComponent,
+  credentialDeclaration,
   operationHash,
   requiredLevel,
   snapshotRequest,
   type BoundComponent,
 } from './policy.ts'
 import type {
-  CapabilityAuthority,
-  CapabilityContext,
-  ClearCapabilityLevelInput,
+  ClearOperationLevelInput,
   ComponentSecurity,
   CredentialCleanupResult,
   CredentialProviderKey,
@@ -24,6 +21,8 @@ import type {
   CredentialStatus,
   CredentialValues,
   HostSecurity,
+  OperationAuthority,
+  OperationCredentialPort,
   RootAuthenticationState,
   SecurityChallenge,
   SecurityGrant,
@@ -36,7 +35,7 @@ import type {
   SecuritySession,
   SecuritySource,
   SecurityStoreTransaction,
-  SetCapabilityLevelInput,
+  SetOperationLevelInput,
   UnbindCredentialInput,
 } from './types.ts'
 
@@ -49,8 +48,7 @@ const IDENTITIES = Object.freeze([
   Object.freeze({ id: 'user' as const, level: 'user' as const }),
 ])
 const COMPONENT_ID = /^[a-z][a-z0-9-]{0,63}$/
-const CAPABILITY = /^[a-z][a-z0-9]*(?:[.-][a-z0-9]+)*$/
-const SLOT = /^[a-z][a-z0-9-]{0,63}$/
+const OPERATION = /^[a-z][a-z0-9]*(?:[.-][a-z0-9]+)*$/
 const FIELD_NAME = /^[a-z][a-zA-Z0-9]{0,63}$/
 
 type ChallengeState = 'active' | 'authenticating' | 'used' | 'expired' | 'revoked' | 'cancelled'
@@ -78,7 +76,7 @@ interface GrantRecord {
   operation: PendingOperation | undefined
 }
 
-type AuthorizedRun<T> = (request: SecurityRequest, generation: number) => T | Promise<T>
+type AuthorizedRun<T> = (credential: OperationCredentialPort) => T | Promise<T>
 
 interface PendingOperation {
   readonly session: SessionRecord
@@ -187,8 +185,7 @@ class SecurityRuntime {
   readonly #options: SecurityOptions
   readonly #profile: string
   readonly #clock: () => number
-  readonly #definitions: ReadonlySet<ComponentSpec>
-  readonly #definitionById: ReadonlyMap<string, ComponentSpec>
+  readonly #definitions: ReadonlyMap<string, ComponentSpec>
   readonly #sessions = new WeakMap<SecuritySession, SessionRecord>()
   readonly #liveSessions = new Set<SessionRecord>()
   readonly #challenges = new WeakMap<SecurityChallenge, ChallengeRecord>()
@@ -202,8 +199,12 @@ class SecurityRuntime {
     this.#profile = options.profile ?? 'production'
     if (!/^[a-z][a-z0-9-]{0,63}$/.test(this.#profile)) deny('invalid-request')
     this.#clock = options.clock ?? Date.now
-    this.#definitions = new Set(definitions)
-    this.#definitionById = new Map(definitions.map((definition) => [definition.id, definition]))
+    const byId = new Map<string, ComponentSpec>()
+    for (const definition of definitions) {
+      if (byId.has(definition.id)) deny('invalid-request')
+      byId.set(definition.id, definition)
+    }
+    this.#definitions = byId
     this.service = Object.freeze({
       status: async () => this.#transaction((transaction) => ({
         initialized: transaction.getRoot() !== undefined,
@@ -227,8 +228,9 @@ class SecurityRuntime {
     this.host = Object.freeze({
       createSession: (source: SecuritySource) => this.#createSession(source),
       endSession: (session: SecuritySession) => this.#endSession(session),
-      bindComponent: (session: SecuritySession, definition: ComponentSpec) => this.#bindComponent(session, definition),
+      bindComponent: (session: SecuritySession, componentId: string) => this.#bindComponent(session, componentId),
       forSession: (session: SecuritySession) => this.#forSession(session),
+      management: () => this.#management(),
       initializeRoot: (password: string, confirmation: string) => this.#initializeRoot(password, confirmation),
       resetRoot: (password: string, confirmation: string) => this.#replaceRoot(password, confirmation),
       authenticate: (challenge: SecurityChallenge, password: string, scope?: SecurityGrantScope) => (
@@ -311,20 +313,25 @@ class SecurityRuntime {
     if (failure !== undefined) throw failure
   }
 
-  #bindComponent(session: SecuritySession, definition: ComponentSpec): ComponentSecurity {
+  #definition(componentId: string): ComponentSpec {
+    if (typeof componentId !== 'string' || !COMPONENT_ID.test(componentId)) deny('invalid-request')
+    const definition = this.#definitions.get(componentId)
+    if (definition === undefined) deny('untrusted-component')
+    return definition
+  }
+
+  #bound(componentId: string): BoundComponent {
+    return bindTrustedComponent(this.#definition(componentId))
+  }
+
+  #bindComponent(session: SecuritySession, componentId: string): ComponentSecurity {
     this.#assertHost()
     this.#session(session)
-    if (!this.#definitions.has(definition)) deny('untrusted-component')
-    if (definition.id === 'host') deny('unauthorized-component')
-    const component = bindTrustedComponent(definition)
+    const component = this.#bound(componentId)
     return Object.freeze({
-      execute: <T>(
-        request: SecurityRequest,
-        operation: (context: CapabilityContext, snapshot: SecurityRequest) => T | Promise<T>,
-      ) => this.#execute(session, component, request, (snapshot, generation) => {
-        const context = this.#context(session, component, snapshot, generation)
-        return operation(context, snapshot)
-      }),
+      execute: <T>(request: SecurityRequest, run: AuthorizedRun<T>) => (
+        this.#execute(session, component, request, run)
+      ),
     })
   }
 
@@ -336,34 +343,28 @@ class SecurityRuntime {
   ): Promise<T> {
     const current = this.#session(session)
     const request = snapshotRequest(input)
-    const { root, override } = this.#transaction((transaction) => {
-      const currentRoot = this.#root(transaction)
-      return {
-        root: currentRoot,
-        override: component.componentId === 'host'
-          ? undefined
-          : transaction.getCapabilityLevel(this.#profile, component.componentId, request.capability),
-      }
-    })
+    if (request.component !== component.componentId) deny('untrusted-component')
+    const { root, override } = this.#transaction((transaction) => ({
+      root: transaction.getRoot(),
+      override: transaction.getOperationLevel(this.#profile, component.componentId, request.operation),
+    }))
     const level = requiredLevel(component, request, override)
-    const declaration = component.componentId === 'host' ? undefined : capabilityDeclaration(component, request)
-    this.#preflight(component, declaration, request)
+    const generation = root?.generation ?? 0
     if (level === 'user') {
-      return this.#run(session, run, request, root.generation)
+      return this.#run(session, component, run, false, generation)
     }
-    const sessionGrant = this.#sessionGrant(current, component.componentId, request, root.generation)
+    if (root === undefined) throw new SecurityFailure('security-uninitialized')
+    const sessionGrant = this.#sessionGrant(current, request, root.generation)
     if (sessionGrant !== undefined) {
-      return this.#run(session, run, request, root.generation)
+      return this.#run(session, component, run, true, root.generation)
     }
-    const operationId = randomUUID()
     const challenge: SecurityChallenge = Object.freeze({
-      challengeId: operationId,
-      operationId,
+      challengeId: randomUUID(),
       sessionId: session.sessionId,
       subject: 'user',
       componentId: component.componentId,
-      capability: request.capability,
-      resource: request.resource,
+      operation: request.operation,
+      parameters: request.parameters,
       expiresAt: this.#clock() + CHALLENGE_TTL,
     })
     const record: ChallengeRecord = { challenge, state: 'active', operation: undefined, attemptId: undefined }
@@ -373,7 +374,7 @@ class SecurityRuntime {
       request,
       parametersHash: operationHash(request),
       generation: root.generation,
-      execute: () => run(request, root.generation),
+      execute: () => run(this.#credentialPort(session, component, root.generation, true)),
       challenge: record,
       grant: undefined,
       timer: undefined,
@@ -387,61 +388,35 @@ class SecurityRuntime {
 
   async #run<T>(
     session: SecuritySession,
+    component: BoundComponent,
     run: AuthorizedRun<T>,
-    request: SecurityRequest,
+    canWrite: boolean,
     generation: number,
   ): Promise<T> {
     this.#session(session)
     try {
-      return await run(request, generation)
+      return await run(this.#credentialPort(session, component, generation, canWrite))
     } catch (error) {
-      capabilityOrOperationFailure(error)
+      domainOrOperationFailure(error)
     }
   }
 
-  #preflight(
-    component: BoundComponent,
-    declaration: ComponentCapability | undefined,
-    request: SecurityRequest,
-  ): void {
-    if (declaration === undefined) return
-    const reads = (declaration.secrets ?? []).filter((secret) => secret.access === 'read')
-    if (reads.length === 0) return
-    const provider = this.#options.provider
-    if (provider === undefined) throw new SecurityFailure('provider-unavailable')
-    this.#transaction((transaction) => {
-      this.#root(transaction)
-      for (const secret of reads) {
-        const binding = transaction.getBinding(
-          this.#profile,
-          component.componentId,
-          request.capability,
-          request.resource,
-          secret.slot,
-        )
-        if (binding === undefined) deny('credential-binding-mismatch')
-        const metadata = transaction.getCredential(this.#profile, binding.reference)
-        if (metadata === undefined) throw new SecurityFailure('credential-missing')
-        if (metadata.owner !== component.componentId) deny('credential-reference-owned')
-        if (metadata.providerId !== provider.id) throw new SecurityFailure('provider-unavailable')
-      }
-    })
-  }
-
-  #context(
+  #credentialPort(
     session: SecuritySession,
     component: BoundComponent,
-    request: SecurityRequest,
     generation: number,
-  ): CapabilityContext {
+    canWrite: boolean,
+  ): OperationCredentialPort {
     return Object.freeze({
-      registerCredential: (slot: string, reference: CredentialRef, values: CredentialValues) =>
-        this.#registerCredential(session, component, request, generation, slot, reference, values),
-      withCredential: <T>(
+      read: <T>(
         slot: string,
-        reference: CredentialRef,
+        resourceKey: string,
         consume: (values: CredentialValues) => T | Promise<T>,
-      ) => this.#withCredential(session, component, request, generation, slot, reference, consume),
+      ) => this.#readCredential(session, component, slot, resourceKey, generation, consume),
+      write: (slot: string, resourceKey: string, values: CredentialValues) => {
+        if (!canWrite) return Promise.reject(new SecurityFailure('access-denied', { reason: 'credential-write-requires-root' }))
+        return this.#writeCredential(session, component, slot, resourceKey, values, generation)
+      },
     })
   }
 
@@ -454,16 +429,15 @@ class SecurityRuntime {
     if (this.#root(transaction).generation !== generation) throw new SecurityFailure('grant-revoked')
   }
 
-  /** Session Grant 只复用同一真实 Session 内、同组件/能力/精确资源的授权。 */
+  /** Session Grant 只复用同一真实 Session 内、同组件/operation/参数的授权。 */
   #sessionGrant(
     session: SessionRecord,
-    componentId: string,
     request: SecurityRequest,
     generation: number,
   ): GrantRecord | undefined {
     const grants = this.#sessionGrants.get(session)
     if (grants === undefined) return undefined
-    const key = JSON.stringify([componentId, request.capability, request.resource.type, request.resource.id])
+    const key = operationHash(request)
     const grant = grants.get(key)
     if (grant === undefined) return undefined
     if (grant.state !== 'active' || grant.generation !== generation) {
@@ -475,49 +449,89 @@ class SecurityRuntime {
     return grant
   }
 
-  #credentialFor(component: BoundComponent, slot: string): ComponentCredential {
-    if (typeof slot !== 'string' || !SLOT.test(slot)) deny('invalid-request')
-    const credential = component.credentials.find((value) => value.id === slot)
-    if (credential === undefined) deny('credential-declaration-mismatch')
-    return credential
-  }
-
-  async #registerCredential(
+  async #readCredential<T>(
     session: SecuritySession,
     component: BoundComponent,
-    request: SecurityRequest,
-    generation: number,
     slot: string,
-    reference: CredentialRef,
+    resourceKey: string,
+    generation: number,
+    consume: (values: CredentialValues) => T | Promise<T>,
+  ): Promise<T> {
+    const declaration = credentialDeclaration(component, slot)
+    const key = assertResourceKey(resourceKey)
+    const provider = this.#options.provider
+    if (provider === undefined) throw new SecurityFailure('provider-unavailable')
+    const { metadata, providerKey } = this.#transaction((transaction) => {
+      this.#authorizeGeneration(transaction, session, generation)
+      const binding = transaction.getBinding(this.#profile, component.componentId, slot, key)
+      if (binding === undefined) throw new SecurityFailure('credential-missing')
+      const metadata = transaction.getCredential(this.#profile, binding.reference)
+      if (metadata === undefined) throw new SecurityFailure('credential-missing')
+      if (metadata.owner !== component.componentId) deny('credential-reference-owned')
+      if (metadata.providerId !== provider.id) throw new SecurityFailure('provider-unavailable')
+      return { metadata, providerKey: this.#providerKey(transaction, binding.reference) }
+    })
+    let raw: string | undefined
+    try {
+      raw = await provider.get(providerKey)
+    } catch (error) {
+      throw providerFailure(error)
+    }
+    if (raw === undefined) throw new SecurityFailure('credential-missing')
+    let values: CredentialValues | undefined
+    try {
+      values = mergeCredentialValues(declaration, metadata.fields, raw)
+      this.#transaction((transaction) => this.#authorizeGeneration(transaction, session, generation))
+      try {
+        return await consume(values)
+      } catch (error) {
+        domainOrOperationFailure(error)
+      }
+    } finally {
+      values = undefined
+      raw = undefined
+    }
+  }
+
+  async #writeCredential(
+    session: SecuritySession,
+    component: BoundComponent,
+    slot: string,
+    resourceKey: string,
     values: CredentialValues,
-  ): Promise<void> {
-    assertCredentialRef(reference)
-    const declaration = capabilityDeclaration(component, request)
-    if (!declaredSecret(declaration, slot, 'write')) deny('credential-declaration-mismatch')
-    const credential = this.#credentialFor(component, slot)
-    const normalized = fieldValues(credential, values)
+    generation: number,
+  ): Promise<CredentialRef> {
+    const declaration = credentialDeclaration(component, slot)
+    const key = assertResourceKey(resourceKey)
+    const normalized = fieldValues(declaration, values)
     const provider = this.#options.provider
     if (provider === undefined) throw new SecurityFailure('provider-unavailable')
     const secretJson = JSON.stringify(normalized.secretFields)
-    const { key, previous } = this.#transaction((transaction) => {
+    const { reference, providerKey, previousSecretWanted } = this.#transaction((transaction) => {
       this.#authorizeGeneration(transaction, session, generation)
-      const previous = transaction.getCredential(this.#profile, reference)
-      if (previous !== undefined && previous.providerId !== provider.id) throw new SecurityFailure('provider-unavailable')
-      if (previous !== undefined && previous.owner !== component.componentId) deny('credential-reference-owned')
-      return { key: this.#providerKey(transaction, reference), previous }
+      const binding = transaction.getBinding(this.#profile, component.componentId, slot, key)
+      const reference = binding?.reference ?? `credential:${randomUUID()}` as CredentialRef
+      const metadata = transaction.getCredential(this.#profile, reference)
+      if (metadata !== undefined && metadata.owner !== component.componentId) deny('credential-reference-owned')
+      if (metadata !== undefined && metadata.providerId !== provider.id) throw new SecurityFailure('provider-unavailable')
+      return {
+        reference,
+        providerKey: this.#providerKey(transaction, reference),
+        previousSecretWanted: metadata !== undefined,
+      }
     })
     let previousSecret: string | undefined
     let written = false
     try {
-      previousSecret = previous === undefined ? undefined : await provider.get(key)
-      await provider.set(key, secretJson)
+      if (previousSecretWanted) previousSecret = await provider.get(providerKey)
+      await provider.set(providerKey, secretJson)
       written = true
-      if (await provider.get(key) !== secretJson) throw new SecurityFailure('provider-unavailable')
+      if (await provider.get(providerKey) !== secretJson) throw new SecurityFailure('provider-unavailable')
     } catch (error) {
       if (written) {
         try {
-          if (previousSecret === undefined) await provider.delete(key)
-          else await provider.set(key, previousSecret)
+          if (previousSecret === undefined) await provider.delete(providerKey)
+          else await provider.set(providerKey, previousSecret)
         } catch {
           throw new SecurityFailure('io')
         }
@@ -528,8 +542,8 @@ class SecurityRuntime {
       this.#transaction((transaction) => {
         this.#authorizeGeneration(transaction, session, generation)
         const current = transaction.getCredential(this.#profile, reference)
-        if (current !== undefined && current.providerId !== provider.id) throw new SecurityFailure('provider-unavailable')
         if (current !== undefined && current.owner !== component.componentId) deny('credential-reference-owned')
+        if (current !== undefined && current.providerId !== provider.id) throw new SecurityFailure('provider-unavailable')
         const now = this.#clock()
         transaction.setCredential({
           reference,
@@ -540,332 +554,201 @@ class SecurityRuntime {
           createdAt: current?.createdAt ?? now,
           updatedAt: now,
         })
-        // 同一凭据槽可被多个能力共用；登记一次，为所有声明该槽的能力建立精确绑定。
-        const shared = component.capabilities.filter((capability) => (
-          (capability.secrets ?? []).some((secret) => secret.slot === slot)
-        ))
-        for (const capability of shared) {
-          const existing = transaction.getBinding(
-            this.#profile,
-            component.componentId,
-            capability.id,
-            request.resource,
-            slot,
-          )
-          transaction.setBinding({
-            profile: this.#profile,
-            componentId: component.componentId,
-            capability: capability.id,
-            slot,
-            resource: request.resource,
-            reference,
-            createdAt: existing?.createdAt ?? now,
-            updatedAt: now,
-          })
-        }
+        const existing = transaction.getBinding(this.#profile, component.componentId, slot, key)
+        transaction.setBinding({
+          profile: this.#profile,
+          componentId: component.componentId,
+          slot,
+          resourceKey: key,
+          reference,
+          createdAt: existing?.createdAt ?? now,
+          updatedAt: now,
+        })
       })
     } catch (error) {
       try {
-        if (previousSecret === undefined) await provider.delete(key)
-        else await provider.set(key, previousSecret)
+        if (previousSecret === undefined) await provider.delete(providerKey)
+        else await provider.set(providerKey, previousSecret)
       } catch {
         throw new SecurityFailure('io')
       }
       throw error instanceof SecurityFailure ? error : new SecurityFailure('io')
     }
-  }
-
-  async #withCredential<T>(
-    session: SecuritySession,
-    component: BoundComponent,
-    request: SecurityRequest,
-    generation: number,
-    slot: string,
-    reference: CredentialRef,
-    consume: (values: CredentialValues) => T | Promise<T>,
-  ): Promise<T> {
-    assertCredentialRef(reference)
-    const declaration = capabilityDeclaration(component, request)
-    if (!declaredSecret(declaration, slot, 'read')) deny('credential-declaration-mismatch')
-    const credential = this.#credentialFor(component, slot)
-    const provider = this.#options.provider
-    if (provider === undefined) throw new SecurityFailure('provider-unavailable')
-    const { metadata, key } = this.#transaction((transaction) => {
-      this.#authorizeGeneration(transaction, session, generation)
-      const binding = transaction.getBinding(
-        this.#profile,
-        component.componentId,
-        request.capability,
-        request.resource,
-        slot,
-      )
-      if (binding === undefined || binding.reference !== reference) deny('credential-binding-mismatch')
-      const metadata = transaction.getCredential(this.#profile, reference)
-      if (metadata === undefined) throw new SecurityFailure('credential-missing')
-      if (metadata.owner !== component.componentId) deny('credential-reference-owned')
-      if (metadata.providerId !== provider.id) throw new SecurityFailure('provider-unavailable')
-      return { metadata, key: this.#providerKey(transaction, reference) }
-    })
-    let raw: string | undefined
-    try {
-      raw = await provider.get(key)
-    } catch (error) {
-      throw providerFailure(error)
-    }
-    if (raw === undefined) throw new SecurityFailure('credential-missing')
-    let values: CredentialValues | undefined
-    try {
-      values = mergeCredentialValues(credential, metadata.fields, raw)
-      this.#transaction((transaction) => this.#authorizeGeneration(transaction, session, generation))
-      try {
-        return await consume(values)
-      } catch (error) {
-        capabilityOrOperationFailure(error)
-      }
-    } finally {
-      values = undefined
-      raw = undefined
-    }
+    return reference
   }
 
   #forSession(session: SecuritySession): HostSecurity {
     this.#assertHost()
     this.#session(session)
+    return this.#management()
+  }
+
+  #management(): HostSecurity {
+    this.#assertHost()
     return Object.freeze({
-      execute: <T>(request: SecurityRequest, operation: (snapshot: SecurityRequest) => T | Promise<T>) =>
-        this.#execute(session, hostComponent(), request, (snapshot) => operation(snapshot)),
-      listCredentials: async () => {
-        this.#assertHost()
-        this.#session(session)
-        return this.#transaction((transaction) => { this.#root(transaction); return transaction.listCredentials(this.#profile) })
-      },
-      listBindings: async () => {
-        this.#assertHost()
-        this.#session(session)
-        return this.#transaction((transaction) => { this.#root(transaction); return transaction.listBindings(this.#profile) })
-      },
-      deleteCredential: (reference: CredentialRef) => this.#deleteCredential(session, reference),
-      unbindCredential: (input: UnbindCredentialInput) => this.#unbindCredential(session, input),
-      credentialStatus: (reference: CredentialRef) => this.#credentialStatus(session, reference),
-      cleanupCredentialOrphans: (apply: boolean) => this.#cleanupCredentialOrphans(session, apply),
+      listCredentials: async () => this.#transaction((transaction) => transaction.listCredentials(this.#profile)),
+      listBindings: async () => this.#transaction((transaction) => transaction.listBindings(this.#profile)),
+      deleteCredential: (reference: CredentialRef) => this.#deleteCredential(reference),
+      unbindCredential: (input: UnbindCredentialInput) => this.#unbindCredential(input),
+      credentialStatus: (reference: CredentialRef) => this.#credentialStatus(reference),
+      cleanupCredentialOrphans: (apply: boolean) => this.#cleanupCredentialOrphans(apply),
       changeRootPassword: async (password: string, confirmation: string) => {
         assertNewPassword(password, confirmation)
-        const request: SecurityRequest = {
-          capability: 'root:password:manage',
-          resource: { type: 'security', id: 'root' },
-          parameters: null,
-        }
-        return this.#execute(session, hostComponent(), request, () => this.#replaceRoot(password, confirmation))
+        await this.#replaceRoot(password, confirmation)
       },
-      setCapabilityLevel: (input: SetCapabilityLevelInput) => this.#setCapabilityLevel(session, input),
-      clearCapabilityLevel: (input: ClearCapabilityLevelInput) => this.#clearCapabilityLevel(session, input),
-      listCapabilityAuthorities: async () => this.#listCapabilityAuthorities(),
+      setOperationLevel: (input: SetOperationLevelInput) => this.#setOperationLevel(input),
+      clearOperationLevel: (input: ClearOperationLevelInput) => this.#clearOperationLevel(input),
+      listOperationAuthorities: async () => this.#listOperationAuthorities(),
     })
   }
 
-  #credentialRequest(reference: CredentialRef, id = reference.slice('credential:'.length)): SecurityRequest {
+  async #deleteCredential(reference: CredentialRef): Promise<void> {
     assertCredentialRef(reference)
-    return snapshotRequest({
-      capability: 'credential:manage',
-      resource: { type: 'credential', id },
-      parameters: { reference },
+    const provider = this.#options.provider
+    if (provider === undefined) throw new SecurityFailure('provider-unavailable')
+    const key = this.#transaction((transaction) => {
+      const metadata = transaction.getCredential(this.#profile, reference)
+      if (metadata !== undefined && metadata.providerId !== provider.id) throw new SecurityFailure('provider-unavailable')
+      return this.#providerKey(transaction, reference)
     })
+    // 先移除授权与元数据，确保删除中途失败时该引用不能被继续使用；残留条目交由 cleanup 处理。
+    this.#transaction((transaction) => transaction.deleteCredential(this.#profile, reference))
+    try {
+      await provider.delete(key)
+    } catch (error) {
+      throw providerFailure(error)
+    }
   }
 
-  #capabilityRequest(componentId: string, capability: string, parameters: Readonly<Record<string, string>>): SecurityRequest {
-    return snapshotRequest({
-      capability: 'capability:manage',
-      resource: { type: 'capability', id: `${componentId}:${capability}` },
-      parameters,
-    })
-  }
-
-  async #deleteCredential(session: SecuritySession, reference: CredentialRef): Promise<void> {
-    this.#assertHost()
-    const request = this.#credentialRequest(reference)
-    return this.#execute(session, hostComponent(), request, async () => {
-      const provider = this.#options.provider
-      if (provider === undefined) throw new SecurityFailure('provider-unavailable')
-      const key = this.#transaction((transaction) => {
-        this.#root(transaction)
-        const metadata = transaction.getCredential(this.#profile, reference)
-        if (metadata !== undefined && metadata.providerId !== provider.id) throw new SecurityFailure('provider-unavailable')
-        return this.#providerKey(transaction, reference)
-      })
-      this.#session(session)
-      // 先移除授权与元数据，确保删除中途失败时该引用不能被继续使用；残留 Keyring 条目交由 cleanup 处理。
-      this.#transaction((transaction) => transaction.deleteCredential(this.#profile, reference))
-      try {
-        await provider.delete(key)
-      } catch (error) {
-        throw providerFailure(error)
-      }
-    })
-  }
-
-  async #unbindCredential(session: SecuritySession, input: UnbindCredentialInput): Promise<boolean> {
-    this.#assertHost()
-    const request = this.#capabilityRequest(input.componentId, input.capability, { slot: input.slot })
-    return this.#execute(session, hostComponent(), request, async () => this.#transaction((transaction) => {
-      this.#root(transaction)
+  async #unbindCredential(input: UnbindCredentialInput): Promise<boolean> {
+    return this.#transaction((transaction) => {
       const existing = transaction.getBinding(
         this.#profile,
         input.componentId,
-        input.capability,
-        input.resource,
         input.slot,
+        input.resourceKey,
       )
       if (existing === undefined) return false
-      transaction.deleteBinding(
-        this.#profile,
-        input.componentId,
-        input.capability,
-        input.resource,
-        input.slot,
-      )
+      transaction.deleteBinding(this.#profile, input.componentId, input.slot, input.resourceKey)
       return true
+    })
+  }
+
+  async #credentialStatus(reference: CredentialRef): Promise<CredentialStatus> {
+    assertCredentialRef(reference)
+    const provider = this.#options.provider
+    if (provider === undefined) throw new SecurityFailure('provider-unavailable')
+    const { metadata, key } = this.#transaction((transaction) => {
+      const metadata = transaction.getCredential(this.#profile, reference)
+      if (metadata === undefined) throw new SecurityFailure('credential-missing')
+      if (metadata.providerId !== provider.id) throw new SecurityFailure('provider-unavailable')
+      return { metadata, key: this.#providerKey(transaction, reference) }
+    })
+    let present = false
+    try {
+      present = (await provider.get(key)) !== undefined
+    } catch (error) {
+      throw providerFailure(error)
+    }
+    return Object.freeze({ metadata, present })
+  }
+
+  async #cleanupCredentialOrphans(apply: boolean): Promise<CredentialCleanupResult> {
+    const provider = this.#options.provider
+    if (provider === undefined || provider.list === undefined) throw new SecurityFailure('provider-unavailable')
+    const { service, known } = this.#transaction((transaction) => ({
+      service: this.#service(transaction),
+      known: new Set(transaction.listCredentials(this.#profile).map((metadata) => metadata.reference.slice('credential:'.length))),
     }))
-  }
-
-  async #credentialStatus(session: SecuritySession, reference: CredentialRef): Promise<CredentialStatus> {
-    this.#assertHost()
-    const request = this.#credentialRequest(reference)
-    return this.#execute(session, hostComponent(), request, async () => {
-      const provider = this.#options.provider
-      if (provider === undefined) throw new SecurityFailure('provider-unavailable')
-      const { metadata, key } = this.#transaction((transaction) => {
-        this.#root(transaction)
-        const metadata = transaction.getCredential(this.#profile, reference)
-        if (metadata === undefined) throw new SecurityFailure('credential-missing')
-        if (metadata.providerId !== provider.id) throw new SecurityFailure('provider-unavailable')
-        return { metadata, key: this.#providerKey(transaction, reference) }
-      })
-      let present = false
+    let accounts: readonly string[]
+    try {
+      accounts = await provider.list(service)
+    } catch (error) {
+      throw providerFailure(error)
+    }
+    const orphans = accounts.filter((account) => !known.has(account))
+    if (!apply) return Object.freeze({ service, orphans: Object.freeze(orphans), removed: 0, remaining: orphans.length })
+    let removed = 0
+    for (const account of orphans) {
       try {
-        present = (await provider.get(key)) !== undefined
+        await provider.delete({ service, account })
+        removed += 1
       } catch (error) {
         throw providerFailure(error)
       }
-      return Object.freeze({ metadata, present })
-    })
+    }
+    let remaining = 0
+    try {
+      remaining = (await provider.list(service)).filter((account) => !known.has(account)).length
+    } catch (error) {
+      throw providerFailure(error)
+    }
+    return Object.freeze({ service, orphans: Object.freeze(orphans), removed, remaining })
   }
 
-  async #cleanupCredentialOrphans(session: SecuritySession, apply: boolean): Promise<CredentialCleanupResult> {
-    this.#assertHost()
-    const request = snapshotRequest({
-      capability: 'credential:manage',
-      resource: { type: 'credential', id: 'orphans' },
-      parameters: { apply },
-    })
-    return this.#execute(session, hostComponent(), request, async () => {
-      const provider = this.#options.provider
-      if (provider === undefined || provider.list === undefined) throw new SecurityFailure('provider-unavailable')
-      const { service, known } = this.#transaction((transaction) => {
-        this.#root(transaction)
-        return {
-          service: this.#service(transaction),
-          known: new Set(transaction.listCredentials(this.#profile).map((metadata) => metadata.reference.slice('credential:'.length))),
-        }
-      })
-      let accounts: readonly string[]
-      try {
-        accounts = await provider.list(service)
-      } catch (error) {
-        throw providerFailure(error)
-      }
-      const orphans = accounts.filter((account) => !known.has(account))
-      if (!apply) return Object.freeze({ service, orphans: Object.freeze(orphans), removed: 0, remaining: orphans.length })
-      let removed = 0
-      for (const account of orphans) {
-        try {
-          await provider.delete({ service, account })
-          removed += 1
-        } catch (error) {
-          throw providerFailure(error)
-        }
-      }
-      let remaining = 0
-      try {
-        remaining = (await provider.list(service)).filter((account) => !known.has(account)).length
-      } catch (error) {
-        throw providerFailure(error)
-      }
-      return Object.freeze({ service, orphans: Object.freeze(orphans), removed, remaining })
-    })
+  #operationDefinition(componentId: string, operation: string): { component: ComponentSpec; auth: SecurityLevel } {
+    if (!COMPONENT_ID.test(componentId) || !OPERATION.test(operation)) deny('invalid-request')
+    const component = this.#definition(componentId)
+    const found = (component.operations ?? []).find((value) => value.id === operation)
+    if (found === undefined) deny('unsupported-operation')
+    if (found.auth === 'none') deny('unsupported-operation')
+    return { component, auth: found.auth }
   }
 
-  #definitionFor(componentId: string, capability: string): ComponentSpec {
-    if (!COMPONENT_ID.test(componentId) || !CAPABILITY.test(capability)) deny('invalid-request')
-    const definition = this.#definitionById.get(componentId)
-    if (definition === undefined) deny('unsupported-capability')
-    if (!(definition.capabilities ?? []).some((value) => value.id === capability)) deny('unsupported-capability')
-    return definition
-  }
-
-  #authority(definition: ComponentSpec, capability: string, override: SecurityLevel | undefined): CapabilityAuthority {
-    const declaration = (definition.capabilities ?? []).find((value) => value.id === capability)
-    if (declaration === undefined) deny('unsupported-capability')
-    const defaultAuthLevel = declaration.defaultAuthLevel ?? 'user'
-    const effectiveAuthLevel = override ?? defaultAuthLevel
+  #authority(component: ComponentSpec, operation: string, override: SecurityLevel | undefined): OperationAuthority {
+    const declaration = (component.operations ?? []).find((value) => value.id === operation)
+    if (declaration === undefined || declaration.auth === 'none') deny('unsupported-operation')
     return Object.freeze({
-      componentId: definition.id,
-      capability,
-      defaultAuthLevel,
-      effectiveAuthLevel,
-      source: override !== undefined ? 'override' : declaration.defaultAuthLevel === undefined ? 'default' : 'component',
+      componentId: component.id,
+      operation,
+      defaultAuthLevel: declaration.auth,
+      effectiveAuthLevel: override ?? declaration.auth,
+      source: override !== undefined ? 'override' : 'operation',
     })
   }
 
-  async #setCapabilityLevel(session: SecuritySession, input: SetCapabilityLevelInput): Promise<CapabilityAuthority> {
-    this.#assertHost()
-    const definition = this.#definitionFor(input.componentId, input.capability)
+  async #setOperationLevel(input: SetOperationLevelInput): Promise<OperationAuthority> {
+    const { component } = this.#operationDefinition(input.componentId, input.operation)
     if (input.level !== 'user' && input.level !== 'root') deny('invalid-request')
-    const request = this.#capabilityRequest(input.componentId, input.capability, { level: input.level })
-    return this.#execute(session, hostComponent(), request, async () => this.#transaction((transaction) => {
-      this.#root(transaction)
-      const now = this.#clock()
-      transaction.setCapabilityLevel({
+    return this.#transaction((transaction) => {
+      transaction.setOperationLevel({
         profile: this.#profile,
         componentId: input.componentId,
-        capability: input.capability,
+        operation: input.operation,
         level: input.level,
-        updatedAt: now,
+        updatedAt: this.#clock(),
       })
-      return this.#authority(definition, input.capability, input.level)
-    }))
+      return this.#authority(component, input.operation, input.level)
+    })
   }
 
-  async #clearCapabilityLevel(session: SecuritySession, input: ClearCapabilityLevelInput): Promise<CapabilityAuthority> {
-    this.#assertHost()
-    const definition = this.#definitionFor(input.componentId, input.capability)
-    const request = this.#capabilityRequest(input.componentId, input.capability, { level: 'default' })
-    return this.#execute(session, hostComponent(), request, async () => this.#transaction((transaction) => {
-      this.#root(transaction)
-      transaction.deleteCapabilityLevel(this.#profile, input.componentId, input.capability)
-      return this.#authority(definition, input.capability, undefined)
-    }))
-  }
-
-  async #listCapabilityAuthorities(): Promise<readonly CapabilityAuthority[]> {
-    this.#assertHost()
+  async #clearOperationLevel(input: ClearOperationLevelInput): Promise<OperationAuthority> {
+    const { component } = this.#operationDefinition(input.componentId, input.operation)
     return this.#transaction((transaction) => {
-      this.#root(transaction)
-      const overrides = new Map(transaction.listCapabilityLevels(this.#profile).map((record) => [
-        JSON.stringify([record.componentId, record.capability]),
+      transaction.deleteOperationLevel(this.#profile, input.componentId, input.operation)
+      return this.#authority(component, input.operation, undefined)
+    })
+  }
+
+  async #listOperationAuthorities(): Promise<readonly OperationAuthority[]> {
+    return this.#transaction((transaction) => {
+      const overrides = new Map(transaction.listOperationLevels(this.#profile).map((record) => [
+        JSON.stringify([record.componentId, record.operation]),
         record.level,
       ]))
-      const authorities: CapabilityAuthority[] = []
-      for (const definition of this.#definitions) {
-        for (const capability of definition.capabilities ?? []) {
+      const authorities: OperationAuthority[] = []
+      for (const component of this.#definitions.values()) {
+        for (const operation of component.operations ?? []) {
+          if (operation.auth === 'none') continue
           authorities.push(this.#authority(
-            definition,
-            capability.id,
-            overrides.get(JSON.stringify([definition.id, capability.id])),
+            component,
+            operation.id,
+            overrides.get(JSON.stringify([component.id, operation.id])),
           ))
         }
       }
       return Object.freeze(authorities.sort((left, right) => (
-        JSON.stringify([left.componentId, left.capability]).localeCompare(JSON.stringify([right.componentId, right.capability]))
+        JSON.stringify([left.componentId, left.operation]).localeCompare(JSON.stringify([right.componentId, right.operation]))
       )))
     })
   }
@@ -922,13 +805,13 @@ class SecurityRuntime {
     this.#challenge(challenge)
     const grant: SecurityGrant = Object.freeze({
       grantId: randomUUID(),
-      operationId: challenge.operationId,
+      challengeId: challenge.challengeId,
       sessionId: challenge.sessionId,
       subject: 'user',
       authorizedBy: 'root',
       componentId: challenge.componentId,
-      capability: challenge.capability,
-      resource: challenge.resource,
+      operation: challenge.operation,
+      parameters: challenge.parameters,
       scope,
       expiresAt: scope === 'operation' ? this.#clock() + GRANT_TTL : null,
     })
@@ -945,7 +828,7 @@ class SecurityRuntime {
     record.operation = undefined
     this.#grants.set(grant, grantRecord)
     if (scope === 'session') {
-      const key = JSON.stringify([grant.componentId, grant.capability, grant.resource.type, grant.resource.id])
+      const key = operationHash(operation.request)
       let grants = this.#sessionGrants.get(operation.session)
       if (grants === undefined) {
         grants = new Map()
@@ -1044,7 +927,7 @@ class SecurityRuntime {
       try {
         return await execute() as T
       } catch (error) {
-        capabilityOrOperationFailure(error)
+        domainOrOperationFailure(error)
       }
     }
     if (record.operation === undefined) throw new SecurityFailure('grant-revoked')
@@ -1069,7 +952,7 @@ class SecurityRuntime {
     try {
       return await execute() as T
     } catch (error) {
-      capabilityOrOperationFailure(error)
+      domainOrOperationFailure(error)
     }
   }
 
@@ -1187,8 +1070,11 @@ class SecurityRuntime {
 }
 
 /** 装配保持同步；构造与取得服务不会打开存储，也不会加载真实 Keyring。 */
-export function createSecurityRuntime(options: SecurityOptions = {}, definitions: readonly ComponentSpec[] = []): { readonly service: SecurityService; dispose(): Promise<void> } {
+export function createSecurityRuntime(
+  options: SecurityOptions = {},
+  definitions: readonly ComponentSpec[] = [],
+): { readonly service: SecurityService; readonly host: SecurityHost; dispose(): Promise<void> } {
   const runtime = new SecurityRuntime(options, definitions)
   options.receiveHost?.(runtime.host)
-  return { service: runtime.service, dispose: () => runtime.dispose() }
+  return { service: runtime.service, host: runtime.host, dispose: () => runtime.dispose() }
 }

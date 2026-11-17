@@ -33,6 +33,9 @@ const ACCESS_DENIED_REASONS = [
   'credential-binding-mismatch',
   'credential-reference-owned',
   'credential-declaration-mismatch',
+  'credential-write-requires-root',
+  'unsupported-operation',
+  'invalid-resource-key',
   'invalid-request',
   'invalid-session',
   'session-ended',
@@ -86,13 +89,13 @@ export function deny(reason: AccessDeniedReason): never {
   throw new SecurityFailure('access-denied', { reason })
 }
 
-/** 可信组件显式抛出的能力错误；Core 原样透传，不混入安全错误分类。 */
-export class CapabilityFailure extends Error {
+/** 可信组件显式抛出的领域错误；Core 原样透传，不混入安全错误分类。 */
+export class DomainFailure extends Error {
   readonly code: string
 
   constructor(code: string, message: string) {
     super(message)
-    this.name = 'CapabilityFailure'
+    this.name = 'DomainFailure'
     this.code = code
   }
 }
@@ -105,9 +108,13 @@ export function providerFailure(error: unknown): SecurityFailure {
   return new SecurityFailure('provider-unavailable')
 }
 
-/** 能力显式错误原样穿透；通用异常仍收为固定安全分类，避免泄漏秘密。 */
-export function capabilityOrOperationFailure(error: unknown): never {
-  if (error instanceof SecurityFailure || error instanceof CapabilityFailure) throw error
+/** 已分类的领域错误原样穿透；通用异常仍收为固定安全分类，避免泄漏秘密。 */
+export function domainOrOperationFailure(error: unknown): never {
+  if (
+    error instanceof SecurityFailure ||
+    error instanceof DomainFailure ||
+    (error instanceof Error && (error.name === 'InvocationFailure' || error.name === 'ComponentFailure'))
+  ) throw error
   throw new SecurityFailure('operation-failed')
 }
 

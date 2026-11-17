@@ -2,11 +2,12 @@ import { mkdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import { COMPONENT_SCHEMA } from './schema/component.ts'
+import { EVENTS_SCHEMA } from './schema/events.ts'
 import { SECURITY_SCHEMA } from './schema/security.ts'
 import { WORKSPACE_SCHEMA } from './schema/workspace.ts'
 
 /** Workspace、组件与安全元数据共用同一个数据库与版本号。 */
-export const CORE_SCHEMA_VERSION = 7
+export const CORE_SCHEMA_VERSION = 8
 
 const SECURITY_TABLES = [
   'security_installation',
@@ -14,7 +15,7 @@ const SECURITY_TABLES = [
   'security_profiles',
   'security_credentials',
   'security_credential_bindings',
-  'security_capability_levels',
+  'security_operation_levels',
 ] as const
 
 const WORKSPACE_COLUMNS = ['id', 'name', 'created_at'] as const
@@ -27,6 +28,7 @@ const COMPONENT_COLUMNS = [
   'component_id', 'external_state', 'external_detail', 'external_checked_at',
   'deploy_state', 'deploy_detail', 'deploy_checked_at',
 ] as const
+const EVENTS_COLUMNS = ['seq', 'id', 'type', 'source', 'subject', 'time', 'data'] as const
 const SECURITY_COLUMNS: Readonly<Record<typeof SECURITY_TABLES[number], readonly string[]>> = {
   security_installation: ['singleton', 'installation_id'],
   security_root_authentication: [
@@ -37,18 +39,28 @@ const SECURITY_COLUMNS: Readonly<Record<typeof SECURITY_TABLES[number], readonly
   security_profiles: ['name', 'installation_id'],
   security_credentials: ['profile', 'reference', 'provider_id', 'fields', 'created_at', 'updated_at', 'owner_component'],
   security_credential_bindings: [
-    'profile', 'component_id', 'capability', 'slot', 'resource_type', 'resource_id',
-    'reference', 'created_at', 'updated_at',
+    'profile', 'component_id', 'slot', 'resource_key', 'reference', 'created_at', 'updated_at',
   ],
-  security_capability_levels: ['profile', 'component_id', 'capability', 'level', 'updated_at'],
+  security_operation_levels: ['profile', 'component_id', 'operation', 'level', 'updated_at'],
 }
-const INTEGER_SECURITY_COLUMNS = new Set([
-  'singleton', 'generation', 'verifier_version', 'scrypt_n', 'scrypt_r', 'scrypt_p',
-  'scrypt_maxmem', 'failed_attempts', 'locked_until', 'attempt_expires_at', 'created_at', 'updated_at',
-])
+const INTEGER_COLUMNS: Readonly<Record<string, true>> = {
+  singleton: true,
+  generation: true,
+  verifier_version: true,
+  scrypt_n: true,
+  scrypt_r: true,
+  scrypt_p: true,
+  scrypt_maxmem: true,
+  failed_attempts: true,
+  locked_until: true,
+  attempt_expires_at: true,
+  created_at: true,
+  updated_at: true,
+}
+const EVENT_INTEGER_COLUMNS: Readonly<Record<string, true>> = { seq: true }
 
 /** 建库 DDL 按主题分片在 `src/schema/`，只在初始化新空库时执行。 */
-const SCHEMA = `${WORKSPACE_SCHEMA}\n${COMPONENT_SCHEMA}\n${SECURITY_SCHEMA}`
+const SCHEMA = `${WORKSPACE_SCHEMA}\n${COMPONENT_SCHEMA}\n${SECURITY_SCHEMA}\n${EVENTS_SCHEMA}`
 
 /** 读取使用同一快照，写入先取得写锁；提交失败也不能报告成功。 */
 function transaction<T>(database: DatabaseSync, write: boolean, action: () => T): T {
@@ -83,14 +95,19 @@ function tableExists(database: DatabaseSync, name: string): boolean {
     .get(name) !== undefined
 }
 
-function requireTable(database: DatabaseSync, name: string, expected: readonly string[], security = false): void {
+function requireTable(
+  database: DatabaseSync,
+  name: string,
+  expected: readonly string[],
+  integerColumns: Readonly<Record<string, true>> = {},
+): void {
   if (!tableExists(database, name)) {
     throw new Error(`数据库缺少 ${name} 表，拒绝在不完整结构上继续`)
   }
   const columns = database.prepare(`PRAGMA table_info(${name})`).all()
   if (columns.length !== expected.length || columns.some((column, index) => (
     column.name !== expected[index] ||
-    column.type !== (security && INTEGER_SECURITY_COLUMNS.has(String(column.name)) ? 'INTEGER' : 'TEXT')
+    column.type !== (integerColumns[String(column.name)] === true ? 'INTEGER' : 'TEXT')
   ))) {
     throw new Error(`数据库 ${name} 表结构冲突，拒绝使用未知结构`)
   }
@@ -101,8 +118,9 @@ function requireCurrentTables(database: DatabaseSync): void {
   requireTable(database, 'relations', RELATION_COLUMNS)
   requireTable(database, 'mounts', MOUNT_COLUMNS)
   requireTable(database, 'component_states', COMPONENT_COLUMNS)
+  requireTable(database, 'events', EVENTS_COLUMNS, EVENT_INTEGER_COLUMNS)
   for (const table of SECURITY_TABLES) {
-    requireTable(database, table, SECURITY_COLUMNS[table], true)
+    requireTable(database, table, SECURITY_COLUMNS[table], INTEGER_COLUMNS)
   }
 }
 

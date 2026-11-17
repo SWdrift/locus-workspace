@@ -1,4 +1,5 @@
 import type { ComponentsService } from './components/service.ts'
+import type { ApiRouter, EventBus } from './invocation.ts'
 import type { SecurityService } from './security/types.ts'
 
 /** Locus 运行时的公开身份信息。 */
@@ -77,5 +78,7 @@ export interface LocusCore {
   readonly mounts: MountService
   readonly components: ComponentsService
   readonly security: SecurityService
+  readonly router: ApiRouter
+  readonly events: EventBus
   dispose(): Promise<void>
 }

@@ -7,10 +7,11 @@ export type CredentialRef = `credential:${string}`
 export type CredentialValues = Readonly<Record<string, string>>
 export type SecurityParameters = null | boolean | number | string | readonly SecurityParameters[] | { readonly [key: string]: SecurityParameters }
 
-/** Security 领域的精确资源；Workspace 关系继续使用 ResourceReference。 */
-export interface SecurityResource {
-  readonly type: string
-  readonly id: string
+/** 授权键是组件与 operation；资源 key 只参与凭据绑定，不参与等级判定。 */
+export interface SecurityRequest {
+  readonly component: string
+  readonly operation: string
+  readonly parameters: SecurityParameters
 }
 
 /** 由可信 Host 创建的进程内会话；source 只作来源记录，不参与授权。 */
@@ -23,20 +24,12 @@ export interface SecuritySession {
   readonly active: boolean
 }
 
-/** 一次组件能力调用的授权请求；不携带秘密输入。 */
-export interface SecurityRequest {
-  readonly capability: string
-  readonly resource: SecurityResource
-  readonly parameters: SecurityParameters
-}
-
-/** 组件能力与精确资源的凭据绑定；slot 是组件声明的凭据槽。 */
+/** 凭据绑定键是 component + slot + resourceKey；引用只指向 Provider 条目。 */
 export interface CredentialBinding {
   readonly profile: string
   readonly componentId: string
-  readonly capability: string
   readonly slot: string
-  readonly resource: SecurityResource
+  readonly resourceKey: string
   readonly reference: CredentialRef
   readonly createdAt: number
   readonly updatedAt: number
@@ -44,38 +37,37 @@ export interface CredentialBinding {
 
 export interface UnbindCredentialInput {
   readonly componentId: string
-  readonly capability: string
-  readonly resource: SecurityResource
   readonly slot: string
+  readonly resourceKey: string
 }
 
-/** Root 对组件能力的认证等级覆盖。 */
-export interface CapabilityLevelRecord {
+/** Root 对 operation 的认证等级覆盖。 */
+export interface OperationLevelRecord {
   readonly profile: string
   readonly componentId: string
-  readonly capability: string
+  readonly operation: string
   readonly level: SecurityLevel
   readonly updatedAt: number
 }
 
-export interface SetCapabilityLevelInput {
+export interface SetOperationLevelInput {
   readonly componentId: string
-  readonly capability: string
+  readonly operation: string
   readonly level: SecurityLevel
 }
 
-export interface ClearCapabilityLevelInput {
+export interface ClearOperationLevelInput {
   readonly componentId: string
-  readonly capability: string
+  readonly operation: string
 }
 
-/** 组件的默认、覆盖与最终生效等级；source 说明最终值来自哪里。 */
-export interface CapabilityAuthority {
+/** 组件的声明等级、Root 覆盖与最终生效等级。 */
+export interface OperationAuthority {
   readonly componentId: string
-  readonly capability: string
+  readonly operation: string
   readonly defaultAuthLevel: SecurityLevel
   readonly effectiveAuthLevel: SecurityLevel
-  readonly source: 'override' | 'component' | 'default'
+  readonly source: 'override' | 'operation' | 'default'
 }
 
 export interface CredentialStatus {
@@ -94,54 +86,46 @@ export interface CredentialCleanupResult {
 /** 仅含可展示的授权信息，永不携带密码、凭据值或其摘要。 */
 export interface SecurityChallenge {
   readonly challengeId: string
-  readonly operationId: string
   readonly sessionId: string
   readonly subject: 'user'
   readonly componentId: string
-  readonly capability: string
-  readonly resource: SecurityResource
+  readonly operation: string
+  readonly parameters: SecurityParameters
   readonly expiresAt: number
 }
 
 /** 授权依赖 Core 内部记录与对象身份，复制公开字段不能获得权限。 */
 export interface SecurityGrant {
   readonly grantId: string
-  readonly operationId: string
+  readonly challengeId: string
   readonly sessionId: string
   readonly subject: 'user'
   readonly authorizedBy: 'root'
   readonly scope: SecurityGrantScope
   readonly componentId: string
-  readonly capability: string
-  readonly resource: SecurityResource
+  readonly operation: string
+  readonly parameters: SecurityParameters
   /** operation 为固定有效期；session 在 Session 结束时失效，故为 null。 */
   readonly expiresAt: number | null
 }
 
 /** 组件 handler 的唯一凭据入口；Core 在授权后注入。 */
-export interface CapabilityContext {
-  registerCredential(
+export interface OperationCredentialPort {
+  read<T>(
     slot: string,
-    reference: CredentialRef,
-    values: CredentialValues,
-  ): Promise<void>
-
-  withCredential<T>(
-    slot: string,
-    reference: CredentialRef,
+    resourceKey: string,
     consume: (values: CredentialValues) => T | Promise<T>,
   ): Promise<T>
+
+  /** 只在实际获准 root 时可用。 */
+  write(slot: string, resourceKey: string, values: CredentialValues): Promise<CredentialRef>
 }
 
 /** 只交付给绑定了可信定义与会话的组件，不提供认证或原始凭据导出入口。 */
 export interface ComponentSecurity {
-  /**
-   * 预检能力、资源与 read 槽，再执行授权。root 级操作抛出
-   * authentication-required；resume 后在同一回调内注入 CapabilityContext。
-   */
   execute<T>(
     request: SecurityRequest,
-    operation: (context: CapabilityContext, snapshot: SecurityRequest) => T | Promise<T>,
+    run: (credential: OperationCredentialPort) => T | Promise<T>,
   ): Promise<T>
 }
 
@@ -159,7 +143,6 @@ export interface CredentialMetadata {
 
 /** Root 管理端口只通过 SecurityHost 交付给可信组合根。 */
 export interface HostSecurity {
-  execute<T>(request: SecurityRequest, operation: (snapshot: SecurityRequest) => T | Promise<T>): Promise<T>
   listCredentials(): Promise<readonly CredentialMetadata[]>
   deleteCredential(reference: CredentialRef): Promise<void>
   listBindings(): Promise<readonly CredentialBinding[]>
@@ -167,9 +150,9 @@ export interface HostSecurity {
   credentialStatus(reference: CredentialRef): Promise<CredentialStatus>
   cleanupCredentialOrphans(apply: boolean): Promise<CredentialCleanupResult>
   changeRootPassword(password: string, confirmation: string): Promise<void>
-  setCapabilityLevel(input: SetCapabilityLevelInput): Promise<CapabilityAuthority>
-  clearCapabilityLevel(input: ClearCapabilityLevelInput): Promise<CapabilityAuthority>
-  listCapabilityAuthorities(): Promise<readonly CapabilityAuthority[]>
+  setOperationLevel(input: SetOperationLevelInput): Promise<OperationAuthority>
+  clearOperationLevel(input: ClearOperationLevelInput): Promise<OperationAuthority>
+  listOperationAuthorities(): Promise<readonly OperationAuthority[]>
 }
 
 export interface SecurityStatus {
@@ -189,8 +172,10 @@ export interface SecurityService {
 export interface SecurityHost {
   createSession(source: SecuritySource): SecuritySession
   endSession(session: SecuritySession): void
-  bindComponent(session: SecuritySession, definition: ComponentSpec): ComponentSecurity
+  bindComponent(session: SecuritySession, componentId: string): ComponentSecurity
   forSession(session: SecuritySession): HostSecurity
+  /** 组合根专用管理端口；调用方已由 operation 授权。 */
+  management(): HostSecurity
   initializeRoot(password: string, confirmation: string): Promise<void>
   resetRoot(password: string, confirmation: string): Promise<void>
   authenticate(
@@ -266,23 +251,16 @@ export interface SecurityStoreTransaction {
   getBinding(
     profile: string,
     componentId: string,
-    capability: string,
-    resource: SecurityResource,
     slot: string,
+    resourceKey: string,
   ): CredentialBinding | undefined
   listBindings(profile: string): readonly CredentialBinding[]
   setBinding(binding: CredentialBinding): void
-  deleteBinding(
-    profile: string,
-    componentId: string,
-    capability: string,
-    resource: SecurityResource,
-    slot: string,
-  ): void
-  getCapabilityLevel(profile: string, componentId: string, capability: string): SecurityLevel | undefined
-  listCapabilityLevels(profile: string): readonly CapabilityLevelRecord[]
-  setCapabilityLevel(record: CapabilityLevelRecord): void
-  deleteCapabilityLevel(profile: string, componentId: string, capability: string): void
+  deleteBinding(profile: string, componentId: string, slot: string, resourceKey: string): void
+  getOperationLevel(profile: string, componentId: string, operation: string): SecurityLevel | undefined
+  listOperationLevels(profile: string): readonly OperationLevelRecord[]
+  setOperationLevel(record: OperationLevelRecord): void
+  deleteOperationLevel(profile: string, componentId: string, operation: string): void
 }
 
 export interface SecurityStore {
@@ -298,3 +276,6 @@ export interface SecurityOptions {
   /** 组合根专用信任交付；回调不进入普通 security 公开面。 */
   readonly receiveHost?: (host: SecurityHost) => void
 }
+
+/** 内部装配只需要组件的 operation 元数据与凭据声明。 */
+export type TrustedComponentSpec = ComponentSpec

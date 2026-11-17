@@ -1,10 +1,10 @@
 import { SecurityFailure } from './errors.ts'
 import type {
-  CapabilityLevelRecord,
   CredentialBinding,
   CredentialMetadata,
   CredentialProvider,
   CredentialRef,
+  OperationLevelRecord,
   RootAuthenticationState,
   SecurityInstallation,
   SecurityLevel,
@@ -60,7 +60,7 @@ export function createMemorySecurityStore(): SecurityStore {
   let root: RootAuthenticationState | undefined
   let credentials = new Map<string, Map<CredentialRef, CredentialMetadata>>()
   let bindings = new Map<string, Map<string, CredentialBinding>>()
-  let levels = new Map<string, Map<string, CapabilityLevelRecord>>()
+  let levels = new Map<string, Map<string, OperationLevelRecord>>()
   let disposed = false
   let inTransaction = false
 
@@ -73,16 +73,11 @@ export function createMemorySecurityStore(): SecurityStore {
       let nextCredentials = credentials
       let nextBindings = bindings
       let nextLevels = levels
-      function bindingKey(
-        componentId: string,
-        capability: string,
-        resource: { readonly type: string; readonly id: string },
-        slot: string,
-      ): string {
-        return JSON.stringify([componentId, capability, slot, resource.type, resource.id])
+      function bindingKey(componentId: string, slot: string, resourceKey: string): string {
+        return JSON.stringify([componentId, slot, resourceKey])
       }
-      function levelKey(componentId: string, capability: string): string {
-        return JSON.stringify([componentId, capability])
+      function levelKey(componentId: string, operation: string): string {
+        return JSON.stringify([componentId, operation])
       }
       function writableCredentials(): Map<string, Map<CredentialRef, CredentialMetadata>> {
         if (nextCredentials === credentials) {
@@ -94,14 +89,14 @@ export function createMemorySecurityStore(): SecurityStore {
         if (nextBindings === bindings) {
           nextBindings = new Map<string, Map<string, CredentialBinding>>(Array.from(bindings, ([profile, values]) => [
             profile,
-            new Map(Array.from(values, ([key, value]) => [key, Object.freeze({ ...value, resource: Object.freeze({ ...value.resource }) })])),
+            new Map(Array.from(values, ([key, value]) => [key, Object.freeze({ ...value })])),
           ]))
         }
         return nextBindings
       }
-      function writableLevels(): Map<string, Map<string, CapabilityLevelRecord>> {
+      function writableLevels(): Map<string, Map<string, OperationLevelRecord>> {
         if (nextLevels === levels) {
-          nextLevels = new Map<string, Map<string, CapabilityLevelRecord>>(Array.from(levels, ([profile, values]) => [
+          nextLevels = new Map<string, Map<string, OperationLevelRecord>>(Array.from(levels, ([profile, values]) => [
             profile,
             new Map(Array.from(values, ([key, value]) => [key, Object.freeze({ ...value })])),
           ]))
@@ -141,13 +136,13 @@ export function createMemorySecurityStore(): SecurityStore {
             }
           }
         },
-        getBinding(profile, componentId, capability, resource, slot) {
-          return nextBindings.get(profile)?.get(bindingKey(componentId, capability, resource, slot))
+        getBinding(profile, componentId, slot, resourceKey) {
+          return nextBindings.get(profile)?.get(bindingKey(componentId, slot, resourceKey))
         },
         listBindings(profile) {
           return Object.freeze(Array.from(nextBindings.get(profile)?.values() ?? []).sort((left, right) => (
-            JSON.stringify([left.componentId, left.capability, left.slot, left.resource.type, left.resource.id])
-              .localeCompare(JSON.stringify([right.componentId, right.capability, right.slot, right.resource.type, right.resource.id]))
+            JSON.stringify([left.componentId, left.slot, left.resourceKey])
+              .localeCompare(JSON.stringify([right.componentId, right.slot, right.resourceKey]))
           )))
         },
         setBinding(value) {
@@ -157,34 +152,31 @@ export function createMemorySecurityStore(): SecurityStore {
             profile = new Map()
             writable.set(value.profile, profile)
           }
-          profile.set(bindingKey(value.componentId, value.capability, value.resource, value.slot), Object.freeze({
-            ...value,
-            resource: Object.freeze({ ...value.resource }),
-          }))
+          profile.set(bindingKey(value.componentId, value.slot, value.resourceKey), Object.freeze({ ...value }))
         },
-        deleteBinding(profile, componentId, capability, resource, slot) {
-          const key = bindingKey(componentId, capability, resource, slot)
+        deleteBinding(profile, componentId, slot, resourceKey) {
+          const key = bindingKey(componentId, slot, resourceKey)
           if (nextBindings.get(profile)?.has(key) === true) writableBindings().get(profile)?.delete(key)
         },
-        getCapabilityLevel(profile, componentId, capability): SecurityLevel | undefined {
-          return nextLevels.get(profile)?.get(levelKey(componentId, capability))?.level
+        getOperationLevel(profile, componentId, operation): SecurityLevel | undefined {
+          return nextLevels.get(profile)?.get(levelKey(componentId, operation))?.level
         },
-        listCapabilityLevels(profile) {
+        listOperationLevels(profile) {
           return Object.freeze(Array.from(nextLevels.get(profile)?.values() ?? []).sort((left, right) => (
-            JSON.stringify([left.componentId, left.capability]).localeCompare(JSON.stringify([right.componentId, right.capability]))
+            JSON.stringify([left.componentId, left.operation]).localeCompare(JSON.stringify([right.componentId, right.operation]))
           )))
         },
-        setCapabilityLevel(value) {
+        setOperationLevel(value) {
           const writable = writableLevels()
           let profile = writable.get(value.profile)
           if (profile === undefined) {
             profile = new Map()
             writable.set(value.profile, profile)
           }
-          profile.set(levelKey(value.componentId, value.capability), Object.freeze({ ...value }))
+          profile.set(levelKey(value.componentId, value.operation), Object.freeze({ ...value }))
         },
-        deleteCapabilityLevel(profile, componentId, capability) {
-          const key = levelKey(componentId, capability)
+        deleteOperationLevel(profile, componentId, operation) {
+          const key = levelKey(componentId, operation)
           if (nextLevels.get(profile)?.has(key) === true) writableLevels().get(profile)?.delete(key)
         },
       }

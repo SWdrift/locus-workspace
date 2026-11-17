@@ -1,32 +1,19 @@
 import { createHash } from 'node:crypto'
-import type { ComponentCapability, ComponentCredential, ComponentSpec } from '../components/spec.ts'
+import type { ComponentCredential, ComponentSpec } from '../components/spec.ts'
+import type { OperationMetadata } from '../invocation.ts'
 import { deny } from './errors.ts'
 import type { CredentialRef, SecurityLevel, SecurityParameters, SecurityRequest } from './types.ts'
 
-interface HostRule {
-  readonly resourceType: string
-  readonly level: SecurityLevel
-}
-
-/** Host 自己的管理能力；普通组件能力不进入固定规则表。 */
-const HOST_RULES: Readonly<Record<string, HostRule>> = Object.freeze({
-  'credential:manage': { resourceType: 'credential', level: 'root' },
-  'capability:manage': { resourceType: 'capability', level: 'root' },
-  'system:service:manage': { resourceType: 'service', level: 'root' },
-  'root:password:manage': { resourceType: 'security', level: 'root' },
-})
-
 export interface BoundComponent {
   readonly componentId: string
-  readonly capabilities: readonly ComponentCapability[]
+  readonly operations: readonly OperationMetadata[]
   readonly credentials: readonly ComponentCredential[]
 }
 
-function concrete(value: unknown): value is string {
-  return typeof value === 'string' && value.length > 0 && value === value.trim() && !/[\u0000*?[\]]/.test(value)
-}
-
-const CREDENTIAL_REF = /^credential:[a-z][a-z0-9-]*$/
+const CREDENTIAL_REF = /^credential:[a-z0-9][a-z0-9-]*$/
+const COMPONENT_ID = /^[a-z][a-z0-9-]{0,63}$/
+const OPERATION = /^[a-z][a-z0-9]*(?:[.-][a-z0-9]+)*$/
+const SLOT = /^[a-z][a-z0-9-]{0,63}$/
 
 export function assertCredentialRef(value: unknown): asserts value is `credential:${string}` {
   if (typeof value !== 'string' || !CREDENTIAL_REF.test(value)) deny('invalid-request')
@@ -62,45 +49,48 @@ function snapshotParameters(value: SecurityParameters, seen: Set<object>): Secur
 export function snapshotRequest(request: SecurityRequest): SecurityRequest {
   if (
     request === null || typeof request !== 'object' ||
-    typeof request.capability !== 'string' || !/^[a-z][a-z0-9]*(?:[.:-][a-z0-9]+)*$/.test(request.capability) ||
-    request.resource === null || typeof request.resource !== 'object' ||
-    !concrete(request.resource.type) || !concrete(request.resource.id)
+    typeof request.component !== 'string' || !COMPONENT_ID.test(request.component) ||
+    typeof request.operation !== 'string' || !OPERATION.test(request.operation)
   ) deny('invalid-request')
   return Object.freeze({
-    capability: request.capability,
-    resource: Object.freeze({ type: request.resource.type, id: request.resource.id }),
+    component: request.component,
+    operation: request.operation,
     parameters: snapshotParameters(request.parameters, new Set()),
   })
 }
 
 export function operationHash(request: SecurityRequest): string {
-  return createHash('sha256').update(JSON.stringify(request)).digest('hex')
+  return createHash('sha256').update(JSON.stringify({
+    component: request.component,
+    operation: request.operation,
+    parameters: request.parameters,
+  })).digest('hex')
 }
 
-function snapshotCapability(value: ComponentCapability): ComponentCapability {
+function snapshotOperation(value: OperationMetadata): OperationMetadata {
   if (
-    typeof value.id !== 'string' || !/^[a-z][a-z0-9]*(?:[.-][a-z0-9]+)*$/.test(value.id) ||
-    typeof value.resourceType !== 'string' || !/^[a-z][a-z0-9-]{0,63}$/.test(value.resourceType) ||
-    (value.defaultAuthLevel !== undefined && value.defaultAuthLevel !== 'user' && value.defaultAuthLevel !== 'root') ||
-    (value.secrets !== undefined && !Array.isArray(value.secrets))
+    typeof value.id !== 'string' || !OPERATION.test(value.id) ||
+    (value.auth !== 'user' && value.auth !== 'root' && value.auth !== 'none') ||
+    (value.method !== 'GET' && value.method !== 'POST' && value.method !== 'PUT' &&
+      value.method !== 'PATCH' && value.method !== 'DELETE') ||
+    typeof value.scheme !== 'string' || typeof value.authority !== 'string' ||
+    typeof value.path !== 'string' || !value.path.startsWith('/') && value.path !== ''
   ) deny('invalid-request')
   return Object.freeze({
     id: value.id,
-    resourceType: value.resourceType,
-    ...(value.defaultAuthLevel === undefined ? {} : { defaultAuthLevel: value.defaultAuthLevel }),
-    ...(value.secrets === undefined ? {} : { secrets: Object.freeze(value.secrets.map((secret) => Object.freeze({
-      slot: secret.slot,
-      access: secret.access,
-    }))) }),
+    method: value.method,
+    scheme: value.scheme,
+    authority: value.authority,
+    path: value.path,
+    auth: value.auth,
   })
 }
 
 export function bindTrustedComponent(definition: ComponentSpec): BoundComponent {
   if (definition.kind !== 'locus') deny('untrusted-component')
-  const capabilities = (definition.capabilities ?? []).map(snapshotCapability)
   return Object.freeze({
     componentId: definition.id,
-    capabilities: Object.freeze(capabilities),
+    operations: Object.freeze((definition.operations ?? []).map(snapshotOperation)),
     credentials: Object.freeze((definition.credentials ?? []).map((credential) => Object.freeze({
       id: credential.id,
       fields: Object.freeze(credential.fields.map((field) => Object.freeze({ ...field }))),
@@ -108,45 +98,32 @@ export function bindTrustedComponent(definition: ComponentSpec): BoundComponent 
   })
 }
 
-function declarationFor(component: BoundComponent, request: SecurityRequest): ComponentCapability {
-  const declaration = component.capabilities.find((value) => (
-    value.id === request.capability && value.resourceType === request.resource.type
-  ))
-  if (declaration !== undefined) return declaration
-  if (component.capabilities.some((value) => value.id === request.capability)) deny('resource-mismatch')
-  deny('undeclared-capability')
-}
-
-/** 解析有效认证等级：Root 覆盖 > 组件 defaultAuthLevel > user。 */
+/** 解析有效认证等级：Root 覆盖 > operation auth；auth none 不可覆盖。 */
 export function requiredLevel(
   component: BoundComponent,
   request: SecurityRequest,
   override: SecurityLevel | undefined,
 ): SecurityLevel {
-  if (component.componentId === 'host') {
-    const rule = HOST_RULES[request.capability]
-    if (rule === undefined) deny('unsupported-capability')
-    if (request.resource.type !== rule.resourceType) deny('resource-mismatch')
-    return rule.level
-  }
-  const declaration = declarationFor(component, request)
-  return override ?? declaration.defaultAuthLevel ?? 'user'
+  const operation = component.operations.find((value) => value.id === request.operation)
+  if (operation === undefined) deny('unsupported-operation')
+  if (operation.auth === 'none') deny('unsupported-operation')
+  return override ?? operation.auth
 }
 
-export function capabilityDeclaration(component: BoundComponent, request: SecurityRequest): ComponentCapability {
-  if (component.componentId === 'host') deny('unsupported-capability')
-  return declarationFor(component, request)
+export function credentialDeclaration(component: BoundComponent, slot: string): ComponentCredential {
+  if (typeof slot !== 'string' || !SLOT.test(slot)) deny('invalid-request')
+  const credential = component.credentials.find((value) => value.id === slot)
+  if (credential === undefined) deny('credential-declaration-mismatch')
+  return credential
 }
 
-export function declaredSecret(
-  declaration: ComponentCapability,
-  slot: string,
-  access: 'read' | 'write',
-): boolean {
-  return (declaration.secrets ?? []).some((secret) => secret.slot === slot && secret.access === access)
-}
-
-/** 内置 Host 声明逐操作精确资源，不暴露为普通 ComponentSpec 注册路径。 */
-export function hostComponent(): BoundComponent {
-  return Object.freeze({ componentId: 'host', capabilities: Object.freeze([]), credentials: Object.freeze([]) })
+/** 资源 key 由 handler 显式提供；只拒绝空值、首尾空白、NUL 与控制字符。 */
+export function assertResourceKey(value: unknown): string {
+  if (
+    typeof value !== 'string' ||
+    value.length === 0 ||
+    value !== value.trim() ||
+    /[\u0000-\u001f\u007f]/.test(value)
+  ) deny('invalid-resource-key')
+  return value
 }
