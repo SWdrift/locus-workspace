@@ -76,7 +76,7 @@ CLI 组合根只通过 Core 的 receiveHost 回调取得可信管理端口；组
 | `component probe --all` | 逐个探查 external 组件，跳过无探针定义；任一未通过退出 1 |
 | `component deploy <id> --yes` | 执行部署入口并记录；失败退出 1 |
 
-首次访问组件服务时，CLI 把 Templates、Remote Targets、PostgreSQL 与 Gitea 的包定义物化到 `<dataDirectory>/components/`；版本不一致只提示，`upgrade` 才改写。`version` 与 `--help` 不触发物化。组件字段、状态与失败边界见[组件子系统](../../docs/subsystems/core/components.md)，命令参数见[命令手册](../../docs/commands.md#组件操作)。
+CLI 按顶层命令的包域注册包定义；首次访问组件服务时，把已注册的定义物化到 `<dataDirectory>/components/`。`component`、`security capability` 与未知组件入口注册全集，`pg`、`remote-targets`、`template` 只注册各自包。版本不一致只提示，`upgrade` 才改写；`version` 与 `--help` 不触发物化。组件字段、状态与失败边界见[组件子系统](../../docs/subsystems/core/components.md)，命令参数见[命令手册](../../docs/commands.md#组件操作)。
 
 ## 数据与生命周期
 

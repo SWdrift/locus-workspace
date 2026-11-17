@@ -1,11 +1,10 @@
+import { execa } from 'execa'
 import type { CommandRunner, RunOptions, RunResult } from './types.ts'
 
 /** 系统客户端由 execa 执行，不经 shell，不把秘密放入参数或环境。 */
 export function createCommandRunner(): CommandRunner {
   async function execute(command: string, args: readonly string[], interactive: boolean, options?: RunOptions): Promise<RunResult> {
     if (options?.signal?.aborted) return { exitCode: 130, stdout: '', stderr: '操作已取消' }
-    // 只有实际执行系统客户端时才需要 execa；延迟加载，普通命令不支付其导入成本。
-    const { execa } = await import('execa')
     const result = await execa(command, [...args], {
       reject: false,
       stripFinalNewline: false,

@@ -12,9 +12,9 @@ import {
 } from 'node:fs'
 import { connect } from 'node:net'
 import { basename, dirname, join, resolve, sep } from 'node:path'
+import { stringify } from 'yaml'
 import {
   ComponentFailure,
-  parseComponent,
   type ComponentCapability,
   type ComponentConfig,
   type ComponentCredential,
@@ -27,9 +27,9 @@ import {
   type HttpProbe,
   type TcpProbe,
 } from './spec.ts'
+import { parseComponent } from './parse.ts'
 import { createComponentRunner, type ComponentCommandResult, type ComponentRunner } from './runner.ts'
 import { createComponentStateStore } from './state.ts'
-import { stringifyYamlDocument } from './yaml.ts'
 
 export interface ComponentExternalView {
   readonly state: ExternalState | null
@@ -311,7 +311,7 @@ export function createComponentService(options: ComponentServiceOptions): Compon
     try {
       mkdirSync(dirname(path), { recursive: true })
       const temporary = join(dirname(path), `.${basename(path)}.${randomUUID()}.tmp`)
-      writeFileSync(temporary, stringifyYamlDocument(serialize(spec)), 'utf8')
+      writeFileSync(temporary, stringify(serialize(spec)), 'utf8')
       renameSync(temporary, path)
     } catch (error) {
       throw new ComponentFailure('io', `无法写入组件定义 ${path}：${messageOf(error)}`)

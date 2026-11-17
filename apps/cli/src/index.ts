@@ -2,13 +2,10 @@
 import { Command, CommanderError, Option } from 'commander'
 import { CapabilityFailure, ComponentFailure, createLocusCore, SecurityFailure } from '@locus/core'
 import type { LocusCore, SecurityHost } from '@locus/core'
-import { component as remoteTargetsComponent, RemoteTargetsFailure } from '@locus/remote-targets'
-import { component as templatesComponent } from '@locus/templates'
-import { component as postgresComponent } from '@locus/postgres'
-import { component as giteaComponent } from '@locus/gitea'
 import { homedir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { createProgram } from './commands.ts'
+import { loadComponentDefinitions, packageDomain } from './packages.ts'
 
 /** 读取工作目录的 `.env`；已存在的环境变量优先，缺少文件不算失败。 */
 function loadEnvironment(): void {
@@ -55,10 +52,11 @@ async function main(argv: readonly string[]): Promise<number> {
   try {
     loadEnvironment()
     const { profile, grantScope } = parseGlobalOptions(argv)
+    const { components } = await loadComponentDefinitions(packageDomain(argv))
     let host: SecurityHost | undefined
     locus = createLocusCore({
       ...(profile === 'development' ? { dataDirectory: developmentDataDirectory() } : {}),
-      components: [templatesComponent, remoteTargetsComponent, postgresComponent, giteaComponent],
+      components,
       security: { profile, receiveHost(value) { host = value } },
     })
     const program = createProgram(locus, {
@@ -80,7 +78,7 @@ async function main(argv: readonly string[]): Promise<number> {
       }
       const label = error instanceof SecurityFailure
         ? '安全操作'
-        : error instanceof RemoteTargetsFailure
+        : error instanceof Error && error.name === 'RemoteTargetsFailure'
           ? '远程目标操作'
           : error instanceof CapabilityFailure
             ? '组件能力'

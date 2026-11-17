@@ -1,7 +1,8 @@
+import { createRequire } from 'node:module'
 import { homedir } from 'node:os'
 import { isAbsolute, join, resolve } from 'node:path'
+import { createLazyComponentService } from './components/lazy.ts'
 import type { ComponentRunner } from './components/runner.ts'
-import { createComponentService } from './components/service.ts'
 import type { ComponentSpec } from './components/spec.ts'
 import { createWorkspaceStore } from './workspaces.ts'
 import { createSecurityRuntime } from './security/service.ts'
@@ -12,7 +13,7 @@ import { LOCUS_VERSION } from './version.generated.ts'
 import type { LocusCore, LocusInfo } from './types.ts'
 
 export { LOCUS_VERSION } from './version.generated.ts'
-export { ComponentFailure, defineComponent, parseComponent } from './components/spec.ts'
+export { ComponentFailure, defineComponent } from './components/spec.ts'
 export { CapabilityFailure, SecurityFailure } from './security/errors.ts'
 export { isCredentialRef, parseCredentialRef } from './security/policy.ts'
 export { createMemoryCredentialProvider, createMemorySecurityStore } from './security/provider.ts'
@@ -100,6 +101,27 @@ export type {
 } from './components/service.ts'
 export type { ComponentCommandResult, ComponentRunner } from './components/runner.ts'
 
+type ParseModule = {
+  readonly parseComponent: (
+    input: unknown,
+    options?: { readonly allowCapabilities?: boolean },
+  ) => ComponentSpec
+}
+
+let parser: ParseModule | undefined
+
+/** 解析组件定义文本；YAML 解析器只在首次调用时加载，Core 启动不承担其成本。 */
+export function parseComponent(
+  input: unknown,
+  options: { readonly allowCapabilities?: boolean } = {},
+): ComponentSpec {
+  if (parser === undefined) {
+    const require = createRequire(import.meta.url)
+    parser = require('./components/parse.js') as ParseModule
+  }
+  return parser.parseComponent(input, options)
+}
+
 /** 数据目录的文件夹名不能为空、不能是路径，也不能逃出基目录。 */
 function assertFolderName(value: string): void {
   if (
@@ -159,7 +181,7 @@ export function createLocusCore(options?: CreateLocusCoreOptions): LocusCore {
   const dataDirectory = resolveDataDirectory(options?.dataDirectory)
   const info: LocusInfo = Object.freeze({ version: LOCUS_VERSION })
   const store = createWorkspaceStore(dataDirectory)
-  const components = createComponentService({
+  const components = createLazyComponentService({
     dataDirectory,
     ...(options?.components === undefined ? {} : { definitions: options.components }),
     ...(options?.componentRunner === undefined ? {} : { runner: options.componentRunner }),
@@ -189,7 +211,7 @@ export function createLocusCore(options?: CreateLocusCoreOptions): LocusCore {
     },
     get components() {
       store.assertActive()
-      return components
+      return components.service
     },
     get security() {
       store.assertActive()

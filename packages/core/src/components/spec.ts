@@ -1,6 +1,5 @@
 import { isAbsolute } from 'node:path'
 import type { CapabilityContext } from '../security/types.ts'
-import { parseYamlDocument } from './yaml.ts'
 
 /** 组件类别：包提供的组件，或仅在数据目录登记的外部组件。 */
 export type ComponentKind = 'locus' | 'external'
@@ -521,17 +520,17 @@ function deepFreeze<T>(value: T): T {
   return value
 }
 
-interface ValidationOptions {
+export interface ValidationOptions {
   readonly executable: boolean
   readonly allowCapabilities: boolean
 }
 
-interface ValidatedComponent {
+export interface ValidatedComponent {
   readonly spec: ComponentSpec
   readonly api?: Readonly<Record<string, CapabilityHandler>>
 }
 
-function validateComponent(input: unknown, options: ValidationOptions): ValidatedComponent {
+export function validateComponent(input: unknown, options: ValidationOptions): ValidatedComponent {
   const object = requirePlainObject(input, '组件定义')
   requireKeys(object, SPEC_KEYS, '组件定义')
 
@@ -618,33 +617,6 @@ function validateComponent(input: unknown, options: ValidationOptions): Validate
     spec: deepFreeze(spec),
     ...(capabilitiesResult === undefined ? {} : { api: capabilitiesResult.api }),
   }
-}
-
-function parseYaml(text: string): unknown {
-  try {
-    return parseYamlDocument(text)
-  } catch (error) {
-    throw new ComponentFailure(
-      'invalid-spec',
-      `YAML 解析失败：${error instanceof Error ? error.message : String(error)}`,
-    )
-  }
-}
-
-/**
- * 解析可序列化组件定义。字符串走 YAML；默认拒绝 capabilities/credentials，
- * 防止可编辑 YAML 形成第二份能力或凭据真源。
- */
-export function parseComponent(
-  input: unknown,
-  options: { readonly allowCapabilities?: boolean } = {},
-): ComponentSpec {
-  const value = typeof input === 'string' ? parseYaml(input) : input
-  if (value === null || value === undefined) throw new ComponentFailure('invalid-spec', '组件定义不能为空')
-  return validateComponent(value, {
-    executable: false,
-    allowCapabilities: options.allowCapabilities === true,
-  }).spec
 }
 
 /**
