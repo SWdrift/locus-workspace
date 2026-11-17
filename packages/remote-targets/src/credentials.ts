@@ -14,41 +14,54 @@ $ProgressPreference='SilentlyContinue'
 $j=[Console]::In.ReadToEnd() | ConvertFrom-Json
 try {
   $sid=[Security.Principal.WindowsIdentity]::GetCurrent().User
-  if ($j.directory) { $acl=New-Object Security.AccessControl.DirectorySecurity } else { $acl=New-Object Security.AccessControl.FileSecurity }
-  $acl.SetOwner($sid)
-  $acl.SetAccessRuleProtection($true,$false)
   $allowed=@($sid.Value,'S-1-5-18','S-1-5-32-544')
-  foreach($value in $allowed) {
-    $identity=New-Object Security.Principal.SecurityIdentifier($value)
-    if($j.directory) { $rule=New-Object Security.AccessControl.FileSystemAccessRule($identity,'FullControl','ContainerInherit,ObjectInherit','None','Allow') }
-    else { $rule=New-Object Security.AccessControl.FileSystemAccessRule($identity,'FullControl','Allow') }
-    $acl.AddAccessRule($rule)
+  foreach($p in $j.paths) {
+    if ($p.directory) { $acl=New-Object Security.AccessControl.DirectorySecurity } else { $acl=New-Object Security.AccessControl.FileSecurity }
+    $acl.SetOwner($sid)
+    $acl.SetAccessRuleProtection($true,$false)
+    foreach($value in $allowed) {
+      $identity=New-Object Security.Principal.SecurityIdentifier($value)
+      if($p.directory) { $rule=New-Object Security.AccessControl.FileSystemAccessRule($identity,'FullControl','ContainerInherit,ObjectInherit','None','Allow') }
+      else { $rule=New-Object Security.AccessControl.FileSystemAccessRule($identity,'FullControl','Allow') }
+      $acl.AddAccessRule($rule)
+    }
+    if($p.directory) { [IO.Directory]::SetAccessControl($p.path,$acl); $actual=[IO.Directory]::GetAccessControl($p.path) }
+    else { [IO.File]::SetAccessControl($p.path,$acl); $actual=[IO.File]::GetAccessControl($p.path) }
+    if(!$actual.AreAccessRulesProtected -or $actual.GetOwner([Security.Principal.SecurityIdentifier]).Value -ne $sid.Value) { throw 'acl' }
+    $seen=@{}
+    foreach($rule in $actual.GetAccessRules($true,$true,[Security.Principal.SecurityIdentifier])) {
+      $value=$rule.IdentityReference.Value
+      if($rule.IsInherited -or $rule.AccessControlType -ne 'Allow' -or $allowed -notcontains $value -or $rule.FileSystemRights -ne [Security.AccessControl.FileSystemRights]::FullControl) { throw 'acl' }
+      $seen[$value]=$true
+    }
+    foreach($value in $allowed) { if(!$seen[$value]) { throw 'acl' } }
   }
-  if($j.directory) { [IO.Directory]::SetAccessControl($j.path,$acl); $actual=[IO.Directory]::GetAccessControl($j.path) }
-  else { [IO.File]::SetAccessControl($j.path,$acl); $actual=[IO.File]::GetAccessControl($j.path) }
-  if(!$actual.AreAccessRulesProtected -or $actual.GetOwner([Security.Principal.SecurityIdentifier]).Value -ne $sid.Value) { throw 'acl' }
-  $seen=@{}
-  foreach($rule in $actual.GetAccessRules($true,$true,[Security.Principal.SecurityIdentifier])) {
-    $value=$rule.IdentityReference.Value
-    if($rule.IsInherited -or $rule.AccessControlType -ne 'Allow' -or $allowed -notcontains $value -or $rule.FileSystemRights -ne [Security.AccessControl.FileSystemRights]::FullControl) { throw 'acl' }
-    $seen[$value]=$true
-  }
-  foreach($value in $allowed) { if(!$seen[$value]) { throw 'acl' } }
   [Console]::Out.Write('verified')
 } catch { exit 1 }
 `
 
-async function permissions(path: string, directory: boolean): Promise<void> {
-  const stat = await lstat(path)
-  if (stat.isSymbolicLink() || (directory ? !stat.isDirectory() : !stat.isFile())) throw new RemoteTargetsFailure('delivery-failed', '临时凭据路径不是普通文件')
+interface AclTarget {
+  readonly path: string
+  readonly directory: boolean
+}
+
+/** 加固目录与文件；Windows 合并为一次 PowerShell 调用，避免每次交付承担两次解释器启动。 */
+async function permissions(targets: readonly AclTarget[]): Promise<void> {
+  for (const { path, directory } of targets) {
+    const stat = await lstat(path)
+    if (stat.isSymbolicLink() || (directory ? !stat.isDirectory() : !stat.isFile())) throw new RemoteTargetsFailure('delivery-failed', '临时凭据路径不是普通文件')
+  }
   if (process.platform !== 'win32') {
-    if (process.getuid !== undefined && stat.uid !== process.getuid()) throw new RemoteTargetsFailure('delivery-failed', '临时凭据归属不符')
-    await chmod(path, directory ? 0o700 : 0o600)
-    if (((await lstat(path)).mode & 0o777) !== (directory ? 0o700 : 0o600)) throw new RemoteTargetsFailure('delivery-failed', '临时凭据权限不符')
+    for (const { path, directory } of targets) {
+      if (process.getuid !== undefined && (await lstat(path)).uid !== process.getuid()) throw new RemoteTargetsFailure('delivery-failed', '临时凭据归属不符')
+      const mode = directory ? 0o700 : 0o600
+      await chmod(path, mode)
+      if (((await lstat(path)).mode & 0o777) !== mode) throw new RemoteTargetsFailure('delivery-failed', '临时凭据权限不符')
+    }
     return
   }
   const result = await execa('powershell.exe', ['-NoProfile', '-NonInteractive', '-EncodedCommand', Buffer.from(ACL_SCRIPT, 'utf16le').toString('base64')], {
-    input: JSON.stringify({ path, directory }),
+    input: JSON.stringify({ paths: targets.map(({ path, directory }) => ({ path, directory })) }),
     reject: false,
     timeout: 15000,
     maxBuffer: 65536,
@@ -63,11 +76,10 @@ export async function withCredentialFile<T>(secret: string, consume: (path: stri
   let buffer: Buffer | undefined
   try {
     directory = await mkdtemp(join(tmpdir(), 'locus-remote-'))
-    await permissions(directory, true)
     const path = join(directory, 'credential')
     const file = await open(path, 'wx', 0o600)
     try {
-      await permissions(path, false)
+      await permissions([{ path: directory, directory: true }, { path, directory: false }])
       buffer = Buffer.from(secret, 'utf8')
       await file.writeFile(buffer)
       await file.sync()
