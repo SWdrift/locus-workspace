@@ -7,19 +7,19 @@ CLI 是 Locus 的统一入口：把命令解析成领域调用，把结果投影
 | 组件 | 在本子系统中的职责 |
 | --- | --- |
 | `apps/cli` | 命令树、参数与名称解析、确认、渲染、退出码、shell 启动 |
-| `packages/core` | Workspace、组件、统一权限平面、凭据保管与持久化；CLI 只调用公开服务及可信组合根 Host 端口 |
-| `packages/postgres`、`packages/gitea` | Compose 能力、凭据字段与 handler；CLI 调用 `api`，不决定权限 |
+| `packages/core` | Workspace、组件、operation 路由与 Dispatcher、统一权限平面、凭据保管与持久化；CLI 只调用公开服务及可信组合根 Host 端口 |
+| `packages/postgres`、`packages/gitea` | Compose operation、凭据字段与 handler；CLI 经 Dispatcher 调用，不决定权限 |
 | `packages/templates` | 模板复制与实例记录；导出 `locus` 组件定义；CLI 解析目标路径并投影结果 |
 | `packages/remote-targets` | 远程目标定义、校验、探测与执行；导出 `locus` 组件定义；CLI 读取 `--spec` 并投影结果 |
 | `.agents/skills/locus` | Agent 的调用参考与只读脚本；经 CLI 的 JSON 契约工作 |
 | `docs/commands.md` | 命令语法与成功判据 |
 
-CLI 不拥有领域规则，不直接写 `core.sqlite`，不保存隐式当前 Workspace，也不在命令之间保留状态。每次进程创建一个 Core，命令结束 `dispose()`；`version` 与 `--help` 不创建数据目录。模块用法见 [CLI README](../../apps/cli/README.md)，语法见[实用命令](../commands.md)，组件职责见[项目架构](../architecture.md#组件与依赖)。
+CLI 不拥有领域规则，不直接写 `core.sqlite`，不保存隐式当前 Workspace，也不在命令之间保留状态。每次进程创建一个 Core，命令结束 `dispose()`；`version` 与 `--help` 不创建数据目录。模块用法见 [CLI README](../../apps/cli/README.md)，语法见[实用命令](../commands.md)，组件职责见[项目架构](../architecture.md#组件与依赖)。URL、operation、凭证交付与授权判定的通用规则归[统一资源调用](invocation.md)。
 
 ## 设计原则
 
-1. **领域前缀加动作**：普通领域采用 `locus <domain> <action>`；顶层保留 version、shell、一次性安全初始化 init 和组件只读投影，不按内部类型扩张命令数量。
-2. **CLI 只做投影**：参数、确认、人类/JSON 渲染、退出码与 shell 注入归 CLI；创建、改名、关系、挂载与模板复制全部调用 Core 或 Templates 的公开服务。CLI 不复制业务组合，也不建立第二套持久化。
+1. **领域前缀加动作**：普通领域采用 `locus <domain> <action>`；同时提供 `locus get|post|put|patch|delete <uri...>` 直接调用 operation。顶层保留 version、shell、一次性安全初始化 init 和组件只读投影，不按内部类型扩张命令数量。
+2. **CLI 只做投影**：参数、确认、人类/JSON 渲染、退出码与 shell 注入归 CLI；创建、改名、关系、挂载与模板复制全部经 Dispatcher 调用 Core 或领域包的 operation。CLI 不复制业务组合，也不建立第二套持久化。
 3. **人类默认，JSON 为契约**：默认可读文本；`--json` 输出单行对象；stdout 只写结果，stderr 写诊断；JSON 不混入提示、ANSI 或人类摘要。
 4. **显式引用，无隐式当前对象**：每条命令都必须给出 Workspace、挂载或模板引用；不保存“上次使用的 Workspace”，不把上一条命令的选项带入下一条。
 5. **输入分边界**：普通命令不提示；删除 Workspace 等显式携带 `--yes`。安全管理只由本地可信 TTY 隐藏输入，非交互明确失败，不能用 --yes 跳过 Root 认证。
@@ -28,32 +28,34 @@ CLI 不拥有领域规则，不直接写 `core.sqlite`，不保存隐式当前 W
 8. **平台差异收在边界**：shell 选择、临时启动器与引号处理由 CLI 内部完成；命令面在 Windows 与 POSIX 保持一致。
 9. **失败可判**：错误写 stderr，包含失败主体与原因；未知命令、歧义名称、缺少确认都不静默降级或自行修正输入。
 10. **复杂输入用文档承载**：业务多字段输入用配置文件或 stdin 文档；Root 密码是例外，绝不能通过这些普通输入通道提供。
-11. **扩展在组合根**：独立消费者能力建立普通 package，`defineComponent` 返回 `component` 与 `api`；CLI 在组合根显式接入并在 `apps/cli` 定义命令，组件不注册 CLI，也不加载插件代码。
+11. **扩展在组合根**：独立消费者能力建立普通 package，`defineComponent` 返回 `component` 与 `operations`；CLI 在组合根显式接入并在 `apps/cli` 定义命令，组件不注册 CLI，也不加载插件代码。
 
 ## 命令树
 
 | 领域 | 动作 | 后端 |
 | --- | --- | --- |
 | `version` | 读取产品版本 | Core 信息 |
-| `init`、`security`、`credential` | 本地初始化、状态、Root 管理、能力等级覆盖与凭据诊断／清理 | Core Security 与可信 CLI Host；完整语法归命令手册 |
-| `pg` | `register`、`list` | PostgreSQL 组件 `api`，经统一 `executeComponent` 与 Root 提权 |
+| `get`、`post`、`put`、`patch`、`delete` | 按资源 URL 直接调用 operation | Core Dispatcher；多 URI 只允许 GET |
+| `init`、`security`、`credential` | 本地初始化、状态、Root 管理、operation 等级覆盖与凭据诊断／清理 | Core Security 与可信 CLI Host；完整语法归命令手册 |
+| `events` | `list` | Core 事件查询 |
+| `pg` | `register`、`list` | PostgreSQL 组件的 `pg://` operation，经 Root 提权与凭据交付 |
 | `workspace` | `create`、`list`、`show`（别名 `open`）、`rename`、`remove`、`link`、`unlink`、`mount`、`mounts`、`unmount` | Core 的 Workspace、关系与挂载服务 |
 | `template` | `list`、`create` | Templates |
-| `remote-targets`（别名 `rt`） | `add`、`update-credential`、`list`、`show`、`migrate`、`remove`、`probe`、`exec`、`shell` | Remote Targets 与 Core 能力登记 |
+| `remote-targets`（别名 `rt`） | `add`、`update-credential`、`list`、`show`、`migrate`、`remove`、`probe`、`services`、`restart`、`exec`、`shell` | Remote Targets 的 `rt://` operation 与 Core 凭据交付 |
 | `component` | `add`、`list`、`show`、`upgrade`、`remove`、`probe`、`deploy` | Core 组件服务 |
 | `shell` | 在 Workspace 上下文启动用户 shell | Core 挂载与 CLI 注入 |
 
-`locus <id>` 只对未知顶层命令解析为 `component show <id>`，不进入 `--help`；包组件与已登记动态组件都可用。`component` 的命令语法与成功判据见[实用命令](../commands.md#组件操作)。CLI 组合根按顶层命令的包域加载并注册包定义：`component`、`security capability` 与未知组件入口使用全集，`pg`、`remote-targets`、`template` 只注册各自包；组件命令只调用对应 `api`，不直接访问 Keyring。组件包不包含 CLI 命令、参数、提示或退出码，`component.info` 也不列 CLI 用法。
+`locus <id>` 只对未知顶层命令解析为 `component show <id>`，不进入 `--help`；包组件与已登记动态组件都可用。`component` 的命令语法与成功判据见[实用命令](../commands.md#组件操作)。CLI 组合根按顶层命令的包域加载并注册包定义：`component`、`security` 与未知组件入口使用全集，`pg`、`remote-targets`、`template` 只注册各自包；URL 动词与 `events` 使用默认全集。组件命令只调用已注册的 operation，不直接访问 Keyring。组件包不包含 CLI 命令、参数、提示或退出码，`component.info` 也不列 CLI 用法。
 
 `shell` 留在顶层是因为它服务于 Workspace 上下文，是既有入口；新的远端 shell 必须挂在自己的领域前缀下，避免与它语义冲突。参数、成功判据与失败码由[实用命令](../commands.md)维护，本节只描述命令树结构。
 
 ## 调用生命周期
 
-1. 入口读取工作目录的 `.env`（不覆盖已有环境变量），解析受限 Profile 后按顶层命令的包域异步加载所需包定义，再装配 Core，并通过闭包取得 Host。数据目录与 Profile 规则归 [CLI README](../../apps/cli/README.md#安全-host-与-profile)，读取版本或帮助不建库、不物化组件。
-2. 构造命令树时在创建子命令前启用 exitOverride；声明全局 `--json`／`--profile`，由入口决定退出码并保证 finally 释放。
-3. 动作调用 Core、Templates 或 Remote Targets 的公开服务；首次访问组件服务时由 Core 物化已注册的包定义。CLI 不直接写 SQLite、组件定义、模板文件或目标配置。
-4. 结果经统一的 `emit()` 输出：JSON 为单行对象，否则为人类文本。
-5. Commander 用法错误返回 1；业务／安全失败返回 2，安全错误在 JSON stdout 提供固定 code／reason，诊断仍在 stderr。子进程退出码原样返回。
+1. 入口读取工作目录的 `.env`（不覆盖已有环境变量），解析受限 Profile 后按顶层命令的包域异步加载所需包定义（`component` 与 `operations`），再装配 Core，并通过闭包取得 Host。数据目录与 Profile 规则归 [CLI README](../../apps/cli/README.md#安全-host-与-profile)，读取版本或帮助不建库、不物化组件。
+2. 构造命令树时在创建子命令前启用 exitOverride；声明全局 `--json`／`--pretty`／`--human`／`--profile`／`--grant-scope`，由入口决定退出码并保证 finally 释放。
+3. 动作把参数组装成规范 URI 与 Body，经 Dispatcher 调用已注册 operation；首次访问组件服务时由 Core 物化已注册的包定义。CLI 不直接写 SQLite、组件定义、模板文件或目标配置。
+4. 结果经统一的 `emit()` 输出：JSON 为单行对象，否则为人类文本。Dispatcher 的失败信封映射为 CLI 退出码，安全错误在 JSON stdout 提供固定 code／reason。
+5. Commander 用法错误返回 1；参数、URI、方法或媒体类型错误返回 1；业务、授权或远端失败返回 2；批量 GET 部分失败返回 3。子进程退出码原样返回。
 6. `finally` 中释放 Core，数据库句柄与临时资源不跨命令保留。
 
 ## 输出与退出码
@@ -61,8 +63,9 @@ CLI 不拥有领域规则，不直接写 `core.sqlite`，不保存隐式当前 W
 | 退出码 | 含义 | 触发 |
 | --- | --- | --- |
 | `0` | 成功 | 命令完成；查询空集合也算成功 |
-| `1` | 参数或帮助树拒绝 | 未知命令、缺参数、非法选项值、缺少 `--yes`、`remote-targets probe` 失败、`component probe` 未通过、`component deploy` 失败 |
-| `2` | 业务前置或持久化失败 | 名称歧义、找不到对象、重复挂载、模板目标已存在、文件系统或数据库失败 |
+| `1` | 参数、帮助树或调用参数拒绝 | 未知命令、缺参数、非法选项值、缺少 `--yes`、非法 URI／方法／媒体类型、`remote-targets probe` 失败、`component probe` 未通过、`component deploy` 失败 |
+| `2` | 业务、授权或持久化失败 | 名称歧义、找不到对象、重复挂载、模板目标已存在、授权不足、文件系统或数据库失败 |
+| `3` | 批量部分失败 | 多个 URI 的 GET 调用中至少一项失败 |
 | 子进程退出码 | `shell --command`、`remote-targets exec`、`remote-targets shell` 的退出码 | 原样透传 |
 
 单行 JSON 与人类文本都只写 stdout；诊断、缺失挂载提示与错误写 stderr。面向人的文案使用中文，标识符、命令与协议名保留原文。

@@ -15,11 +15,11 @@
 
 包组件只允许 `kind: locus`；动态组件只允许 `kind: external`。纯 Locus 组件与依赖外部的 Locus 组件不是两种 kind，后者用 `requires` 表达。
 
-提供组件的包导出 `component` 与 `api`，作为包的一部分参与类型检查，并由 CLI 组合根传给 `createLocusCore()`；没有包的外部软件（如 Docker）只登记 YAML。
+提供组件的包导出 `component` 与 `operations`，作为包的一部分参与类型检查，并由 CLI 组合根传给 `createLocusCore()`；没有包的外部软件（如 Docker）只登记 YAML。operation 契约与路由归[统一资源调用](../invocation.md)，本页只描述组件机制。
 
 ## 定义
 
-包定义由 `@locus/core` 的 `defineComponent()` 校验并冻结，返回 `component` 与 `api`；`component add` 只接受 YAML 文本中的描述性元数据。YAML 不接受 `capabilities`/`credentials`，避免形成第二份可编辑真源。
+包定义由 `@locus/core` 的 `defineComponent()` 校验并冻结，返回 `component` 与 `operations`；`component add` 只接受 YAML 文本中的描述性元数据。YAML 不接受 `operations`/`credentials`，避免形成第二份可编辑真源。
 
 | 字段 | 必填 | 说明 |
 | --- | --- | --- |
@@ -28,7 +28,7 @@
 | `name`、`summary` | 是 | 展示用名称与一句话说明 |
 | `kind` | 是 | `locus` 或 `external` |
 | `requires` | 否 | 仅 `locus`；依赖的组件 id，不能重复或引用自身 |
-| `capabilities` | 否 | 仅代码定义；本地 id、`resourceType`、`defaultAuthLevel`、`secrets`（slot/access）与 handler；不产生授权 |
+| `operations` | 否 | 仅代码定义；operation id、method、scheme、authority、path、`auth`、query/input/output 与 handler；不产生授权 |
 | `credentials` | 否 | 仅代码定义；凭据槽数组：id 与 fields（name/secret/required）；不授予凭据，也不进入 YAML |
 | `config` | 否 | 内联映射，或相对 `<dataDirectory>` 的文件/文件夹路径；Core 不解释内容 |
 | `probe` | 否 | 仅 `external`；`kind` 为 `argv`（默认）、`tcp` 或 `http`，共同支持 `timeoutMs` 与 `onFailure` |
@@ -62,9 +62,9 @@ probe:
 4. 物化文件被删除后，下次访问按当前版本重建；文件非法时报错且不覆盖，删除后可重建。
 5. 同名单文件与文件夹并存视为冲突，只影响该 id。
 
-`list`、`show`、`probe`、`deploy` 读取物化文件的描述性元数据，并把包代码的能力与字段合并为只读视图；能力/字段契约不写回文件。`--help` 与 `version` 不访问组件服务，不创建数据目录。
+`list`、`show`、`probe`、`deploy` 读取物化文件的描述性元数据，并把包代码的 operation 与凭据声明合并为只读视图；operation/字段契约不写回文件。`--help` 与 `version` 不访问组件服务，不创建数据目录。
 
-YAML 物化只保存描述性元数据；`capabilities`/`credentials` 属于包代码契约，升级时保留 config 但不写回能力列表。capability 的 `secrets` 必须引用已声明字段槽，资源必须精确，不接受通配符。Core Security 的可信组件身份、Root 覆盖与精确绑定独立于可编辑 YAML，详见[安全服务](../../../packages/core/README.md#安全服务)。`external` 不拥有可执行能力或凭据字段。
+YAML 物化只保存描述性元数据；`operations`/`credentials` 属于包代码契约，升级时保留 config 但不写回 operation 列表。凭据绑定键由 `component + slot + resourceKey` 构成，资源 key 必须精确，不接受通配符。Core Security 的可信组件身份、Root 覆盖与精确绑定独立于可编辑 YAML，详见[安全服务](../../../packages/core/README.md#安全服务)。`external` 不拥有可执行 operation 或凭据字段。
 
 ## 状态
 
@@ -95,19 +95,19 @@ YAML 物化只保存描述性元数据；`capabilities`/`credentials` 属于包�
       └─ settings.yaml         # 组件自有配置
 ```
 
-组件 YAML 是可复制、可手工编辑的元数据文件；`capabilities`/`credentials` 属于包代码的可信契约，不写入 YAML。状态保存在 `core.sqlite` 的 `component_states` 表，不随定义迁移。删除动态组件只删除定义与状态，不卸载、不停止外部软件。
+组件 YAML 是可复制、可手工编辑的元数据文件；`operations`/`credentials` 属于包代码的可信契约，不写入 YAML。状态保存在 `core.sqlite` 的 `component_states` 表，不随定义迁移。删除动态组件只删除定义与状态，不卸载、不停止外部软件。
 
 多个动态定义可以直接复制到 `components/`（单文件或 `<id>/component.yaml`），不经过 `component add`；文件仍需满足定义 schema，损坏的定义进入 `problems`，不影响其他组件。
 
 ## 与远程目标的关系
 
-`remote-targets` 是 `kind: locus` 组件，声明 `requires: [openssh]`、`register-private-key` / `register-password` / `private-key-access` / `password-access` 能力、SSH 私钥／密码字段槽与 `config: remote-targets/`。密钥认证在连接前要求 `openssh` 组件为 `healthy`，密码认证要求 `plink` 组件；未登记或状态未就绪时以 `component-unavailable` 失败。该检查不替代目标自身的能力、Core 绑定与凭据检查。
+`remote-targets` 是 `kind: locus` 组件，声明 `requires: [openssh]`、`rt.targets.list` / `rt.target.get` / `rt.target.register` / `rt.target.remove` / `rt.target.credential.update` / `rt.target.migrate` / `rt.system.read` / `rt.services.list` / `rt.service.restart` / `rt.job.run` operation、`ssh-private-key` / `ssh-password` 字段槽与 `config: remote-targets/`。密钥认证在连接前要求 `openssh` 组件为 `healthy`，密码认证要求 `plink` 组件；未登记或状态未就绪时以 `component-unavailable` 失败。该检查不替代目标自身的 `access.capabilities`、Core 绑定与凭据检查。
 
-Remote Targets 依赖 Core 的 `CredentialRef` / `CapabilityFailure` 类型与能力上下文接口；CLI 组合根把组件状态投影成窄接口 `ComponentGate` 注入。
+Remote Targets 依赖 Core 的 `defineOperation`、`OperationContext` 与 `InvocationFailure`；CLI 组合根把组件状态投影成窄接口 `ComponentGate` 注入，operation handler 经 `context.credential` 读写字段。
 
 ## 不变量
 
-- 一个组件只有一份定义：包代码常量返回 `component` + `api` 两个视图，数据目录 YAML 只保存描述性元数据，不存在第二套能力注册表。
+- 一个组件只有一份定义：包代码常量返回 `component` + `operations` 两个视图，数据目录 YAML 只保存描述性元数据，不存在第二套 operation 注册表。
 - 定义与状态分离：文件可复制，状态是本机观察。
 - 读取不探测；`probe`、`deploy`、`upgrade` 都是显式动作。
 - 登记不产生权限；组件状态不表示调用方被授权执行操作。
@@ -122,14 +122,14 @@ Remote Targets 依赖 Core 的 `CredentialRef` / `CapabilityFailure` 类型与�
 
 | 场景 | 行为 |
 | --- | --- |
-| 未知字段、非法 id、非法 `argv`、路径逃逸 | `invalid-spec`，退出码 2 |
+| 未知字段、非法 id、非法 `argv`、路径逃逸 | `invalid-spec`，协议映射为 `invalid-argument`，退出码 1 |
 | 定义文件无法解析 | 该 id 进入 problems；`show` 失败并给出路径 |
 | 动态组件 id 已存在或属于包 | `component-exists` 或 `component-package`，退出码 2 |
-| 未声明探针 / 部署入口 | `no-probe` / `no-deploy`，退出码 2 |
+| 未声明探针 / 部署入口 | `no-probe` / `no-deploy`，协议映射为 `unsupported-method`，退出码 1 |
 | 探针未通过 | 写入对应状态，CLI 退出 1 |
 | 部署失败 | 写入 `failed`，CLI 退出 1 |
-| 传输组件未就绪 | `component-unavailable`，连接前失败 |
+| 传输组件未就绪 | `component-unavailable`，协议映射为 `unavailable`，连接前失败 |
 
 ## 未实现
 
-远程目标上的组件实例、`requires` 之外的依赖图、自动安装或服务启停、动态组件 CLI 包装、能力级状态、组件 Web/MCP 表面。新增这些能力前先确认存在真实消费方。
+远程目标上的组件实例、`requires` 之外的依赖图、自动安装或服务启停、动态组件 CLI 包装、operation 级状态、组件 Web/MCP 表面。新增这些能力前先确认存在真实消费方。

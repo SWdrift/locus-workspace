@@ -1,6 +1,6 @@
 # 实用命令
 
-本页登记当前命令语法与成功判据。环境准备见[开发与验证](development.md)，测试分层见[测试系统](testing.md)，领域语义链接 [Core](../packages/core/README.md)。
+本页登记当前命令语法与成功判据。环境准备见[开发与验证](development.md)，测试分层见[测试系统](testing.md)，调用协议与 operation 路由见[统一资源调用](subsystems/invocation.md)，领域语义链接 [Core](../packages/core/README.md)。
 
 ## 工程命令
 
@@ -53,21 +53,38 @@
 | `workspace link <workspace> <namespace> <reference> [--kind member\|association] [--source <说明>]` | 显式保存外部引用；默认 association；引用 Workspace 使用 namespace `locus.workspace` |
 | `workspace unlink <workspace> <relation-id> --yes` | 仅解除该关系，不删除目标或其他归属 |
 
-## 安全与凭据
+## URL 调用
 
-以下参数接在 `locus` 后；全局 `--profile production|development` 默认 production，development 数据隔离见 [CLI](../apps/cli/README.md#安全-host-与-profile)。Root 密码与凭据秘密只由可信本地 TTY 隐藏输入；非交互失败，不支持通过 argv、环境变量、`.env` 或普通 stdin spec 提交。`--grant-scope operation|session` 默认 operation；operation 按单次操作生效，session 只在当前真实 Session 内复用，Session 结束、Root 重置或 Host 关闭即失效，不跨进程；CLI 每条命令结束 Session，因此不跨命令生效。
-
-### 组件命令
-
-`pg` 当前只用于临时 PostgreSQL 验证消费者；权限控制面验证完成后命令与包会一起移除，不作为长期稳定依赖。
+`locus get|post|put|patch|delete <uri...>` 直接调用 `locus://`、`rt://`、`template://`、`pg://` 或 `gitea://` operation。多个 URI 只允许 GET；非 GET 的批量调用在 CLI 层拒绝。
 
 | 参数 | 行为与成功判据 |
 | --- | --- |
-| `pg register <resource> --host <host> --database <name> [--port <port>] --username <name> [--credential <ref>]` | Root 批准并隐藏输入 PostgreSQL 密码；一次登记 `database-auth` 的可信目标、公开用户名与秘密密码，并为 `register` 与 `list` 建立精确绑定 |
-| `pg list <resource> [--sql <sql>] [--credential <ref>]` | User 级读取登记时固定的目标与绑定字段，使用真实 `pg.Pool` 连接；调用者不能再指定 host、port 或 database；缺少绑定或字段不匹配时不触发 Root |
-| `security capability list` | 列出组件能力、默认等级、Root 覆盖与最终来源；需要已初始化 Root 元数据 |
-| `security capability set <component:capability> <user\|root>` | Root 覆盖该能力的认证等级；`write` 能力默认 root，Root 降为 user 即显式委派覆盖权，覆盖是预期行为 |
-| `security capability reset <component:capability>` | Root 清除覆盖，恢复组件 `defaultAuthLevel` 或 `user` |
+| `get <uri...>` | 读取资源；按输入顺序返回逐项结果，部分失败不丢弃其他结果 |
+| `post <uri>` / `put <uri>` / `patch <uri>` / `delete <uri>` | 调用对应方法；写入与删除按 operation 的 `auth` 判定 |
+| `--data <json>` | 内联 JSON Body；与 `--file` 互斥 |
+| `--file <path\|->` | 从文件或 stdin（`-`）读取 Body；与 `--data` 互斥 |
+| `--content-type <type>` | 指定 Body 媒体类型；只接受 `application/json` 与 `+json` |
+| `--pretty` / `--human` | `--pretty` 美化 JSON，`--human` 强制人类可读输出；两者都只影响渲染 |
+
+规范 URI、路由、结果信封与错误码由[统一资源调用](subsystems/invocation.md)维护。退出码：`0` 成功；`1` 参数、URI、方法或媒体类型错误；`2` 业务、授权或远端失败；`3` 批量 GET 部分失败。
+
+## 安全与凭据
+
+以下参数接在 `locus` 后；全局 `--profile production|development` 默认 production，development 数据隔离见 [CLI](../apps/cli/README.md#安全-host-与-profile)。Root 密码与凭据秘密只由可信本地 TTY 隐藏输入；非交互失败，不支持通过 argv、环境变量、`.env` 或普通 stdin spec 提交。`--grant-scope operation|session` 默认 operation；operation 只恢复原 operation 与参数并首次消费，session 只在当前真实 Session 内复用，Session 结束、Root 重置或 Host 关闭即失效，不跨进程；CLI 每条命令结束 Session，因此不跨命令生效。
+
+### 组件命令
+
+`pg` 当前只用于临时 PostgreSQL 验证消费者；权限控制面验证完成后命令与包会一起移除，不作为长期稳定依赖。普通 User 读取不触发 Root。
+
+| 参数 | 行为与成功判据 |
+| --- | --- |
+| `pg register <resource> --host <host> --database <name> [--port <port>] --username <name>` | Root 批准并隐藏输入 PostgreSQL 密码；通过 `pg://databases/<resource>` 写入 `database-auth` 的公开目标与秘密密码 |
+| `pg list <resource> [--sql <sql>]` | User 级读取 `database-auth` 绑定，使用真实 `pg.Pool` 连接；调用者不能再指定 host、port 或 database；缺少绑定或字段不匹配时不触发 Root |
+| `security operation list` | 列出组件 operation、声明等级、Root 覆盖与最终来源；需要已初始化 Root 元数据 |
+| `security operation set <component:operation> <user\|root>` | Root 覆盖该 operation 的认证等级；`operation` 形如 `postgres:pg.database.register`；降为 user 只允许普通执行，`context.credential.write` 仍要求本次实际获准 Root |
+| `security operation reset <component:operation>` | Root 清除覆盖，恢复 operation 声明等级 |
+
+`security operation list/set/reset` 需要加载全部包定义，CLI 因此按 `security` 命令域注册组件全集。
 
 ### Root 诊断
 
@@ -77,12 +94,14 @@
 | `security status` | 查询初始化、Profile 与固定身份，不输出验证材料；空目录不建库 |
 | `security change-root-password` | 输入新密码后以旧 Root 密码认证，单次恢复原密码变更，旧授权失效 |
 | `security reset-root` | 显示本机管理接管警告，TTY 确认后替换密码；无旧密码，无 `--yes` 绕过，不删除 Workspace／Keyring |
-| `credential provider-status` | 查询 Provider／后端声明与绑定加载状态；unverified 不等于真实后端已可用，不读取任何条目 |
+| `credential provider-status` | 查询 Provider 装配与后端状态；unverified 不等于真实后端已可用，不读取任何条目 |
 | `credential list` | 只输出当前 Profile 的引用元数据与公开字段，不读取秘密 |
-| `credential bindings` | 列出组件能力、slot、精确资源与引用，不读取秘密 |
+| `credential bindings` | 列出 `component + slot + resourceKey` 绑定与引用，不读取秘密 |
 | `credential remove <credential:id>` | Root 授权删除条目、引用元数据与关联绑定，不输出原值 |
 | `credential status <credential:id>` | Root 检查元数据与 Provider 条目是否存在，只返回 `present`，不输出秘密 |
 | `credential cleanup [--yes]` | Root 检查当前 Profile 精确 Keyring service 下未登记元数据的孤立账户；无 `--yes` 只报告，`--yes` 才删除孤立条目；不删除已知凭据、元数据或绑定 |
+
+`security reset-root` 同时可经 URL `locus post locus://security/actions/reset-root` 调用。URL 入口要求可信 Host 收集 tty 字段 `password`、`confirmation` 与 `confirm`，且 `confirm` 必须为 `RESET ROOT`；`security reset-root` 别名会先显示本机接管警告并完成隐藏输入确认。两条路径都没有 `--yes` 绕过。
 
 普通业务凭据使用组件命令，不提供 `credential put`、`credential bind` 或 get-secret。`credential cleanup` 只按当前安装 UUID 与 Profile 推导出的完整 service 操作，不接受 `locus*` 前缀批量删除，也没有 `--all` 清空当前 Service；已知凭据用 `credential remove`。Provider 的平台容量限制独立判定，超限不分片、不回退明文。丢失重置与备份后果见[安全设计](subsystems/core/security.md#root-认证与恢复)。
 
@@ -117,19 +136,21 @@
 
 | 参数 | 行为与成功判据 |
 | --- | --- |
-| `remote-targets add <id> --spec <file\|-> [--file <path>] [--dry-run]` | 校验目标；Root 批准后同时写入配置与凭证字段，要求 CredentialRef；私钥必须用 `--file`，密码隐藏输入；`--dry-run` 只校验不落盘 |
-| `remote-targets update-credential <target> --credential <ref> --method private-key\|password [--file <path>]` | 只更新目标已引用的私钥或密码字段，不改目标配置；同时由 Root 重新确认当前目标安全摘要；别名 `register` |
+| `remote-targets add <id> --spec <file\|-> [--file <path>\|--credential-file <path>] [--dry-run]` | 校验目标；Root 批准后写入配置与对应凭据字段；私钥提供 `--file` 或等价的 `--credential-file`（二者互斥），密码隐藏输入；`--dry-run` 只校验不落盘 |
+| `remote-targets update-credential <target> --method private-key\|password [--file <path>\|--credential-file <path>]` | 只更新目标已绑定的私钥或密码字段，不改目标配置；同时由 Root 重新确认当前目标安全摘要；别名 `register`；`--file` 与 `--credential-file` 等价且互斥 |
 | `remote-targets list` | 列出目标；空集合不是错误 |
-| `remote-targets show <target>` | 显示身份、CredentialRef、能力、连接与最近探测；不输出凭据值 |
-| `remote-targets migrate <target> --credential <credential:id> --yes` | 显式导入旧凭据文件到 Core、回读验证、绑定目标资源后改写配置；原文件保留；带口令私钥明确阻塞 |
+| `remote-targets show <target>` | 显示身份、认证方式、能力、连接与最近探测；不输出凭据值 |
+| `remote-targets migrate <target> --method private-key\|password [--file <path>] --yes` | 显式导入旧凭据文件到 Core、回读验证、绑定目标资源后改写配置；原文件保留；带口令私钥明确阻塞 |
 | `remote-targets remove <target> --yes` | 只移除定义，不删除外部目标或 Core 绑定；复用 id 前重新登记正确引用或由 Root 删除旧凭据 |
-| `remote-targets probe <target>` | 执行 `whoami` 并记录结果；成功退出 0，失败退出 1 |
+| `remote-targets probe <target>` | 执行 `hostname` 并记录结果；成功退出 0，失败退出 1 |
+| `remote-targets services <target>` | 列举 `cmd` 目标的 Windows 服务；非 `cmd` 目标失败 |
+| `remote-targets restart <target> <service>` | 重启 `cmd` 目标服务并记录结果 |
 | `remote-targets exec <target> [command...]` | 执行远端命令；远端退出码原样返回；命令选项放在 `--` 之后 |
 | `remote-targets shell <target>` | 进入交互 Shell；退出码取客户端退出码 |
 
 字段、默认值与失败码见 [Remote Targets](../packages/remote-targets/README.md#配置与契约)。
 
-密钥认证要求 `openssh` 组件为 `healthy`，密码认证要求 `plink` 组件；随后通过 Core 主体授权与凭据绑定，未初始化时需先在本地 TTY 运行 init。普通 User 访问不触发 Root；没有授权入口或绑定不能启动客户端。新目标只接受 `method: private-key|password` 与 `credential:<id>`；旧 `auth.path/root` 仅供 `migrate` 读取。目标 host/port/login、能力、客户端或信任锚变化后，访问以 `target-config-mismatch` 失败，需 Root 重新执行 `update-credential` 或重新登记。迁移与阻塞条件见 [Remote Targets](../packages/remote-targets/README.md#凭据交付与迁移)。
+密钥认证要求 `openssh` 组件为 `healthy`，密码认证要求 `plink` 组件；随后通过 Core 主体授权与凭据绑定，未初始化时需先在本地 TTY 运行 init。普通 User 访问不触发 Root；没有授权 operation 或绑定不能启动客户端。新目标只接受 `method: private-key|password`，凭据按 `component + slot + target id` 绑定；旧 `auth.path/root` 仅供 `migrate` 读取。目标 host/port/login、能力、客户端或信任锚变化后，访问以 `target-config-mismatch` 失败，需 Root 重新执行 `update-credential` 或重新登记。迁移与阻塞条件见 [Remote Targets](../packages/remote-targets/README.md#凭据交付与迁移)。
 
 ## 组件操作
 
@@ -148,8 +169,16 @@
 
 示例组件位于仓库 `examples/components/`（`docker.yaml`、`openssh.yaml`、`plink.yaml`、`postgres-service.yaml`），复制到其他机器后需重新登记与探测。
 
+## 事件
+
+`locus events list` 查询最近落库的请求与领域事件；结果是 best-effort 记录，不作为完整审计或重放依据。
+
+| 参数 | 行为与成功判据 |
+| --- | --- |
+| `events list [--type <type>] [--subject <subject>] [--limit <n>]` | 按类型或 subject 过滤，默认最多 100 条；空集合不是错误 |
+
 ## 输出与退出码
 
 默认输出人类可读文本；`--json` 输出独立 JSON，诊断写 stderr。普通命令不隐式等待输入，安全交互命令使用可信 TTY；删除 Workspace、取消挂载、解除关系与移除远程目标必须显式携带 `--yes`。安全失败的 JSON stdout 含 code／reason，不能按普通命令失败时 stdout 总为空处理。
 
-退出码：0 表示调用成功；1 表示参数/帮助树拒绝，包括未知命令、缺参数、无效选项值与缺少 `--yes`，以及 `remote-targets probe`、`component probe` 未通过、`component deploy` 失败；2 表示业务前置条件或持久化失败；`shell --command`、`remote-targets exec` 与 `remote-targets shell` 的子进程退出码原样返回。
+退出码：0 表示调用成功；1 表示参数、帮助树或调用参数拒绝，包括未知命令、缺参数、无效选项值、缺少 `--yes`、非法 URI／方法／媒体类型，以及 `remote-targets probe`、`component probe` 未通过、`component deploy` 失败；2 表示业务、授权或持久化失败；3 表示批量 GET 部分失败；`shell --command`、`remote-targets exec` 与 `remote-targets shell` 的子进程退出码原样返回。

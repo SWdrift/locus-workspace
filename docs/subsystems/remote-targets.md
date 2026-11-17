@@ -29,10 +29,10 @@
 
 ## 流程
 
-1. `add`：校验 spec、要求 `identity.auth.credential`、检查 id 未占用；Root 批准后创建 `known_hosts` 目录、整体写入 `targets.yaml`，并经 `register-private-key` / `register-password` 写入字段与绑定；私钥只走受控文件，密码隐藏输入。
-2. `update-credential`：校验目标配置引用的 CredentialRef 与认证方式，只更新对应字段，不改配置。
+1. `add`：校验 spec 与 `method: private-key|password`、检查 id 未占用；Root 批准后按目标 id 写入 `ssh-private-key` 或 `ssh-password` 绑定，再创建 `known_hosts` 目录并整体写入 `targets.yaml`；私钥只走受控文件，密码隐藏输入。
+2. `update-credential`：校验目标当前认证方式，只重写对应 slot 与目标 id 的绑定，不改配置。
 3. `show`：按精确 id、唯一前缀或唯一标签解析，附加最近一次探测。
-4. `migrate`：读取旧 `auth.path/root` 文件，经 Root 通过对应登记能力写入 Core、回读验证并绑定到目标资源，再改写为 CredentialRef；原文件保留。私钥先做受限临时副本预检，带口令明确阻塞。
+4. `migrate`：读取旧 `auth.path/root` 文件，经 Root 写入 Core 绑定（key 为目标 id），再改写目标认证方式为 `private-key` 或 `password`；原文件保留。私钥先做受限临时副本预检，带口令明确阻塞。
 5. `probe`：检查传输组件、Core 授权与绑定，取临时凭据，构造 `whoami` 调用，记录成功/失败与时间。
 6. `exec`：检查 `exec` 能力、传输组件、Core 授权与绑定，执行并由 CLI 透传远端退出码。
 7. `shell`：检查 `shell` 能力、传输组件、Core 授权与绑定，以继承 stdio 启动 SSH 客户端。
@@ -40,8 +40,8 @@
 ## 不变量
 
 - 定义只有 `targets.yaml` 一个可编辑真源；SQLite 不反向生成配置。
-- 新配置只保存 `credential:<id>`；旧 `auth.path/root` 不允许运行时执行，必须先迁移。
-- 未知字段、重复 id、非法 CredentialRef 都明确失败，不静默回退。
+- 新配置只保存 `method`；凭据由 Core 按 `component + slot + target id` 绑定。旧 `auth.path/root` 不允许运行时执行，必须先迁移。
+- 未知字段、重复 id 与非法认证方式都明确失败，不静默回退。
 - 能力检查在建立连接前完成；Core 绑定或 Provider 条目缺失时不启动客户端。
 - 没有 Core 授权／凭据入口时默认拒绝；授权不由目标 YAML 或组件状态代替。
 - 传输组件未登记或状态非 `healthy` 时在连接前失败，不静默改用其他客户端。
@@ -54,11 +54,11 @@
 
 | 场景 | 行为 |
 | --- | --- |
-| 配置无效 | `invalid-spec`，退出码 2，不写文件 |
+| 配置无效 | `invalid-spec`，协议映射为 `invalid-argument`，退出码 1，不写文件 |
 | 目标重复 | `target-exists`，退出码 2 |
-| 引用歧义 | `ambiguous-target`，列出候选，退出码 2 |
+| 目标解析歧义 | `ambiguous-target`，列出候选，退出码 2 |
 | 仍使用旧认证 | `migration-required`，连接前失败 |
-| 私钥带口令 | `encrypted-key-unsupported`，迁移不写配置 |
+| 私钥带口令 | `encrypted-key-unsupported`，协议映射为 `invalid-argument`，迁移不写配置 |
 | 凭据缺失 | `credential-missing`，连接前失败，退出码 2 |
 | 传输组件未就绪 | `component-unavailable`，连接前失败，退出码 2 |
 | 远端退出码非零 | `exec` 原样透传；`probe` 记为失败并以 1 退出 |
