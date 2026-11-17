@@ -2,6 +2,8 @@
 
 Status: implemented
 
+> 部分被取代：capability 授权键、执行前凭据预检、`CapabilityContext.withCredential()/registerCredential()` 与配置中的 `credential:<id>` 已由[统一资源调用与 operation 授权](2026-11-17-invocation-api.md)取代；本记录继续解释组件命令边界、可信定义与 Root 覆盖的理由。
+
 ## 问题
 
 原实现把安全控制面的内部能力直接暴露成 `credential put/bind`，用户看到的是通用密钥管理，而不是组件命令。这带来四个问题：

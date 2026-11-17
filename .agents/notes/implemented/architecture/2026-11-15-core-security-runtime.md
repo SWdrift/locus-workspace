@@ -2,17 +2,19 @@
 
 Status: implemented
 
+> 部分被取代：`capabilities` 授权键、执行前凭据预检与 `withCredential()`／`registerCredential()` 接口已由[统一资源调用与 operation 授权](2026-11-17-invocation-api.md)取代；本记录继续解释身份、Root KDF、Provider、Grant 与消费者交付的理由。
+
 ## 问题
 
 Locus 需要让 Compose 使用 PostgreSQL、SSH、Gitea 等业务能力，但 User 不应接触原始秘密。把每个凭据使用都变成 Root 提权、让组件声明自行授权、把消费者协议放进 Core，或为每个消费者建设独立 Delivery 平台，会分别扩大交互成本、越权面、内核耦合与维护面。
 
 ## 决定
 
-Core 是统一的权限真源与凭据保管者：固定 Root／User 身份、进程内 Session、固定能力目录、Root Challenge／Grant、CredentialRef 元数据、组件／能力／资源绑定和 Provider。Compose 在 ComponentSpec 中声明 `capabilities` 与 `credentials` 槽；声明不授予权限。Root 登记凭据并绑定到组件能力与精确资源，User 通过已授权 Compose 消费。
+Core 是统一的权限真源与凭据保管者：固定 Root／User 身份、进程内 Session、operation 等级、Root Challenge／Grant、`component + slot + resourceKey` 绑定和 Provider。Compose 在 ComponentSpec 中声明 `operations` 与 `credentials`；声明不授予权限。Root 通过凭据写入 operation 登记并绑定到组件、slot 与 resourceKey，User 通过已授权 operation 消费。
 
-普通使用与 Root 认证保持两条流程。Grant 支持 `operation` 与 `session`：操作级 60 秒、首次恢复后消费；Session 级绑定真实进程内 Session，同组件、能力与精确资源可复用，Session 结束、Root 重置或 Host 关闭时撤销。Grant 对象依赖 Core 内部记录与对象身份，恢复只执行预先捕获的原操作，不接受新回调；不引入持久 Token、Daemon 或跨进程授权。
+普通使用与 Root 认证保持两条流程。Grant 支持 `operation` 与 `session`：操作级 60 秒、首次恢复后消费；Session 级绑定真实进程内 Session，同一 operation 与精确参数可复用，Session 结束、Root 重置或 Host 关闭时撤销。Grant 对象依赖 Core 内部记录与对象身份，恢复只执行预先捕获的原 operation 与参数，不接受新回调；不引入持久 Token、Daemon 或跨进程授权。
 
-凭据只保存稳定 `credential:<id>`。Core 持久化绑定，`withCredential()` 必须使用配置中的引用且与绑定完全一致；调用方不能自行选择其他引用。凭据缺失、类型不匹配、Provider 不可用与权限拒绝分开，Missing 不触发 Root。
+凭据引用由 `context.credential.write` 生成并由绑定内部持有。Core 持久化 `component + slot + resourceKey` 绑定，`context.credential.read` 只按当前组件、slot 与 key 查找；调用方不能自行选择其他引用。凭据缺失、字段不匹配、Provider 不可用与权限拒绝分开，Missing 不触发 Root。
 
 Keyring service 由安装 UUID 与 Profile 推导，不额外重复存储。Provider 增加只返回账户名的 `list()`；Root 的 `credential cleanup` 只比较当前精确 service 的账户与 `security_credentials` 元数据，默认报告、`--yes` 才删除孤立账户，不触碰已知凭据、绑定或其他 service。
 
@@ -20,7 +22,7 @@ Root 使用本地短密码与 Node 原生 scrypt；SQLite 只保存验证材料�
 
 消费者交付放回各自领域包：`@locus/postgres` 形成驱动参数，`@locus/gitea` 发绑定 origin 的 Header，`@locus/remote-targets` 通过受限临时私钥或密码文件调用系统 OpenSSH/Plink。删除独立 `security-delivery` 包，避免“Delivery 平台”和伪造 Compose；进程执行复用 execa。SSH 临时文件只保留基本异常、取消与超时清理，不建设 lease／PID 恢复平台。
 
-Remote Targets 新配置使用 `method: private-key|password` 与 `credential`；旧 `auth.path/root` 只供显式 `migrate` 读取，运行时不再使用。迁移先导入 Core、回读验证，再改写配置，不删除原文件。带口令私钥没有冻结的 CredentialRef／askpass 契约，迁移明确阻塞，不自动去口令。
+Remote Targets 新配置使用 `method: private-key|password`；旧 `auth.path/root` 只供显式 `migrate` 读取，运行时不再使用。迁移先导入 Core、回读验证，再改写配置，不删除原文件。带口令私钥没有冻结的口令交付契约，迁移明确阻塞，不自动去口令。
 
 开发阶段 Core SQLite 不承诺旧 schema 兼容；结构变更按当前 schema 重建，不维护逐版本迁移和历史格式测试。
 

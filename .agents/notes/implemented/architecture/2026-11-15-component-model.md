@@ -2,6 +2,8 @@
 
 Status: implemented
 
+> 部分被取代：组件定义现为 `component` + `operations`，不再返回 `api` 或以 capability 作为授权入口；定义、物化、状态与 `requires` 机制继续有效，调用协议见[统一资源调用与 operation 授权](2026-11-17-invocation-api.md)。
+
 ## 问题
 
 工作环境里既有 Docker、OpenSSH 这类没有 Locus package 的软件，也有模板、远程目标这类由包实现的能力。Agent 需要知道当前环境有哪些软件、是否可用，但不能把“发现”当成“登记”，也不能把“可用”当成“授权”。为每个软件都开发一套集成不现实，而仅靠自由文本说明又无法判断当前状态。
@@ -17,13 +19,13 @@ Core 增加组件机制：定义契约、声明式登记、物化、状态与极
 - `locus`：由包代码定义，可声明 `requires` 与 `config`；首次访问组件服务时物化到 `<dataDirectory>/components/<id>.yaml`。
 - `external`：只有 YAML，由用户通过 `component add` 登记；可以有 `probe` 与 `deploy`。
 
-不设“需要外部的 Locus 组件”这一独立种类，用 `requires` 表达。`packages/` 下除 Core 外的每个包都必须导出 `kind: locus` 的 `component`；动态登记只接受 `kind: external`。
+不设“需要外部的 Locus 组件”这一独立种类，用 `requires` 表达。`packages/` 下除 Core 外的每个包都必须导出 `kind: locus` 的 `component` 与 `operations`；动态登记只接受 `kind: external`。
 
 ### 一个入口，两种输入
 
-`defineComponent()` 是唯一入口：对象直接校验，字符串按 YAML 解析后走同一 schema，返回深度冻结的定义。包传对象，`component add` 传文本，不维护第二套注册表。
+`defineComponent()` 是唯一入口：对象直接校验，字符串按 YAML 解析后走同一 schema，返回深度冻结的 `component` 与 `operations`。包传对象，`component add` 传文本，不维护第二套注册表。
 
-定义字段为 `id`、`version`、`name`、`summary`、`kind`、`requires`、`config`、`probe`、`deploy`、`info`。`config` 是内联映射或相对数据目录的路径，Core 不解释内容。
+定义字段为 `id`、`version`、`name`、`summary`、`kind`、`requires`、`config`、`probe`、`deploy`、`info`，以及包代码专属的 `operations` 与 `credentials`。`config` 是内联映射或相对数据目录的路径，Core 不解释内容。
 
 ### 物化与版本
 
