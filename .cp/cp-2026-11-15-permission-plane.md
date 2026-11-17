@@ -12,7 +12,7 @@
 - [Core Security CP](./cp-2026-11-15-core-security.md)：Keyring、Root、CredentialRef 与平台证据。
 - [生命周期管理 CP](./cp-2026-11-15-lifecycle.md)：Session、操作级/Session Grant 与常驻 Host 演进。
 - [权限控制面设计记录](../.agents/notes/implemented/architecture/2026-11-15-permission-control-plane.md)：命名、组件/CLI 边界、凭据字段与访问模式的完整理由。
-- [Core Security 契约](../docs/subsystems/core-security.md)：当前安全事实，待实施后同步。
+- [Core Security 契约](../docs/subsystems/core/security.md)：当前安全事实，待实施后同步。
 - [CLI](../apps/cli/README.md)：命令面与可信 Host。
 - 创建或更新使用 `create-control-plane`；收束使用 `compact-control-plane`。
 

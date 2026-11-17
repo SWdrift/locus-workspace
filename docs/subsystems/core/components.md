@@ -2,7 +2,7 @@
 
 ## 范围
 
-组件是 Locus 识别、登记和观察的一种软件或基础设施能力单元。Core 只回答“有哪些组件、它们现在怎么样”，不代替组件执行安装、服务管理或业务操作。本页覆盖 `packages/core` 的组件机制、`apps/cli` 的 `component` 命令域与 `locus <id>` 入口；具体命令语法见[实用命令](../commands.md#组件操作)。
+组件是 Locus 识别、登记和观察的一种软件或基础设施能力单元。Core 只回答“有哪些组件、它们现在怎么样”，不代替组件执行安装、服务管理或业务操作。本页覆盖 `packages/core` 的组件机制、`apps/cli` 的 `component` 命令域与 `locus <id>` 入口；具体命令语法见[实用命令](../../commands.md#组件操作)。
 
 不包含：远程环境上的组件实例、组件依赖图求解、自动安装与启动、动态生成每个组件的子命令、把组件发现当作授权。
 
@@ -64,7 +64,7 @@ probe:
 
 `list`、`show`、`probe`、`deploy` 读取物化文件的描述性元数据，并把包代码的能力与字段合并为只读视图；能力/字段契约不写回文件。`--help` 与 `version` 不访问组件服务，不创建数据目录。
 
-YAML 物化只保存描述性元数据；`capabilities`/`credentials` 属于包代码契约，升级时保留 config 但不写回能力列表。capability 的 `secrets` 必须引用已声明字段槽，资源必须精确，不接受通配符。Core Security 的可信组件身份、Root 覆盖与精确绑定独立于可编辑 YAML，详见[安全服务](../../packages/core/README.md#安全服务)。`external` 不拥有可执行能力或凭据字段。
+YAML 物化只保存描述性元数据；`capabilities`/`credentials` 属于包代码契约，升级时保留 config 但不写回能力列表。capability 的 `secrets` 必须引用已声明字段槽，资源必须精确，不接受通配符。Core Security 的可信组件身份、Root 覆盖与精确绑定独立于可编辑 YAML，详见[安全服务](../../../packages/core/README.md#安全服务)。`external` 不拥有可执行能力或凭据字段。
 
 ## 状态
 

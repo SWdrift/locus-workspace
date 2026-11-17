@@ -49,7 +49,7 @@ CLI 组合根只通过 Core 的 receiveHost 回调取得可信管理端口；组
 
 全局 `--profile production|development` 默认 production，原有 LOCUS_HOME 解析保持不变；development 使用生产解析目录下的 `profiles/development/`，包含独立 SQLite 与安装 UUID，Keyring 命名空间也独立。Profile 名和 LOCUS_HOME 不是 OS 级隔离；真实 Keyring 测试另需独立 OS 账户。
 
-`init`、`security reset-root/change-root-password`、`security capability set/reset`、`credential remove/status/cleanup` 是可信交互入口。`pg register/list` 当前只服务临时 PostgreSQL 验证消费者，验证完成后与包一起移除。`pg register` 通过组件能力登记目标与字段并隐藏输入密码；`pg list` 以 User 级读取登记时固定的目标与绑定字段，调用者不能再指定 host、port 或 database。`credential list` 与 `credential bindings` 只查询公开 metadata，不读取秘密；`credential cleanup` 只按当前精确 service 报告或删除未登记元数据的孤立账户；没有 `credential put/bind`，也没有 get-secret。完整命令和成功判据由[命令手册](../../docs/commands.md#安全与凭据)维护，模型和恢复后果见[安全子系统](../../docs/subsystems/core-security.md)。
+`init`、`security reset-root/change-root-password`、`security capability set/reset`、`credential remove/status/cleanup` 是可信交互入口。`pg register/list` 当前只服务临时 PostgreSQL 验证消费者，验证完成后与包一起移除。`pg register` 通过组件能力登记目标与字段并隐藏输入密码；`pg list` 以 User 级读取登记时固定的目标与绑定字段，调用者不能再指定 host、port 或 database。`credential list` 与 `credential bindings` 只查询公开 metadata，不读取秘密；`credential cleanup` 只按当前精确 service 报告或删除未登记元数据的孤立账户；没有 `credential put/bind`，也没有 get-secret。完整命令和成功判据由[命令手册](../../docs/commands.md#安全与凭据)维护，模型和恢复后果见[安全子系统](../../docs/subsystems/core/security.md)。
 
 ## 项目模板
 
@@ -76,7 +76,7 @@ CLI 组合根只通过 Core 的 receiveHost 回调取得可信管理端口；组
 | `component probe --all` | 逐个探查 external 组件，跳过无探针定义；任一未通过退出 1 |
 | `component deploy <id> --yes` | 执行部署入口并记录；失败退出 1 |
 
-首次访问组件服务时，CLI 把 Templates、Remote Targets、PostgreSQL 与 Gitea 的包定义物化到 `<dataDirectory>/components/`；版本不一致只提示，`upgrade` 才改写。`version` 与 `--help` 不触发物化。组件字段、状态与失败边界见[组件子系统](../../docs/subsystems/components.md)，命令参数见[命令手册](../../docs/commands.md#组件操作)。
+首次访问组件服务时，CLI 把 Templates、Remote Targets、PostgreSQL 与 Gitea 的包定义物化到 `<dataDirectory>/components/`；版本不一致只提示，`upgrade` 才改写。`version` 与 `--help` 不触发物化。组件字段、状态与失败边界见[组件子系统](../../docs/subsystems/core/components.md)，命令参数见[命令手册](../../docs/commands.md#组件操作)。
 
 ## 数据与生命周期
 

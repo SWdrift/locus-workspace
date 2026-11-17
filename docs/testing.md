@@ -91,7 +91,7 @@ e2e 只保留进程内测试无法覆盖的组合：真实 `apps/cli/lib/index.j
 
 自动化安全测试显式注入内存 Credential Provider，元数据使用真实临时 SQLite 或显式内存 Store；默认原生 Provider 在测试上下文加载前拒绝访问。LOCUS_HOME 不能隔离 OS Keyring。测试覆盖组件能力授权、Root 等级覆盖、字段公开／秘密拆分、按 slot 精确绑定、真实 scrypt、跨进程锁定／重置、单次 Grant、单次并发消费、释放 IO、秘密错误隔离、实际 HTTP Header 边界、DACL、超时／取消、临时凭据清理与迁移阻塞。
 
-原生 Keyring 只由管理员显式运行 `node scripts/verify-keyring-windows.mjs --isolated-account`：建立临时非管理员 OS 账户及专属命名空间，检查后删除条目、账户与用户 Profile，不使用当前用户 vault。隔离检查器还会按随机 `locus:<uuid>:development` service 枚举并删除未知账户，确认该 service 无残留；不要对当前用户的 Production service 执行批量删除。日常孤立条目用 `locus credential cleanup`（默认只报告，`--yes` 才删除）处理当前 Profile 的精确 service。该脚本和包内 manual-*.mjs 不匹配自动测试 glob；真实消费者入口、平台矩阵与未验证项归 [Core Security](subsystems/core-security.md#平台证据与安全边界) 与各 Compose README，不能用模拟器或绑定加载成功代替平台证据。
+原生 Keyring 只由管理员显式运行 `node scripts/verify-keyring-windows.mjs --isolated-account`：建立临时非管理员 OS 账户及专属命名空间，检查后删除条目、账户与用户 Profile，不使用当前用户 vault。隔离检查器还会按随机 `locus:<uuid>:development` service 枚举并删除未知账户，确认该 service 无残留；不要对当前用户的 Production service 执行批量删除。日常孤立条目用 `locus credential cleanup`（默认只报告，`--yes` 才删除）处理当前 Profile 的精确 service。该脚本和包内 manual-*.mjs 不匹配自动测试 glob；真实消费者入口、平台矩阵与未验证项归 [Core Security](subsystems/core/security.md#平台证据与安全边界) 与各 Compose README，不能用模拟器或绑定加载成功代替平台证据。
 
 真实消费者手工入口：
 

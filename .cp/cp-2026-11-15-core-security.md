@@ -4,7 +4,7 @@
 
 本平面控制 Core Security 的统一权限与凭据平面重构。Core、CLI 可信 Host、Keyring、Compose 消费者和 remote-targets CredentialRef 切换已实现；带口令 SSH 私钥仍明确阻塞，不把部分交付称为完整后量子或全平台能力。
 
-当前契约唯一归[安全子系统](../docs/subsystems/core-security.md)，公开用法归模块 README，取舍归[已实施记录](../.agents/notes/implemented/architecture/2026-11-15-core-security-runtime.md)。[剩余提案](../.agents/notes/proposed/architecture/2026-11-15-core-security.md)只保留带口令私钥交付。[权限控制面](./cp-2026-11-15-permission-plane.md)控制能力注册、Root 覆盖与组件消费模型；[生命周期管理](./cp-2026-11-15-lifecycle.md)控制 Session 与常驻 Host 演进。本平面不重复。Workspace 与目标登录模型仍由各自子系统拥有。
+当前契约唯一归[安全子系统](../docs/subsystems/core/security.md)，公开用法归模块 README，取舍归[已实施记录](../.agents/notes/implemented/architecture/2026-11-15-core-security-runtime.md)。[剩余提案](../.agents/notes/proposed/architecture/2026-11-15-core-security.md)只保留带口令私钥交付。[权限控制面](./cp-2026-11-15-permission-plane.md)控制能力注册、Root 覆盖与组件消费模型；[生命周期管理](./cp-2026-11-15-lifecycle.md)控制 Session 与常驻 Host 演进。本平面不重复。Workspace 与目标登录模型仍由各自子系统拥有。
 
 ## Meta Reference
 
@@ -56,4 +56,4 @@
 | 迁移 | 私钥／密码迁移入口；带口令私钥明确阻塞；原文件保留 |
 | 最终门禁 | `pnpm verify`：186/186 自动测试通过、`pnpm docs:check` 通过；真实 PostgreSQL／SSH 手工脚本通过；e2e 最近一次 36 次调用通过，本次改动后处于冷却窗口未重跑 |
 
-未验证范围统一见[平台矩阵](../docs/subsystems/core-security.md#平台证据与安全边界)。
+未验证范围统一见[平台矩阵](../docs/subsystems/core/security.md#平台证据与安全边界)。

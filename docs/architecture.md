@@ -6,9 +6,9 @@
 
 当前交付 Workspace 与 Component：Workspace 具有持久 UUID 的工作语境、`member` / `association` 两类显式长期关系、多个本机目录挂载、注入 Workspace 上下文的统一 shell 与独立的本机项目模板复制；Component 机制登记包组件与动态外部组件，保存定义、版本与外部/部署状态，并提供 `probe`、`deploy`、`upgrade` 与 `locus <id>` 入口。Core 同时是统一的权限真源与凭据保管平面：Compose 用一份 `defineComponent` 声明能力、凭据字段与 handler，Root 通过组件命令登记凭据并建立精确绑定，User 通过已授权组件能力消费字段。远程 SSH 目标使用稳定 CredentialRef 接入同一平面。
 
-Workspace 可以没有目录，关系目标是领域解释的 `namespace` / `id` 不透明引用；挂载只保存绝对路径与名称，不检查目录是否存在。组件定义可复制、可手工编辑，状态只在本机观察。挂载与 shell 的取舍见 [Workspace 挂载与统一 Shell](../.agents/notes/implemented/feature/2026-11-13-workspace-mounts-and-shell.md)，模板设计见[项目模板子系统](subsystems/templates.md)，远程目标边界见[远程目标子系统](subsystems/remote-targets.md)，组件语义见[组件子系统](subsystems/components.md)。
+Workspace 可以没有目录，关系目标是领域解释的 `namespace` / `id` 不透明引用；挂载只保存绝对路径与名称，不检查目录是否存在。组件定义可复制、可手工编辑，状态只在本机观察。挂载与 shell 的取舍见 [Workspace 挂载与统一 Shell](../.agents/notes/implemented/feature/2026-11-13-workspace-mounts-and-shell.md)，模板设计见[项目模板子系统](subsystems/templates.md)，远程目标边界见[远程目标子系统](subsystems/remote-targets.md)，组件语义见[组件子系统](subsystems/core/components.md)。
 
-仓库采用 packages + apps，不采用宿主插件模式。Core 包含 Workspace、组件与统一安全平面；CLI 是独立程序及可信本地认证 Host，Web 仍占位。没有 DSH/Cordis、插件 profile 装配、Operation Catalog 或动态命令生成；安全 Profile 仅隔离本地数据与凭据命名空间，组件能力声明与 Root 覆盖不是通用 Policy 引擎。安全边界见 [Core Security](subsystems/core-security.md)，组件取舍见[组件模型](../.agents/notes/implemented/architecture/2026-11-15-component-model.md)。
+仓库采用 packages + apps，不采用宿主插件模式。Core 包含 Workspace、组件与统一安全平面；CLI 是独立程序及可信本地认证 Host，Web 仍占位。没有 DSH/Cordis、插件 profile 装配、Operation Catalog 或动态命令生成；安全 Profile 仅隔离本地数据与凭据命名空间，组件能力声明与 Root 覆盖不是通用 Policy 引擎。安全边界见 [Core Security](subsystems/core/security.md)，组件取舍见[组件模型](../.agents/notes/implemented/architecture/2026-11-15-component-model.md)。
 
 ## 组件与依赖
 
@@ -114,10 +114,10 @@ Core 使用 Node、yaml、组件 runner 的 execa，并懒加载 Keyring；Postg
 
 ## 数据与恢复
 
-Core 独占 core.sqlite（当前 schema v7），保存 Workspace、组件状态、Root 覆盖等级、凭据公开字段与 owner、引用元数据与组件／能力／资源／slot 绑定；资源秘密在 OS Keyring，Root 派生验证材料单独持久化。组件定义、Remote Targets 的 targets.yaml/state.sqlite 仍各有归属。开发阶段数据库不承诺旧 schema 兼容，结构变更按当前 schema 重建；停写备份由 [Core](../packages/core/README.md#持久化与恢复)维护，秘密和备份后果由[安全子系统](subsystems/core-security.md#持久化错误与备份)维护。
+Core 独占 core.sqlite（当前 schema v7），保存 Workspace、组件状态、Root 覆盖等级、凭据公开字段与 owner、引用元数据与组件／能力／资源／slot 绑定；资源秘密在 OS Keyring，Root 派生验证材料单独持久化。组件定义、Remote Targets 的 targets.yaml/state.sqlite 仍各有归属。开发阶段数据库不承诺旧 schema 兼容，结构变更按当前 schema 重建；停写备份由 [Core](../packages/core/README.md#持久化与恢复)维护，秘密和备份后果由[安全子系统](subsystems/core/security.md#持久化错误与备份)维护。
 
 ## 控制与演进
 
-构建与运行事实由[开发与验证](development.md)维护；Core API、持久化与限制由 [Core](../packages/core/README.md)维护；组件字段、状态与失败边界由[组件子系统](subsystems/components.md)维护；远程目标的字段、失败与限制由 [Remote Targets](../packages/remote-targets/README.md)维护；命令语法由[命令手册](commands.md)维护。长期取舍由 Agent Notes 承载，控制面只服务临时任务。
+构建与运行事实由[开发与验证](development.md)维护；Core API、持久化与限制由 [Core](../packages/core/README.md)维护；组件字段、状态与失败边界由[组件子系统](subsystems/core/components.md)维护；远程目标的字段、失败与限制由 [Remote Targets](../packages/remote-targets/README.md)维护；命令语法由[命令手册](commands.md)维护。长期取舍由 Agent Notes 承载，控制面只服务临时任务。
 
 只有实际交付且验证的行为进入 implemented。新增能力按具体应用逐个重配；出现第二个消费端或真实领域闭环时才增加 package，不恢复通用插件运行时。组件定义可以随包复制，但机器相关值与状态不承诺跨机自动迁移。

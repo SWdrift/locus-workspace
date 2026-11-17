@@ -2,7 +2,7 @@
 
 ## 简述与职责
 
-`@locus/gitea` 用一份 `defineComponent` 声明 `register` / `request` 能力、`api-token` 字段槽与 handler，并导出 `component` 与 `api`。Root 在 `register` 时固定 origin 与 token；`request` 只使用绑定字段中的 origin 发送 `Authorization: Bearer`，调用者不能再指定 origin。它不实现完整 Gitea 客户端，也不决定权限或持有令牌。身份、权限、凭据绑定与 Provider 归 [Core Security](../../docs/subsystems/core-security.md)。
+`@locus/gitea` 用一份 `defineComponent` 声明 `register` / `request` 能力、`api-token` 字段槽与 handler，并导出 `component` 与 `api`。Root 在 `register` 时固定 origin 与 token；`request` 只使用绑定字段中的 origin 发送 `Authorization: Bearer`，调用者不能再指定 origin。它不实现完整 Gitea 客户端，也不决定权限或持有令牌。身份、权限、凭据绑定与 Provider 归 [Core Security](../../docs/subsystems/core/security.md)。
 
 ## 使用
 

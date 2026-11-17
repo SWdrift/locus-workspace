@@ -47,4 +47,4 @@ Root 可以覆盖某个组件能力的认证等级；覆盖会影响后续命令
 
 Human 与 Agent 默认共享 User 权限，source 只作线索；普通获准凭据使用不提示 Root，不要求逐次人工审批。组件状态、可编辑 YAML 与目标 access 都不能自行产生主体授权。
 
-远程操作仍经 `locus remote-targets`。新目标使用 `method: private-key|password` 与 `credential:<id>`；先 `add` 写入配置，再 `register` 登记字段；旧 `auth.path/root` 只供 `remote-targets migrate` 显式导入。不要替用户去掉私钥口令、伪造迁移完成或用共享 Agent 绕过阻塞。具体输入／失败与已知平台范围见[安全设计](../../../../docs/subsystems/core-security.md)和[命令手册](../../../../docs/commands.md#安全与凭据)。
+远程操作仍经 `locus remote-targets`。新目标使用 `method: private-key|password` 与 `credential:<id>`；先 `add` 写入配置，再 `register` 登记字段；旧 `auth.path/root` 只供 `remote-targets migrate` 显式导入。不要替用户去掉私钥口令、伪造迁移完成或用共享 Agent 绕过阻塞。具体输入／失败与已知平台范围见[安全设计](../../../../docs/subsystems/core/security.md)和[命令手册](../../../../docs/commands.md#安全与凭据)。

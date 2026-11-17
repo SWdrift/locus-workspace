@@ -2,7 +2,7 @@
 
 ## Control Plane Role
 
-本平面控制 Core Session 的生命周期语义、Root 提权批准范围，以及未来常驻 Host 的演进边界。身份、KDF、Grant 字段、CredentialRef 与密钥交付契约仍归 [Core Security](../docs/subsystems/core-security.md#身份session-与grant)，本平面不复制这些正文。
+本平面控制 Core Session 的生命周期语义、Root 提权批准范围，以及未来常驻 Host 的演进边界。身份、KDF、Grant 字段、CredentialRef 与密钥交付契约仍归 [Core Security](../docs/subsystems/core/security.md#身份session-与grant)，本平面不复制这些正文。
 
 当前 Core 是进程内库，CLI 每条命令通常创建并结束一个 Session；默认 Root 批准按单次操作计算。Core 已支持 `operation` 与 `session` 两种 Grant，session 绑定真实进程内 Session，供长生命周期 Host 复用；CLI 的 session scope 仍受命令内 Session 生命周期约束，不跨进程。
 
@@ -13,7 +13,7 @@
 - [cp-meta](./cp-meta.md)：控制平面结构、命名与更新规则。
 - [Core Security CP](./cp-2026-11-15-core-security.md)：密钥、Root、CredentialRef 与平台证据。
 - [权限控制面 CP](./cp-2026-11-15-permission-plane.md)：能力注册、有效等级、组件 API 与 CLI 消费。
-- [Core Security 契约](../docs/subsystems/core-security.md#身份session-与grant)：Session、Grant 与 Root 认证的当前事实。
+- [Core Security 契约](../docs/subsystems/core/security.md#身份session-与grant)：Session、Grant 与 Root 认证的当前事实。
 - [CLI](../apps/cli/README.md#安全-host-与-profile)：可信 Host、TTY 与命令生命周期。
 - [测试](../docs/testing.md#安全与平台验证)：自动测试与真实验证入口。
 - 创建或更新使用 `create-control-plane`；收束使用 `compact-control-plane`。

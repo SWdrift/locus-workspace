@@ -42,4 +42,4 @@ Remote Targets 新配置使用 `method: private-key|password` 与 `credential`�
 
 同 OS 用户恶意代码可以绕过接口；Root KDF 不防持有验证材料的离线短密码破解，JS／驱动秘密复制无法保证零残留。备份包含 Root 离线验证材料但不带 Keyring 秘密；恢复引用与绑定不能恢复凭据。
 
-运行证据包括真实临时 PostgreSQL 16 scram 认证与查询、真实 Node fetch Header 边界、真实 OpenSSH 本地 sshd 登录与错误私钥拒绝、Windows Keyring 历史隔离账户验证。平台矩阵与未覆盖项统一归[安全子系统](../../../../docs/subsystems/core-security.md#平台证据与安全边界)；没有把 Windows 结果、假执行器或 askpass hook 调用当作全平台完成。
+运行证据包括真实临时 PostgreSQL 16 scram 认证与查询、真实 Node fetch Header 边界、真实 OpenSSH 本地 sshd 登录与错误私钥拒绝、Windows Keyring 历史隔离账户验证。平台矩阵与未覆盖项统一归[安全子系统](../../../../docs/subsystems/core/security.md#平台证据与安全边界)；没有把 Windows 结果、假执行器或 askpass hook 调用当作全平台完成。

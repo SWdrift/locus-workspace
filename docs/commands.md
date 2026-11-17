@@ -84,7 +84,7 @@
 | `credential status <credential:id>` | Root 检查元数据与 Provider 条目是否存在，只返回 `present`，不输出秘密 |
 | `credential cleanup [--yes]` | Root 检查当前 Profile 精确 Keyring service 下未登记元数据的孤立账户；无 `--yes` 只报告，`--yes` 才删除孤立条目；不删除已知凭据、元数据或绑定 |
 
-普通业务凭据使用组件命令，不提供 `credential put`、`credential bind` 或 get-secret。`credential cleanup` 只按当前安装 UUID 与 Profile 推导出的完整 service 操作，不接受 `locus*` 前缀批量删除，也没有 `--all` 清空当前 Service；已知凭据用 `credential remove`。Provider 的平台容量限制独立判定，超限不分片、不回退明文。丢失重置与备份后果见[安全设计](subsystems/core-security.md#root-认证与恢复)。
+普通业务凭据使用组件命令，不提供 `credential put`、`credential bind` 或 get-secret。`credential cleanup` 只按当前安装 UUID 与 Profile 推导出的完整 service 操作，不接受 `locus*` 前缀批量删除，也没有 `--all` 清空当前 Service；已知凭据用 `credential remove`。Provider 的平台容量限制独立判定，超限不分片、不回退明文。丢失重置与备份后果见[安全设计](subsystems/core/security.md#root-认证与恢复)。
 
 ## Shell
 
@@ -133,7 +133,7 @@
 
 ## 组件操作
 
-组件定义位于 `<dataDirectory>/components/`：包组件在首次访问组件服务时物化，动态组件通过 `component add` 登记。版本不一致只标记“需要升级”，由 `component upgrade` 手动改写；字段、状态与失败边界见[组件](subsystems/components.md)。
+组件定义位于 `<dataDirectory>/components/`：包组件在首次访问组件服务时物化，动态组件通过 `component add` 登记。版本不一致只标记“需要升级”，由 `component upgrade` 手动改写；字段、状态与失败边界见[组件](subsystems/core/components.md)。
 
 | 参数 | 行为与成功判据 |
 | --- | --- |

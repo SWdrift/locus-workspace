@@ -51,7 +51,7 @@ try {
 
 `createLocusCore({ components })` 接收包代码的 `component` 视图；首次访问 `core.components` 时把它们物化到 `<dataDirectory>/components/<id>.yaml`。文件已存在时不改写：版本一致直接使用，不一致标记 `needsUpgrade`，由 `upgrade()` 重写定义字段并保留 `config`。动态组件通过 `addFromText()`、`addFromPath()` 登记，只能删除动态组件。
 
-`probe()` 支持 `argv`、`tcp` 与 `http` 三种探针；`argv` 与 `deploy()` 调用注入的 `ComponentRunner`，默认实现使用 `execa`，不经过 shell，带超时；Windows 的 `.cmd`/`.bat` 由 `execa` 解析。`list()` 返回 `{ components, problems }`，单个损坏定义不阻断其他组件；CLI 的列表投影省略 `info`，完整说明用 `show()`。读取状态不创建数据库；`show()`、`list()` 只使用最近一次观察。字段、探针类型与 A/B/C 状态由[组件子系统](../../docs/subsystems/components.md)维护。
+`probe()` 支持 `argv`、`tcp` 与 `http` 三种探针；`argv` 与 `deploy()` 调用注入的 `ComponentRunner`，默认实现使用 `execa`，不经过 shell，带超时；Windows 的 `.cmd`/`.bat` 由 `execa` 解析。`list()` 返回 `{ components, problems }`，单个损坏定义不阻断其他组件；CLI 的列表投影省略 `info`，完整说明用 `show()`。读取状态不创建数据库；`show()`、`list()` 只使用最近一次观察。字段、探针类型与 A/B/C 状态由[组件子系统](../../docs/subsystems/core/components.md)维护。
 
 ## 安全服务
 
@@ -83,7 +83,7 @@ Host 的 `bindComponent(session, definition)` 要求装配时同一可信 `Compo
 
 Root 操作抛出带不透明 Challenge 的 `SecurityFailure`；只有 Host 可验证密码，并通过 `resume(grant)` 恢复 Core 捕获的原操作。`authenticate(challenge, password, scope)` 支持 `operation` 与 `session`：operation 默认 60 秒内首次恢复后消费；session 绑定真实进程内 Session，同组件、能力与精确资源可复用，Session 结束、Root 重置、Host 关闭与 dispose 都撤销，不跨进程。Host 的 `initializeRoot()`／`resetRoot()` 由可信 UI 编排，`forSession()` 提供凭据删除、绑定列举、状态检查、孤立条目清理、能力等级覆盖与密码变更。`cleanupCredentialOrphans(apply)` 只针对当前 Profile 推导出的精确 Keyring service，比较 Provider 账户与 `security_credentials` 元数据；默认只报告，`apply=true` 才删除孤立账户，不触碰已知凭据、元数据、绑定或其他 service。`dispose()` 即使存储清理失败也会本地撤销并释放 Store／Provider。
 
-测试必须显式注入 `createMemoryCredentialProvider()`；元数据需要真实持久化时保留默认 SQLite，需要纯内存路径时另注入 `createMemorySecurityStore()`。自动化上下文的默认原生 Provider 在加载前拒绝实际访问；单设 LOCUS_HOME 不够。Provider 的 get/set/delete 是可信装配边界，不是组件的授权接口。完整模型、备份后果、平台证据与消费者交付见[安全子系统](../../docs/subsystems/core-security.md)。
+测试必须显式注入 `createMemoryCredentialProvider()`；元数据需要真实持久化时保留默认 SQLite，需要纯内存路径时另注入 `createMemorySecurityStore()`。自动化上下文的默认原生 Provider 在加载前拒绝实际访问；单设 LOCUS_HOME 不够。Provider 的 get/set/delete 是可信装配边界，不是组件的授权接口。完整模型、备份后果、平台证据与消费者交付见[安全子系统](../../docs/subsystems/core/security.md)。
 
 ## Workspace 与关系
 
@@ -107,4 +107,4 @@ Core 唯一拥有 `dataDirectory/core.sqlite`，格式版本为 SQLite `user_ver
 
 ## 验证与入口
 
-`pnpm test` 覆盖 Workspace／组件、当前 schema、安全身份／授权、Root 等级覆盖、字段公开／秘密拆分、按 slot 绑定、单次 Grant、跨进程认证限制、世代重置、秘密错误隔离与释放。CLI 子进程与安全测试在 apps/cli/test，平台验证范围归[安全矩阵](../../docs/subsystems/core-security.md#平台证据与安全边界)；验证入口见[测试系统](../../docs/testing.md#分层与入口)。
+`pnpm test` 覆盖 Workspace／组件、当前 schema、安全身份／授权、Root 等级覆盖、字段公开／秘密拆分、按 slot 绑定、单次 Grant、跨进程认证限制、世代重置、秘密错误隔离与释放。CLI 子进程与安全测试在 apps/cli/test，平台验证范围归[安全矩阵](../../docs/subsystems/core/security.md#平台证据与安全边界)；验证入口见[测试系统](../../docs/testing.md#分层与入口)。

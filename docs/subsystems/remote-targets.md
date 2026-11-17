@@ -2,9 +2,9 @@
 
 ## 范围
 
-远程目标是接入面的第一个实现：把异构网络中的 SSH 目标登记为声明式数据，经统一入口探测与执行，不暴露第二条直连路径。当前覆盖 `packages/remote-targets`、`apps/cli` 的 `remote-targets` 命令域与 `.agents/skills/locus` 的参考页。传输客户端的可用性由[组件](components.md)提供：密钥认证依赖 `openssh`，密码认证依赖 `plink`。
+远程目标是接入面的第一个实现：把异构网络中的 SSH 目标登记为声明式数据，经统一入口探测与执行，不暴露第二条直连路径。当前覆盖 `packages/remote-targets`、`apps/cli` 的 `remote-targets` 命令域与 `.agents/skills/locus` 的参考页。传输客户端的可用性由[组件](core/components.md)提供：密钥认证依赖 `openssh`，密码认证依赖 `plink`。
 
-不拥有调用方身份、权限或凭据保管；它通过窄接口接入 [Core Security](core-security.md)。不包含 S3/HTTP 协议、FRP 隧道生命周期、凭据生成与轮换。
+不拥有调用方身份、权限或凭据保管；它通过窄接口接入 [Core Security](core/security.md)。不包含 S3/HTTP 协议、FRP 隧道生命周期、凭据生成与轮换。
 
 ## 三域与资源锚点
 

@@ -90,7 +90,7 @@ shell 选择顺序为 `--shell`、`$SHELL`、平台默认（Windows 为 `powersh
 
 ## Agent 投影
 
-Agent 以单行 JSON 为机器接口，普通工作与 Human 共用 User 权限；Root 输入只能由本地可信 Host 完成，不能把密码放 Prompt、参数或环境。非交互认证失败不静默跳过，也不建设审批队列。shell 环境不是 Session／Grant，`--print-env` 不得携带秘密；完整边界归 [Core Security](core-security.md)。
+Agent 以单行 JSON 为机器接口，普通工作与 Human 共用 User 权限；Root 输入只能由本地可信 Host 完成，不能把密码放 Prompt、参数或环境。非交互认证失败不静默跳过，也不建设审批队列。shell 环境不是 Session／Grant，`--print-env` 不得携带秘密；完整边界归 [Core Security](core/security.md)。
 
 ## 失败边界
 
@@ -100,7 +100,7 @@ CLI 不补偿已经成功的操作：模板在 rename 成功后不回滚，Works
 
 ## 演进
 
-新领域沿用 `locus <domain> <action>`，先建立普通 package、导出组件定义，再在组合根注册命令；不增加隐式当前对象、插件加载器或第二套持久化。组件的定义、状态与升级边界见[组件](components.md)，此处只描述 CLI 投影。
+新领域沿用 `locus <domain> <action>`，先建立普通 package、导出组件定义，再在组合根注册命令；不增加隐式当前对象、插件加载器或第二套持久化。组件的定义、状态与升级边界见[组件](core/components.md)，此处只描述 CLI 投影。
 
 ## 验证
 

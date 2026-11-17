@@ -259,7 +259,7 @@ interface CapabilityContext {
 
 决定：CredentialRef 持久化 owner，第一版一个引用只对应一个组件。写与消费都按 owner 判定；解绑不转移 owner，转移需 Root 删除后由新组件重新登记。选择持久 owner 而非“从绑定推导”，因为解绑会丢失归属，且无法阻止无绑定状态下的重新登记。多 owner、Root 共享绑定与 owner 转移延期。
 
-当前字段、错误、预检顺序与 schema v7 契约由 [Core Security](../../../../docs/subsystems/core-security.md#凭据字段登记与绑定)维护；这里只保留取舍与后果。旧开发库按仓库约定重建或一次性迁移。
+当前字段、错误、预检顺序与 schema v7 契约由 [Core Security](../../../../docs/subsystems/core/security.md#凭据字段登记与绑定)维护；这里只保留取舍与后果。旧开发库按仓库约定重建或一次性迁移。
 
 ## 备选方案
 
