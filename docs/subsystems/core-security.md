@@ -97,7 +97,7 @@ CLI 只传参数与展示结果，不接触 Keyring、字段拆分或绑定内�
 
 ## Root 认证与恢复
 
-初始化入口在可信本地 TTY 隐藏输入两次密码；重复初始化不覆盖验证材料，不删除已有 Workspace。Core 不读取 stdin。生产/常规 CLI 的 Root 密码不得来自 argv、环境、.env、普通配置、Credential Provider、Prompt 或普通 Bash 参数；不能进入日志、JSON、Challenge 或 Grant。开发/迭代的 `_LOCUS_ROOT_PASSWORD` 约定由[开发与验证](../development.md)维护，不进入 CLI/Core 常规路径。非交互或输入中断明确失败。
+初始化入口在可信本地 TTY 隐藏输入两次密码；重复初始化不覆盖验证材料，不删除已有 Workspace。Core 不读取 stdin，也不读取环境变量。Root 密码由调用方提供：人在可信 TTY 输入，Agent 从环境文件的 `_LOCUS_ROOT_PASSWORD` 读取后经 Host 注入；密码不能进入 argv、普通配置、日志、JSON、Challenge 或 Grant。环境文件的登记位置与同步规则见[开发与验证](../development.md#开发环境与-_locus_root_password)。非交互或输入中断明确失败。
 
 验证使用 Node 原生异步 scrypt，固定 N=32768、r=8、p=1、maxmem=64 MiB，随机 16 字节 Salt，32 字节派生结果，固定长度 timingSafeEqual 比较。SQLite 保存版本、算法与参数、Salt、派生验证值和认证世代，不保存明文。
 
