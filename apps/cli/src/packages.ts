@@ -1,4 +1,4 @@
-import type { ComponentSpec } from '@locus/core'
+import type { DefinedComponent } from '@locus/core'
 
 export type PackageDomain = 'none' | 'templates' | 'remote-targets' | 'postgres' | 'gitea' | 'all'
 
@@ -32,10 +32,8 @@ export function packageDomain(argv: readonly string[]): PackageDomain {
       return 'templates'
     case 'component':
       return 'all'
-    case 'security': {
-      const rest = firstPositional(argv.slice(first.index + 1))
-      return rest?.command === 'capability' ? 'all' : 'none'
-    }
+    case 'security':
+      return 'all'
     case 'version':
     case 'workspace':
     case 'shell':
@@ -54,23 +52,23 @@ export function packageDomain(argv: readonly string[]): PackageDomain {
  */
 export async function loadComponentDefinitions(
   domain: PackageDomain,
-): Promise<{ readonly components: readonly ComponentSpec[] }> {
-  const components: ComponentSpec[] = []
+): Promise<{ readonly components: readonly DefinedComponent[] }> {
+  const components: DefinedComponent[] = []
   if (domain === 'templates' || domain === 'all') {
     const templates = await import('@locus/templates')
-    components.push(templates.component)
+    components.push({ component: templates.component, operations: templates.operations })
   }
   if (domain === 'remote-targets' || domain === 'all') {
     const remoteTargets = await import('@locus/remote-targets')
-    components.push(remoteTargets.component)
+    components.push({ component: remoteTargets.component, operations: remoteTargets.operations })
   }
   if (domain === 'postgres' || domain === 'all') {
     const postgres = await import('@locus/postgres')
-    components.push(postgres.component)
+    components.push({ component: postgres.component, operations: postgres.operations })
   }
   if (domain === 'gitea' || domain === 'all') {
     const gitea = await import('@locus/gitea')
-    components.push(gitea.component)
+    components.push({ component: gitea.component, operations: gitea.operations })
   }
   return { components }
 }

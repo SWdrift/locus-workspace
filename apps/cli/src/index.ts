@@ -1,10 +1,11 @@
 #!/usr/bin/env node
 import { Command, CommanderError, Option } from 'commander'
-import { CapabilityFailure, ComponentFailure, createLocusCore, SecurityFailure } from '@locus/core'
+import { ComponentFailure, createLocusCore, DomainFailure, SecurityFailure } from '@locus/core'
 import type { LocusCore, SecurityHost } from '@locus/core'
 import { homedir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { createProgram } from './commands.ts'
+import { CliFailure, exitCodeFor } from './api.ts'
 import { loadComponentDefinitions, packageDomain } from './packages.ts'
 
 /** 读取工作目录的 `.env`；已存在的环境变量优先，缺少文件不算失败。 */
@@ -71,7 +72,14 @@ async function main(argv: readonly string[]): Promise<number> {
     if (error instanceof CommanderError) {
       return error.exitCode
     }
-    if (error instanceof SecurityFailure || error instanceof CapabilityFailure || error instanceof ComponentFailure) {
+    if (error instanceof CliFailure) {
+      if (argv.includes('--json')) {
+        process.stdout.write(`${JSON.stringify({ code: error.code, message: error.message, ...(error.details === undefined ? {} : { details: error.details }) })}\n`)
+      }
+      process.stderr.write(`Locus 调用失败 [${error.code}]：${error.message}\n`)
+      return exitCodeFor(error.code)
+    }
+    if (error instanceof SecurityFailure || error instanceof DomainFailure || error instanceof ComponentFailure) {
       const reason = 'reason' in error && typeof error.reason === 'string' ? error.reason : undefined
       if (argv.includes('--json')) {
         process.stdout.write(`${JSON.stringify({ code: error.code, ...(reason === undefined ? {} : { reason }) })}\n`)
@@ -80,8 +88,8 @@ async function main(argv: readonly string[]): Promise<number> {
         ? '安全操作'
         : error instanceof Error && error.name === 'RemoteTargetsFailure'
           ? '远程目标操作'
-          : error instanceof CapabilityFailure
-            ? '组件能力'
+          : error instanceof DomainFailure
+            ? '组件 operation'
             : '组件操作'
       process.stderr.write(`Locus ${label}失败 [${error.code}]：${error.message}${reason === undefined ? '' : `（${reason}）`}\n`)
       return 2
