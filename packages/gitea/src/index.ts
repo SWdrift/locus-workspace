@@ -1,22 +1,28 @@
-import { defineComponent, parseCredentialRef, SecurityFailure } from '@locus/core'
-import type { CapabilityContext, CapabilityHandler, CredentialRef } from '@locus/core'
+import { defineComponent, defineCredential, defineOperation, SecurityFailure } from '@locus/core'
+import type { CredentialDefinition, OperationContext } from '@locus/core'
+import { z } from 'zod'
 
 export type GiteaResult =
   | { readonly kind: 'response'; readonly response: Response }
   | { readonly kind: 'authentication-failed'; readonly status: 401 | 403 }
   | { readonly kind: 'network-failed' }
 
-export interface GiteaRegisterInput {
-  readonly credential: CredentialRef
-  readonly origin: string
-  readonly token: string
-}
+const apiToken = defineCredential({
+  id: 'api-token',
+  fields: [
+    { name: 'origin', secret: false, required: true },
+    { name: 'token', secret: true, required: true, tty: true },
+  ],
+})
 
-export interface GiteaRequestInput {
-  readonly credential: CredentialRef
-  readonly path: string
-  readonly init?: RequestInit
-}
+const registerInput = z.object({ origin: z.string(), token: z.string() })
+
+const requestInput = z.object({
+  path: z.string(),
+  method: z.string().optional(),
+  headers: z.record(z.string(), z.string()).optional(),
+  body: z.string().optional(),
+})
 
 /** Origin 在 Root 登记时固定；请求阶段不再接受调用者指定的目标。 */
 function normalizeOrigin(value: string): string {
@@ -39,65 +45,68 @@ function normalizeOrigin(value: string): string {
   return url.origin
 }
 
-const register: CapabilityHandler<GiteaRegisterInput, { readonly registered: true }> = async (context, input) => {
-  const reference = parseCredentialRef(input.credential)
-  await context.registerCredential('api-token', reference, {
-    origin: normalizeOrigin(input.origin),
-    token: input.token,
-  })
-  return { registered: true }
-}
+const register = defineOperation({
+  id: 'gitea.repository.register',
+  method: 'PUT',
+  scheme: 'gitea',
+  authority: 'repositories',
+  path: '/:id',
+  auth: 'root',
+  input: registerInput,
+  output: z.object({ registered: z.literal(true), reference: z.string() }),
+  fields: { token: { secret: true, tty: true } },
+  run: async (_query, input, context) => {
+    const origin = normalizeOrigin(input.origin)
+    const reference = await context.credential.write(apiToken, context.url.pathParams.id ?? '', {
+      origin,
+      token: input.token,
+    })
+    return { registered: true as const, reference }
+  },
+})
 
-const request: CapabilityHandler<GiteaRequestInput, GiteaResult> = async (context, input) => {
-  const reference = parseCredentialRef(input.credential)
-  return createGiteaRequester(context, reference).request(input.path, input.init)
-}
+const request = defineOperation({
+  id: 'gitea.repository.request',
+  method: 'POST',
+  scheme: 'gitea',
+  authority: 'repositories',
+  path: '/:id/requests',
+  auth: 'user',
+  input: requestInput,
+  output: z.unknown(),
+  run: (_query, input, context) => {
+    const init: RequestInit = {
+      ...(input.method === undefined ? {} : { method: input.method }),
+      ...(input.headers === undefined ? {} : { headers: input.headers }),
+      ...(input.body === undefined ? {} : { body: input.body }),
+    }
+    return createGiteaRequester(context, apiToken, context.url.pathParams.id ?? '').request(input.path, init)
+  },
+})
 
-export const gitea = defineComponent({
+const gitea = defineComponent({
   id: 'gitea',
-  version: '3',
+  version: '4',
   name: 'Gitea',
   summary: '使用 Core 绑定的固定 origin 与令牌访问',
   kind: 'locus',
-  capabilities: [
-    {
-      id: 'register',
-      resourceType: 'gitea',
-      defaultAuthLevel: 'root',
-      secrets: [{ slot: 'api-token', access: 'write' }],
-      run: register,
-    },
-    {
-      id: 'request',
-      resourceType: 'gitea',
-      defaultAuthLevel: 'user',
-      secrets: [{ slot: 'api-token', access: 'read' }],
-      run: request,
-    },
-  ],
-  credentials: [
-    {
-      id: 'api-token',
-      fields: [
-        { name: 'origin', secret: false, required: true },
-        { name: 'token', secret: true, required: true },
-      ],
-    },
-  ],
+  operations: [register, request],
+  credentials: [apiToken],
 })
 
 export const component = gitea.component
-export const api = gitea.api
+export const operations = gitea.operations
 
 /** 只向登记时绑定的 origin 发认证请求；重定向作为普通响应返回，不自动转发认证。 */
 export function createGiteaRequester(
-  context: CapabilityContext,
-  reference: CredentialRef,
+  context: OperationContext,
+  credential: CredentialDefinition,
+  key: string,
   fetcher: typeof fetch = fetch,
 ) {
   return {
     async request(path: string, init?: RequestInit): Promise<GiteaResult> {
-      return context.withCredential('api-token', reference, async (values): Promise<GiteaResult> => {
+      return context.credential.read(credential, key, async (values): Promise<GiteaResult> => {
         const token = values.token
         const origin = values.origin
         if (token === undefined || origin === undefined) throw new SecurityFailure('delivery-failed')
