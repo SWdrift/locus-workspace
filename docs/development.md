@@ -6,6 +6,8 @@
 
 Node.js 24 或更高、pnpm 11.24.0。执行 `pnpm install`，修改源码后执行 `pnpm build`。构建先生成 Core 的版本模块，再按根 tsconfig 编译 Core、PostgreSQL、Gitea、Remote Targets、Templates 与 CLI，产物写入各自 lib；包 exports 不依赖运行时转译。版本号只改根 package.json，规则见[版本管理](versioning.md)。
 
+当前开发与验证只在 Windows x64 上执行。Linux 与 macOS 有对应实现分支（POSIX 权限、Secret Service Keyring、系统 OpenSSH），但没有运行证据，尚未经过验证；已知缺口与未覆盖项见 [Core Security 平台证据](subsystems/core-security.md#平台证据与安全边界)。
+
 ## 运行 CLI
 
 构建后从仓库根执行：
