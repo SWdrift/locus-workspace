@@ -18,6 +18,7 @@
 | `pnpm docs:check` | Markdown 结构、链接与 Agent Notes 生命周期检查通过 |
 | `pnpm docs:test` | 文档检查器测试通过；仅修改检查器时要求执行 |
 
+`scripts/local.mjs` 与 `scripts/backup.mjs` 默认读取仓库根 `.env.pro`，相对 `--env` 按当前工作目录解析；`LOCUS_HOME` 中的 `~` 由脚本展开。文件不存在时输出最小创建示例并退出 1。测试数据位于 `temp/.locus`，对应 `.env.dev`；需要操作它时显式传 `--env .env.dev`。环境文件的开发与生产约定见[开发与验证](development.md#开发环境与-_locus_root_password)。
 ## Workspace 操作
 
 数据目录、首次打开时机与恢复由 [Core](../packages/core/README.md#持久化与恢复)维护。`--json` 可放在子命令前，得到单行 JSON；人类输出与 JSON 都只写 stdout。

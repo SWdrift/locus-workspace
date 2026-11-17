@@ -43,6 +43,7 @@ pnpm locus shell <workspace>
 ## 安全 Host 与 Profile
 
 仓库根 `.env` 不再随开发环境提供；开发 shell 使用 `.env.dev`（`LOCUS_HOME=temp`、`LOCUS_FOLDER_NAME=.locus`），由 bash/cmd 先加载，CLI 自身不读取 `.env.dev`。手工验证如果改用其他数据目录，应显式覆盖这两个变量或切换 CWD；不同初始化路径出现的 `security-uninitialized` 不是 Core 故障。开发环境变量与 Root 脚本约定见[开发与验证](../../docs/development.md)。
+仓库根 `.env` 不再随开发环境提供；开发 shell 使用 `.env.dev`（`LOCUS_HOME=temp/.locus`、开发用 `_LOCUS_ROOT_PASSWORD`），pro 使用 `.env.pro`（`LOCUS_HOME=~/.locus`），两者都由 bash/cmd 先加载，CLI 自身不读取。手工验证如果改用其他数据目录，应显式覆盖该变量或切换 CWD；不同初始化路径出现的 `security-uninitialized` 不是 Core 故障。开发环境变量与 Root 脚本约定见[开发与验证](../../docs/development.md)。
 
 
 CLI 组合根只通过 Core 的 receiveHost 回调取得可信管理端口；组件不能接管输入或伪造认证成功。TTY 输入隐藏，Ctrl+C 取消并恢复终端；Core 不读 stdin。Root 认证后只用 resume(grant) 执行原操作，不能替换参数。`--grant-scope operation|session` 默认 operation；session 只在当前真实 Session 内复用，Session 结束、Root 重置或 Host 关闭即失效，不跨进程。CLI 每条命令创建并结束 Session，因此 session scope 不跨命令生效；复用要等常驻 Host。安全失败退出 2，`--json` stdout 含固定 code／可选 reason，诊断写 stderr，不输出秘密或后端异常对象。
