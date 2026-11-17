@@ -1,6 +1,5 @@
 import { createHash } from 'node:crypto'
 import { isAbsolute } from 'node:path'
-import { isCredentialRef } from '@locus/core'
 import { parse as parseYaml, stringify as stringifyYaml } from 'yaml'
 import {
   RemoteTargetsFailure,
@@ -102,29 +101,21 @@ function normalizeIdentity(value: unknown, path: string, id: string): RemoteIden
   const login = requiredText(object, 'login', path)
 
   const auth = asObject(object.auth, `${path}.auth`)
-  only(auth, ['method', 'credential', 'path', 'root'], `${path}.auth`)
+  only(auth, ['method', 'path', 'root'], `${path}.auth`)
   const method = requiredText(auth, 'method', `${path}.auth`)
-  const credential = optionalText(auth, 'credential', `${path}.auth`)
   const credentialPath = optionalText(auth, 'path', `${path}.auth`)
   const credentialRoot = optionalText(auth, 'root', `${path}.auth`)
 
-  if (method === 'private-key' || (method === 'password' && credential !== undefined)) {
-    if (method === 'private-key' && credential === undefined) {
-      failure(`${path}.auth.credential 在 private-key 认证时必填`)
-    }
-    if (credential === undefined || !isCredentialRef(credential)) {
-      failure(`${path}.auth.credential 必须是 credential:<id> 稳定引用`)
-    }
+  if (method === 'private-key' || (method === 'password' && credentialPath === undefined && credentialRoot === undefined)) {
     if (credentialPath !== undefined || credentialRoot !== undefined) {
-      failure(`${path}.auth 不能同时提供 credential 与旧 path/root`)
+      failure(`${path}.auth 新认证方式不能提供旧 path/root`)
     }
-    return { login, auth: { method, credential: credential as `credential:${string}` } }
+    return { login, auth: { method } }
   }
 
   if (method !== 'key' && method !== 'password') {
     failure(`${path}.auth.method 只能是 private-key、password 或旧 key：${method}`)
   }
-  if (credential !== undefined) failure(`${path}.auth 旧认证方式不能同时提供 credential`)
   const legacyPath = credentialPath
     ?? `credentials/${id}/${method === 'key' ? 'id_ed25519' : 'password'}`
   validateRelativePath(legacyPath, `${path}.auth.path`)
@@ -273,7 +264,7 @@ export function parseAddSpecText(text: string, id: string): RemoteTarget {
   return normalizeTargetFromSpec(parseText(text), id)
 }
 
-/** 目标安全配置摘要；认证材料与方法由 Core capability/slot 绑定负责，不纳入此摘要。 */
+/** 目标安全配置摘要；凭据由 Core 按 component + slot + resourceKey 绑定，不纳入此摘要。 */
 export function targetBinding(target: RemoteTarget): string {
   const view = {
     resource: { kind: target.resource.kind },

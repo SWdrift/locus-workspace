@@ -1,6 +1,6 @@
-export { api, component } from './component.ts'
+export { component, operations } from './component.ts'
 export { createRemoteTargetsService } from './service.ts'
-export { targetBinding } from './config.ts'
+export { parseAddSpecText, targetBinding } from './config.ts'
 export { RemoteTargetsFailure } from './types.ts'
 export { readCredentialFile, assertUnencryptedPrivateKey } from './credentials.ts'
 export { createCommandRunner } from './runner.ts'
@@ -17,11 +17,12 @@ export type {
   RemoteAccess,
   RemoteAuth,
   RemoteConnectivity,
+  RemoteCredentialMaterial,
   RemoteCredentialSlot,
   RemoteIdentity,
   RemoteResource,
-  RemoteSecurity,
   RemoteShell,
+  RemoteService,
   RemoteTarget,
   RemoteTargetView,
   RemoteTargetsFailureCode,

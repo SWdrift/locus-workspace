@@ -1,5 +1,5 @@
-import { CapabilityFailure } from '@locus/core'
-import type { CredentialRef, CredentialValues } from '@locus/core'
+import { DomainFailure } from '@locus/core'
+import type { CredentialValues } from '@locus/core'
 
 /** 远程目标子系统：声明式登记 SSH 目标，并通过受控入口执行只读或普通命令。 */
 export type TargetProtocol = 'ssh'
@@ -14,11 +14,9 @@ export interface RemoteResource {
   readonly label?: string
 }
 
-/** 接入面到资源的认证材料引用；新格式只保存稳定 CredentialRef。 */
+/** 认证方式；秘密由 Core 按 component + slot + resourceKey 绑定交付。 */
 export interface RemoteAuth {
   readonly method: AuthMethod
-  /** Core 凭据引用；新格式必填。 */
-  readonly credential?: CredentialRef
   /** 旧格式相对目标根目录的凭据文件路径；仅供迁移读取。 */
   readonly path?: string
   /** 旧格式凭据根的绝对路径；仅供迁移读取。 */
@@ -79,6 +77,12 @@ export interface ExecResult {
   readonly stderr: string
 }
 
+/** operation handler 从 Core 取得的目标凭据材料；不写入目标配置。 */
+export interface RemoteCredentialMaterial {
+  readonly slot: RemoteCredentialSlot
+  readonly values: CredentialValues
+}
+
 export interface AddOptions {
   readonly dryRun?: boolean
 }
@@ -113,17 +117,6 @@ export interface ComponentGate {
 
 export type RemoteCredentialSlot = 'ssh-private-key' | 'ssh-password'
 
-/** 组合根注入 Core 授权与字段交付；组件状态与目标 access 不能代替它。 */
-export interface RemoteSecurity {
-  withCredential<T>(
-    targetId: string,
-    slot: RemoteCredentialSlot,
-    credential: CredentialRef,
-    targetBinding: string,
-    consume: (values: CredentialValues) => Promise<T>,
-  ): Promise<T>
-}
-
 /** 旧文件认证的迁移读取结果；调用方负责导入 Core。 */
 export interface CredentialMigration {
   readonly method: 'key' | 'password'
@@ -137,11 +130,19 @@ export interface RemoteTargetsService {
   addFromText(id: string, text: string, options?: AddOptions): RemoteTarget
   remove(reference: string): void
   credentialMigration(reference: string): CredentialMigration
-  useCredential(reference: string, credential: CredentialRef): RemoteTarget
-  probe(reference: string): Promise<ProbeResult>
-  exec(reference: string, command: readonly string[]): Promise<ExecResult>
-  shell(reference: string): Promise<number>
+  useCredential(reference: string): RemoteTarget
+  probe(reference: string, material: RemoteCredentialMaterial): Promise<ProbeResult>
+  exec(reference: string, command: readonly string[], material: RemoteCredentialMaterial): Promise<ExecResult>
+  shell(reference: string, material: RemoteCredentialMaterial): Promise<number>
+  system(reference: string, material: RemoteCredentialMaterial): Promise<ProbeResult>
+  services(reference: string, material: RemoteCredentialMaterial): Promise<readonly RemoteService[]>
+  restartService(reference: string, name: string, material: RemoteCredentialMaterial): Promise<RemoteService>
   dispose(): void
+}
+
+export interface RemoteService {
+  readonly name: string
+  readonly status: string
 }
 
 export type RemoteTargetsFailureCode =
@@ -162,7 +163,7 @@ export type RemoteTargetsFailureCode =
   | 'delivery-failed'
   | 'io'
 
-export class RemoteTargetsFailure extends CapabilityFailure {
+export class RemoteTargetsFailure extends DomainFailure {
   constructor(code: RemoteTargetsFailureCode, message: string) {
     super(code, message)
     this.name = 'RemoteTargetsFailure'

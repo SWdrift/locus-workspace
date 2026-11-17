@@ -1,4 +1,4 @@
-export { component } from './component.ts'
+export { component, operations } from './component.ts'
 export { createTemplateService } from './engine.ts'
 export { TemplateFailure } from './types.ts'
 export type {

@@ -1,227 +1,280 @@
 import assert from 'node:assert/strict'
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import test from 'node:test'
-import { createLocusCore, createMemoryCredentialProvider, createMemorySecurityStore } from '@locus/core'
-import { api, component, createRemoteTargetsService, RemoteTargetsFailure, targetBinding } from '../lib/index.js'
+import { createMemoryCredentialProvider } from '@locus/core'
+import {
+  createRemoteTargetsService,
+  operations,
+  RemoteTargetsFailure,
+  targetBinding,
+} from '../lib/index.js'
 
-const ROOT_PASSWORD = 'isolated-root'
-const CREDENTIAL = 'credential:target-a'
-const PRIVATE_KEY = 'isolated-key-material'
-const RESOURCE_A = { type: 'remote-target', id: 'target-a' }
-
-function targetSpec(credential = CREDENTIAL) {
-  return { resource: { kind: 'server' }, identity: { login: 'controlled', auth: { method: 'private-key', credential } }, connectivity: { host: '127.0.0.1' } }
+function operation(id) {
+  const found = operations.find((item) => item.id === id)
+  assert.ok(found, `缺少 operation：${id}`)
+  return found
 }
 
-function passwordSpec(credential = 'credential:target-pw') {
+const register = operation('rt.target.register')
+const get = operation('rt.target.get')
+const list = operation('rt.targets.list')
+const remove = operation('rt.target.remove')
+const updateCredential = operation('rt.target.credential.update')
+const migrate = operation('rt.target.migrate')
+const job = operation('rt.job.run')
+
+function privateKeySpec(connectivity = {}) {
   return {
     resource: { kind: 'server' },
-    identity: { login: 'root', auth: { method: 'password', credential } },
-    connectivity: { host: '10.0.0.1', port: 22, trust: { fingerprint: 'SHA256:pw' } },
+    identity: { login: 'root', auth: { method: 'private-key' } },
+    connectivity: { host: '127.0.0.1', port: 2200, ...connectivity },
   }
 }
 
-/** 把服务边界映射到组件能力：资源精确到目标，slot 决定 read 能力。 */
-function accessPort(port) {
+function passwordSpec(connectivity = {}) {
   return {
-    withCredential(targetId, slot, credential, expectedBinding, consume) {
-      return port.execute({
-        capability: slot === 'ssh-password' ? 'password-access' : 'private-key-access',
-        resource: { type: 'remote-target', id: targetId },
-        parameters: null,
-      }, (context, snapshot) => {
-        assert.equal(Object.isFrozen(snapshot), true)
-        assert.equal(snapshot.resource.type, 'remote-target')
-        return context.withCredential(slot, credential, (values) => {
-          if (values.targetBinding !== expectedBinding) {
-            throw new RemoteTargetsFailure('target-config-mismatch', '测试目标配置已变化')
-          }
-          return consume(values)
-        })
-      })
+    resource: { kind: 'server' },
+    identity: { login: 'root', auth: { method: 'password' } },
+    connectivity: { host: '10.0.0.1', port: 22, trust: { fingerprint: 'SHA256:pw' }, ...connectivity },
+  }
+}
+
+const PROVIDER_SERVICE = 'locus:test-installation:production'
+
+function missingCredential() {
+  const error = new Error('测试凭据缺失')
+  error.code = 'credential-missing'
+  return error
+}
+
+/** 按组件凭据声明拆分为秘密与元数据，模拟 Core 的 credential 端口。 */
+function credentialPort(provider) {
+  const metadata = new Map()
+  const keyOf = (credential, resourceKey) => `${credential.id}:${resourceKey}`
+  return {
+    metadata,
+    async read(credential, resourceKey, consume) {
+      const key = keyOf(credential, resourceKey)
+      const fields = metadata.get(key)
+      if (fields === undefined) throw missingCredential()
+      const raw = await provider.get({ service: PROVIDER_SERVICE, account: key })
+      if (raw === undefined) throw missingCredential()
+      return consume({ ...fields, ...JSON.parse(raw) })
+    },
+    async write(credential, resourceKey, values) {
+      const key = keyOf(credential, resourceKey)
+      const fields = {}
+      const secrets = {}
+      for (const [name, value] of Object.entries(values)) {
+        if (value === undefined) continue
+        if (credential.secretFields.includes(name)) secrets[name] = value
+        else fields[name] = value
+      }
+      metadata.set(key, fields)
+      await provider.set({ service: PROVIDER_SERVICE, account: key }, JSON.stringify(secrets))
+      return `credential:${resourceKey}`
     },
   }
 }
 
-function bindingText(binding) {
-  return `${binding.componentId}:${binding.capability}:${binding.slot}:${binding.resource.type}/${binding.resource.id}`
-}
-
-function fixture() {
-  const root = mkdtempSync(join(tmpdir(), 'locus-core-remote-'))
+function fixture(t, { components = {} } = {}) {
+  const root = mkdtempSync(join(tmpdir(), 'locus-rt-op-'))
   const provider = createMemoryCredentialProvider()
-  let host
-  const core = createLocusCore({
-    dataDirectory: join(root, 'data'),
-    components: [component],
-    security: { store: createMemorySecurityStore(), provider, receiveHost(value) { host = value } },
+  const credentials = credentialPort(provider)
+  const events = []
+  t.after(() => {
+    provider.dispose()
+    rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   })
-  const session = host.createSession('agent')
-  const port = host.bindComponent(session, component)
-  async function privileged(operation) {
-    try {
-      return await operation()
-    } catch (error) {
-      if (error.code !== 'authentication-required') throw error
-      assert.ok(error.challenge)
-      return await host.resume(await host.authenticate(error.challenge, ROOT_PASSWORD))
-    }
-  }
-  function register(capability, resource, input) {
-    return privileged(() => port.execute({ capability, resource, parameters: {} }, (context) => api[capability](context, input)))
-  }
-  return {
-    root,
-    core,
-    provider,
-    host,
-    session,
-    port,
-    register,
-    initialize: () => host.initializeRoot(ROOT_PASSWORD, ROOT_PASSWORD),
-    close: async () => {
-      host.endSession(session)
-      await core.dispose()
-      rmSync(root, { recursive: true, force: true })
+  const context = (pathParams = {}) => ({
+    dataDirectory: root,
+    url: { pathParams },
+    components: { get: (id) => components[id] },
+    credential: credentials,
+    emit(type, data) {
+      events.push({ type, data })
     },
-  }
+  })
+  const targetsRoot = join(root, 'remote-targets')
+  return { root, provider, credentials, events, context, targetsRoot }
 }
 
-test('实际 Core 精确绑定目标、普通 User 不认证，缺失与权限拒绝分开', async (t) => {
-  const f = fixture()
-  let started = false
-  const service = createRemoteTargetsService({
-    root: join(f.root, 'targets'),
-    security: accessPort(f.port),
-    runner: { async run() { started = true; return { exitCode: 0, stdout: 'authorized-command', stderr: '' } }, async interactive() { started = true; return 0 } },
-  })
-  t.after(async () => { service.dispose(); await f.close() })
-  service.add('target-a', targetSpec())
-  service.add('target-b', targetSpec('credential:target-b'))
+test('register 写目标与凭据材料，秘密只在 provider，list/get/remove 通过 handler', async (t) => {
+  const f = fixture(t, { components: { openssh: { id: 'openssh', kind: 'external', state: 'healthy' } } })
 
-  await assert.rejects(() => service.exec('target-a', ['whoami']), (error) => error.code === 'security-uninitialized')
-  await f.initialize()
-  for (const operation of [() => service.probe('target-b'), () => service.exec('target-b', ['whoami']), () => service.shell('target-b')]) {
-    await assert.rejects(operation, (error) => error.code === 'access-denied' && error.reason === 'credential-binding-mismatch')
-  }
+  const created = await register.run(undefined, {
+    spec: JSON.stringify(privateKeySpec()),
+    privateKey: 'private-key-material',
+  }, f.context({ id: 'target-a' }))
+  assert.equal(created.id, 'target-a')
+  assert.deepEqual(created.identity.auth, { method: 'private-key' })
+  assert.equal(f.events.at(-1).type, 'locus.rt.target.registered')
+  assert.deepEqual(f.events.at(-1).data, { target: 'target-a' })
 
-  const bindingA = targetBinding(service.show('target-a'))
-  await f.register('register-private-key', RESOURCE_A, {
-    credential: CREDENTIAL, targetBinding: bindingA, privateKey: PRIVATE_KEY,
-  })
-  const management = f.host.forSession(f.session)
-  const bindings = await management.listBindings()
-  assert.deepEqual(bindings.map(bindingText).sort(), [
-    'remote-targets:private-key-access:ssh-private-key:remote-target/target-a',
-    'remote-targets:register-private-key:ssh-private-key:remote-target/target-a',
-  ])
-  const [metadata] = await management.listCredentials()
-  assert.equal(metadata?.reference, CREDENTIAL)
-  assert.deepEqual(Object.keys(metadata?.fields ?? {}), ['targetBinding'])
-  assert.equal(metadata.fields.targetBinding, bindingA)
+  const config = readFileSync(join(f.targetsRoot, 'targets.yaml'), 'utf8')
+  assert.match(config, /id: target-a/)
+  assert.match(config, /method: private-key/)
+  assert.equal(config.includes('private-key-material'), false)
+  assert.equal(config.includes('credential:'), false)
 
-  const installation = await f.core.security.status()
-  const key = { service: `locus:${installation.installationId}:production`, account: 'target-a' }
-  await f.provider.delete(key)
-  await assert.rejects(() => service.exec('target-a', ['whoami']), (error) => error.code === 'credential-missing')
-  assert.equal(started, false)
+  const stored = JSON.parse(await f.provider.get({ service: PROVIDER_SERVICE, account: 'ssh-private-key:target-a' }))
+  assert.deepEqual(stored, { privateKey: 'private-key-material' })
+  const metadata = f.credentials.metadata.get('ssh-private-key:target-a')
+  assert.deepEqual(Object.keys(metadata), ['targetBinding'])
+  assert.equal(metadata.targetBinding, targetBinding(created))
+  assert.match(metadata.targetBinding, /^[a-f0-9]{64}$/)
 
-  await f.register('register-private-key', RESOURCE_A, {
-    credential: CREDENTIAL, targetBinding: bindingA, privateKey: PRIVATE_KEY,
-  })
-  const result = await service.exec('target-a', ['whoami'])
-  assert.equal(result.exitCode, 0)
-  assert.equal(started, true)
+  const listed = await list.run(undefined, undefined, f.context())
+  assert.deepEqual(listed.map((target) => target.id), ['target-a'])
+  const shown = await get.run(undefined, undefined, f.context({ id: 'target-a' }))
+  assert.equal(shown.id, 'target-a')
+  await assert.rejects(
+    async () => get.run(undefined, undefined, f.context({ id: 'missing' })),
+    (error) => error.code === 'target-not-found',
+  )
+
+  const removed = await remove.run(undefined, undefined, f.context({ id: 'target-a' }))
+  assert.deepEqual(removed, { target: 'target-a', removed: true })
+  assert.equal(f.events.at(-1).type, 'locus.rt.target.removed')
+  assert.equal((await list.run(undefined, undefined, f.context())).length, 0)
 })
 
-test('目标安全配置变化后必须由 Root 重新登记绑定', async (t) => {
-  const f = fixture()
-  let started = false
-  const service = createRemoteTargetsService({
-    root: join(f.root, 'targets'),
-    security: accessPort(f.port),
-    runner: { async run() { started = true; return { exitCode: 0, stdout: 'authorized', stderr: '' } }, async interactive() { started = true; return 0 } },
-  })
-  t.after(async () => { service.dispose(); await f.close() })
-  await f.initialize()
-  service.add('target-a', targetSpec())
-  const binding = targetBinding(service.show('target-a'))
-  await f.register('register-private-key', RESOURCE_A, {
-    credential: CREDENTIAL, targetBinding: binding, privateKey: PRIVATE_KEY,
-  })
-  const first = await service.exec('target-a', ['whoami'])
-  assert.equal(first.exitCode, 0)
-  assert.equal(started, true)
+test('register 缺少秘密或使用旧契约字段时拒绝且不落盘', async (t) => {
+  const f = fixture(t)
 
-  started = false
-  service.remove('target-a')
-  service.add('target-a', {
-    ...targetSpec(),
-    connectivity: { ...targetSpec().connectivity, host: 'attacker.example' },
-  })
   await assert.rejects(
-    () => service.exec('target-a', ['whoami']),
+    register.run(undefined, { spec: JSON.stringify(privateKeySpec()) }, f.context({ id: 'target-a' })),
+    (error) => error.code === 'invalid-argument',
+  )
+  await assert.rejects(
+    register.run(undefined, {
+      spec: JSON.stringify({
+        ...privateKeySpec(),
+        identity: { login: 'root', auth: { method: 'private-key', credential: 'credential:key' } },
+      }),
+      privateKey: 'private-key-material',
+    }, f.context({ id: 'target-a' })),
+    (error) => error.code === 'invalid-spec',
+  )
+  assert.equal(existsSync(join(f.targetsRoot, 'targets.yaml')), false)
+  assert.equal(f.events.length, 0)
+})
+
+test('密码目标登记与 credential.update 只改写秘密，不改变目标配置', async (t) => {
+  const f = fixture(t)
+  const created = await register.run(undefined, {
+    spec: JSON.stringify(passwordSpec()),
+    password: 'password-one',
+  }, f.context({ id: 'pw' }))
+  assert.deepEqual(created.identity.auth, { method: 'password' })
+  const configFile = join(f.targetsRoot, 'targets.yaml')
+  const config = readFileSync(configFile, 'utf8')
+  assert.equal(config.includes('password-one'), false)
+
+  await assert.rejects(
+    updateCredential.run(undefined, { method: 'private-key', privateKey: 'key' }, f.context({ id: 'pw' })),
+    (error) => error.code === 'invalid-argument',
+  )
+
+  const updated = await updateCredential.run(undefined, { method: 'password', password: 'password-two' }, f.context({ id: 'pw' }))
+  assert.deepEqual(updated, { target: 'pw', method: 'password', updated: true })
+  assert.equal(f.events.at(-1).type, 'locus.rt.credential.updated')
+  assert.deepEqual(
+    JSON.parse(await f.provider.get({ service: PROVIDER_SERVICE, account: 'ssh-password:pw' })),
+    { password: 'password-two' },
+  )
+  assert.equal(readFileSync(configFile, 'utf8'), config)
+})
+
+test('migrate 从旧文件认证写入 Core 凭据并改写目标，旧文件保留', async (t) => {
+  const f = fixture(t)
+  const legacyFile = join(f.targetsRoot, 'credentials', 'legacy', 'password')
+  mkdirSync(dirname(legacyFile), { recursive: true })
+  writeFileSync(legacyFile, 'legacy-secret', 'utf8')
+  writeFileSync(join(f.targetsRoot, 'targets.yaml'), `version: 1
+targets:
+  - id: legacy
+    resource:
+      kind: server
+    identity:
+      login: root
+      auth:
+        method: password
+        path: credentials/legacy/password
+    connectivity:
+      host: 127.0.0.1
+      port: 22
+      remoteShell: posix
+`, 'utf8')
+
+  const migrated = await migrate.run(undefined, { method: 'password', password: 'new-secret' }, f.context({ id: 'legacy' }))
+  assert.deepEqual(migrated.identity.auth, { method: 'password' })
+  assert.equal(f.events.at(-1).type, 'locus.rt.target.migrated')
+  assert.deepEqual(
+    JSON.parse(await f.provider.get({ service: PROVIDER_SERVICE, account: 'ssh-password:legacy' })),
+    { password: 'new-secret' },
+  )
+  assert.equal(readFileSync(legacyFile, 'utf8'), 'legacy-secret')
+  const config = readFileSync(join(f.targetsRoot, 'targets.yaml'), 'utf8')
+  assert.equal(config.includes('path: credentials/legacy/password'), false)
+  assert.equal(config.includes('new-secret'), false)
+
+  await assert.rejects(
+    migrate.run(undefined, { method: 'password', password: 'again' }, f.context({ id: 'legacy' })),
+    (error) => error.code === 'already-migrated',
+  )
+})
+
+test('目标配置变化后 job handler 在使用旧绑定时拒绝，且不启动传输', async (t) => {
+  const f = fixture(t, { components: { openssh: { id: 'openssh', kind: 'external', state: 'healthy' } } })
+  await register.run(undefined, {
+    spec: JSON.stringify(privateKeySpec()),
+    privateKey: 'private-key-material',
+  }, f.context({ id: 'target-a' }))
+
+  const configFile = join(f.targetsRoot, 'targets.yaml')
+  writeFileSync(configFile, readFileSync(configFile, 'utf8').replace('host: 127.0.0.1', 'host: attacker.example'), 'utf8')
+
+  await assert.rejects(
+    job.run(undefined, { command: ['whoami'] }, f.context({ id: 'target-a' })),
     (error) => error instanceof RemoteTargetsFailure && error.code === 'target-config-mismatch',
   )
-  assert.equal(started, false)
-
-  // Root 重新登记新的目标摘要后才恢复；不是普通请求参数可以绕过。
-  await f.register('register-private-key', RESOURCE_A, {
-    credential: CREDENTIAL,
-    targetBinding: targetBinding(service.show('target-a')),
-    privateKey: PRIVATE_KEY,
-  })
-  const approved = await service.exec('target-a', ['whoami'])
-  assert.equal(approved.exitCode, 0)
-  assert.equal(started, true)
 })
 
-test('密码槽经 Core 绑定，合并后的 password 字段进入临时文件', async (t) => {
-  const f = fixture()
-  let delivered
-  let started = false
-  const service = createRemoteTargetsService({
-    root: join(f.root, 'targets'),
-    security: accessPort(f.port),
-    runner: {
-      async run(_command, args) {
-        started = true
-        delivered = readFileSync(args[args.indexOf('-pwfile') + 1], 'utf8')
-        return { exitCode: 0, stdout: 'pw-ok', stderr: '' }
-      },
-      async interactive() { started = true; return 0 },
-    },
-  })
-  t.after(async () => { service.dispose(); await f.close() })
-  await f.initialize()
-  service.add('target-pw', passwordSpec())
-
-  await f.register('register-password', { type: 'remote-target', id: 'target-pw' }, {
-    credential: 'credential:target-pw', targetBinding: targetBinding(service.show('target-pw')), password: 'pw-secret',
-  })
-  const bindings = await f.host.forSession(f.session).listBindings()
-  assert.deepEqual(bindings.map(bindingText).sort(), [
-    'remote-targets:password-access:ssh-password:remote-target/target-pw',
-    'remote-targets:register-password:ssh-password:remote-target/target-pw',
-  ])
-
-  const result = await service.exec('target-pw', ['whoami'])
-  assert.deepEqual(result, { targetId: 'target-pw', exitCode: 0, stdout: 'pw-ok', stderr: '' })
-  assert.equal(started, true)
-  assert.equal(delivered, 'pw-secret')
-})
-
-test('缺少 Core 授权入口时 probe/exec/shell 在执行前拒绝', async (t) => {
-  const root = mkdtempSync(join(tmpdir(), 'locus-remote-security-'))
-  t.after(() => rmSync(root, { recursive: true, force: true }))
-  let started = false
-  const service = createRemoteTargetsService({ root, runner: { async run() { started = true; throw new Error('不应启动') }, async interactive() { started = true; throw new Error('不应启动') } } })
+test('凭据缺失时 job/system/services/restart handler 在启动传输前失败', async (t) => {
+  const root = mkdtempSync(join(tmpdir(), 'locus-rt-missing-'))
+  t.after(() => rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }))
+  const service = createRemoteTargetsService({ root: join(root, 'remote-targets') })
   t.after(() => service.dispose())
-  service.add('target-a', targetSpec())
-  for (const operation of [() => service.probe('target-a'), () => service.exec('target-a', ['whoami']), () => service.shell('target-a')]) {
-    await assert.rejects(operation, (error) => error.code === 'access-denied')
+  service.add('win-x', {
+    resource: { kind: 'windows-device' },
+    identity: { login: 'Administrator', auth: { method: 'private-key' } },
+    connectivity: { host: '127.0.0.1' },
+  })
+
+  const provider = createMemoryCredentialProvider()
+  t.after(() => provider.dispose())
+  const events = []
+  const context = (pathParams) => ({
+    dataDirectory: root,
+    url: { pathParams },
+    components: { get: () => undefined },
+    credential: credentialPort(provider),
+    emit(type, data) { events.push({ type, data }) },
+  })
+
+  for (const [op, input] of [
+    [job, { command: ['whoami'] }],
+    [operation('rt.system.read'), undefined],
+    [operation('rt.services.list'), undefined],
+    [operation('rt.service.restart'), undefined],
+  ]) {
+    await assert.rejects(
+      op.run(undefined, input, context({ id: 'win-x' })),
+      (error) => error.code === 'credential-missing',
+    )
   }
-  assert.equal(started, false)
+  assert.equal(events.length, 0)
 })

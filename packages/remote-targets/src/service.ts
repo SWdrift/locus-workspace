@@ -1,7 +1,5 @@
 import { mkdirSync } from 'node:fs'
-import { dirname, isAbsolute } from 'node:path'
-import { isCredentialRef } from '@locus/core'
-import type { CredentialRef } from '@locus/core'
+import { dirname } from 'node:path'
 import { normalizeTargetFromSpec, parseAddSpecText, targetBinding } from './config.ts'
 import { withCredentialFile } from './credentials.ts'
 import { buildSshInvocation, createProcessRunner, resolveUnderRoot } from './ssh.ts'
@@ -16,9 +14,10 @@ import {
   type CredentialMigration,
   type ExecResult,
   type ProbeResult,
-  type RemoteTarget,
-  type RemoteSecurity,
+  type RemoteCredentialMaterial,
   type RemoteCredentialSlot,
+  type RemoteService,
+  type RemoteTarget,
   type RemoteTargetsService,
 } from './types.ts'
 
@@ -53,14 +52,42 @@ function credentialSlot(method: AuthMethod): RemoteCredentialSlot {
   return method === 'password' ? 'ssh-password' : 'ssh-private-key'
 }
 
+function powershellCommand(script: string): readonly string[] {
+  return [
+    'powershell.exe',
+    '-NoProfile',
+    '-NonInteractive',
+    '-EncodedCommand',
+    Buffer.from(script, 'utf16le').toString('base64'),
+  ]
+}
+
+function parseServiceOutput(stdout: string): readonly RemoteService[] {
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(stdout)
+  } catch {
+    throw new RemoteTargetsFailure('io', '无法解析远端服务列表')
+  }
+  const values = Array.isArray(parsed) ? parsed : [parsed]
+  const services: RemoteService[] = []
+  for (const value of values) {
+    if (value === null || typeof value !== 'object') continue
+    const item = value as Record<string, unknown>
+    if (typeof item.Name === 'string' && typeof item.Status === 'string') {
+      services.push({ name: item.Name, status: item.Status })
+    }
+  }
+  return Object.freeze(services.sort((left, right) => left.name.localeCompare(right.name)))
+}
+
 /** 目标定义写 YAML，探测结果写 SQLite；传输一律经系统 SSH/Plink。 */
 export function createRemoteTargetsService(options: {
   readonly root: string
   readonly runner?: CommandRunner
   readonly components?: ComponentGate
-  readonly security?: RemoteSecurity
 }): RemoteTargetsService {
-  if (!isAbsolute(options.root)) {
+  if (!options.root.startsWith('/') && !/^[A-Za-z]:[\\/]/.test(options.root)) {
     throw new RemoteTargetsFailure('invalid-spec', 'remote-targets 根目录必须是绝对路径')
   }
   const root = options.root
@@ -102,30 +129,52 @@ export function createRemoteTargetsService(options: {
     }
   }
 
-  async function withCredential<T>(
+  function requireCmd(target: RemoteTarget, operation: string): void {
+    if (target.connectivity.remoteShell !== 'cmd') {
+      throw new RemoteTargetsFailure(
+        'capability-unsupported',
+        `目标 ${target.id} 的 remoteShell 是 ${target.connectivity.remoteShell}；${operation} 仅支持 cmd`,
+      )
+    }
+  }
+
+  async function withPotential<T>(
     target: RemoteTarget,
+    material: RemoteCredentialMaterial,
     consume: (credentialPath: string) => Promise<T>,
   ): Promise<T> {
-    if (options.security === undefined) throw new RemoteTargetsFailure('access-denied', '远程执行需要组合根注入 Core 授权与凭据交付')
     const auth = target.identity.auth
-    if (auth.credential === undefined) {
-      throw new RemoteTargetsFailure('migration-required', `目标 ${target.id} 仍使用旧文件认证；需要显式迁移到 CredentialRef`)
+    if (auth.method === 'key' || auth.path !== undefined) {
+      throw new RemoteTargetsFailure(
+        'migration-required',
+        `目标 ${target.id} 仍使用旧文件认证；需要显式迁移到 Core 凭据绑定`,
+      )
     }
     const slot = credentialSlot(auth.method)
-    return options.security.withCredential(target.id, slot, auth.credential, targetBinding(target), async (values) => {
-      const secret = slot === 'ssh-password' ? values.password : values.privateKey
-      if (secret === undefined) throw new RemoteTargetsFailure('invalid-spec', `目标 ${target.id} 缺少 ${slot} 字段`)
-      if (slot === 'ssh-private-key' && values.passphrase !== undefined) {
-        throw new RemoteTargetsFailure('encrypted-key-unsupported', '私钥带口令；不会自动去除口令，需先确定口令交付方案')
-      }
-      return withCredentialFile(secret, (path) => consume(path))
-    })
+    if (material.slot !== slot) {
+      throw new RemoteTargetsFailure('invalid-spec', `目标认证方式与凭据槽不匹配：需要 ${slot}`)
+    }
+    if (material.values.targetBinding !== targetBinding(target)) {
+      throw new RemoteTargetsFailure(
+        'target-config-mismatch',
+        `目标 ${target.id} 配置已变化；需要 Root 重新登记或确认`,
+      )
+    }
+    const secret = slot === 'ssh-password' ? material.values.password : material.values.privateKey
+    if (secret === undefined) throw new RemoteTargetsFailure('credential-missing', `目标 ${target.id} 缺少 ${slot} 字段`)
+    if (slot === 'ssh-private-key' && material.values.passphrase !== undefined) {
+      throw new RemoteTargetsFailure('encrypted-key-unsupported', '私钥带口令；不会自动去除口令，需先确定口令交付方案')
+    }
+    return withCredentialFile(secret, consume)
   }
 
   function addTarget(id: string, spec: unknown, addOptions?: AddOptions): RemoteTarget {
     const target = normalizeTargetFromSpec(spec, id)
-    if (target.identity.auth.credential === undefined) {
-      throw new RemoteTargetsFailure('migration-required', '新目标必须使用 identity.auth.credential；旧 path/root 仅用于迁移读取')
+    if (target.identity.auth.method !== 'private-key' && target.identity.auth.method !== 'password') {
+      throw new RemoteTargetsFailure(
+        'migration-required',
+        '新目标必须使用 method: private-key 或 password；旧 path/root 仅用于迁移读取',
+      )
     }
     const targets = store.load()
     if (targets.some((item) => item.id === target.id)) {
@@ -165,33 +214,36 @@ export function createRemoteTargetsService(options: {
     credentialMigration(reference): CredentialMigration {
       const target = resolveTarget(store.load(), reference)
       const auth = target.identity.auth
-      if (auth.credential !== undefined) throw new RemoteTargetsFailure('already-migrated', `目标 ${target.id} 已使用 CredentialRef`)
-      if (auth.path === undefined || (auth.method !== 'key' && auth.method !== 'password')) {
+      if (auth.method !== 'key' && (auth.path === undefined || auth.method !== 'password')) {
+        throw new RemoteTargetsFailure('already-migrated', `目标 ${target.id} 已使用 Core 凭据绑定`)
+      }
+      if (auth.path === undefined) {
         throw new RemoteTargetsFailure('invalid-spec', `目标 ${target.id} 缺少可迁移的旧认证文件`)
       }
-      return { method: auth.method, path: resolveUnderRoot(auth.root ?? root, auth.path) }
+      return { method: auth.method === 'key' ? 'key' : 'password', path: resolveUnderRoot(auth.root ?? root, auth.path) }
     },
-    useCredential(reference, credential): RemoteTarget {
-      if (!isCredentialRef(credential)) throw new RemoteTargetsFailure('invalid-spec', '必须使用 credential:<id> 引用')
+    useCredential(reference) {
       const targets = store.load()
       const target = resolveTarget(targets, reference)
       const auth = target.identity.auth
-      if (auth.credential !== undefined) throw new RemoteTargetsFailure('already-migrated', `目标 ${target.id} 已使用 CredentialRef`)
+      if (auth.method !== 'key' && auth.path === undefined) {
+        throw new RemoteTargetsFailure('already-migrated', `目标 ${target.id} 已使用 Core 凭据绑定`)
+      }
       if (auth.method !== 'key' && auth.method !== 'password') {
         throw new RemoteTargetsFailure('invalid-spec', `目标 ${target.id} 的旧认证方式不可迁移`)
       }
-      const method = auth.method === 'key' ? 'private-key' : 'password'
+      const method: 'private-key' | 'password' = auth.method === 'key' ? 'private-key' : 'password'
       const migrated: RemoteTarget = {
         ...target,
-        identity: { ...target.identity, auth: { method, credential: credential as CredentialRef } },
+        identity: { ...target.identity, auth: { method } },
       }
       store.save(targets.map((item) => (item.id === target.id ? migrated : item)))
       return migrated
     },
-    async probe(reference): Promise<ProbeResult> {
+    async probe(reference, material): Promise<ProbeResult> {
       const target = resolveTarget(store.load(), reference)
       requireTransport(target)
-      const probe = await withCredential(target, async (credentialPath) => {
+      const probe = await withPotential(target, material, async (credentialPath) => {
         const invocation = buildSshInvocation(target, root, ['whoami'], credentialPath)
         const result = await runner.run(invocation.command, invocation.args, { timeoutMs: 15_000 })
         const detail = (result.exitCode === 0 ? result.stdout : result.stderr).trim()
@@ -206,26 +258,94 @@ export function createRemoteTargetsService(options: {
       state.record(probe)
       return probe
     },
-    async exec(reference, command): Promise<ExecResult> {
+    async exec(reference, command, material): Promise<ExecResult> {
       const target = resolveTarget(store.load(), reference)
       requireCapability(target, 'exec')
       requireTransport(target)
       if (command.length === 0) {
         throw new RemoteTargetsFailure('invalid-spec', 'exec 需要至少一条远端命令')
       }
-      return withCredential(target, async (credentialPath) => {
+      return withPotential(target, material, async (credentialPath) => {
         const invocation = buildSshInvocation(target, root, command, credentialPath)
         const result = await runner.run(invocation.command, invocation.args)
         return { targetId: target.id, ...result }
       })
     },
-    async shell(reference): Promise<number> {
+    async shell(reference, material): Promise<number> {
       const target = resolveTarget(store.load(), reference)
       requireCapability(target, 'shell')
       requireTransport(target)
-      return withCredential(target, async (credentialPath) => {
+      return withPotential(target, material, async (credentialPath) => {
         const invocation = buildSshInvocation(target, root, [], credentialPath)
         return runner.interactive(invocation.command, invocation.args)
+      })
+    },
+    async system(reference, material): Promise<ProbeResult> {
+      const target = resolveTarget(store.load(), reference)
+      requireTransport(target)
+      const probe = await withPotential(target, material, async (credentialPath) => {
+        const invocation = buildSshInvocation(
+          target,
+          root,
+          ['hostname'],
+          credentialPath,
+        )
+        const result = await runner.run(invocation.command, invocation.args, { timeoutMs: 15_000 })
+        const detail = (result.exitCode === 0 ? result.stdout : result.stderr).trim()
+          || `退出码 ${result.exitCode}`
+        return {
+          targetId: target.id,
+          ok: result.exitCode === 0,
+          detail: detail.slice(0, 500),
+          checkedAt: new Date().toISOString(),
+        } satisfies ProbeResult
+      })
+      state.record(probe)
+      return probe
+    },
+    async services(reference, material): Promise<readonly RemoteService[]> {
+      const target = resolveTarget(store.load(), reference)
+      requireTransport(target)
+      requireCmd(target, 'services')
+      return withPotential(target, material, async (credentialPath) => {
+        const invocation = buildSshInvocation(
+          target,
+          root,
+          powershellCommand('Get-Service | Select-Object Name,Status | ConvertTo-Json -Compress'),
+          credentialPath,
+        )
+        const result = await runner.run(invocation.command, invocation.args, { timeoutMs: 30_000 })
+        if (result.exitCode !== 0) {
+          throw new RemoteTargetsFailure('io', result.stderr.trim() || `退出码 ${result.exitCode}`)
+        }
+        return parseServiceOutput(result.stdout)
+      })
+    },
+    async restartService(reference, name, material): Promise<RemoteService> {
+      if (!/^[A-Za-z0-9_. -]{1,128}$/.test(name)) {
+        throw new RemoteTargetsFailure('invalid-spec', `服务名不合法：${name}`)
+      }
+      const target = resolveTarget(store.load(), reference)
+      requireTransport(target)
+      requireCmd(target, 'restart')
+      return withPotential(target, material, async (credentialPath) => {
+        const escaped = name.replace(/'/g, "''")
+        const invocation = buildSshInvocation(
+          target,
+          root,
+          powershellCommand(
+            `Restart-Service -Name '${escaped}' -ErrorAction Stop; ` +
+            `Get-Service -Name '${escaped}' | Select-Object Name,Status | ConvertTo-Json -Compress`,
+          ),
+          credentialPath,
+        )
+        const result = await runner.run(invocation.command, invocation.args, { timeoutMs: 60_000 })
+        if (result.exitCode !== 0) {
+          throw new RemoteTargetsFailure('io', result.stderr.trim() || `退出码 ${result.exitCode}`)
+        }
+        const [service] = parseServiceOutput(result.stdout)
+        if (service === undefined) throw new RemoteTargetsFailure('io', '无法解析服务状态')
+        return service
       })
     },
     dispose() {

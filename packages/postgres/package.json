@@ -19,7 +19,8 @@
   },
   "dependencies": {
     "@locus/core": "workspace:*",
-    "pg": "catalog:"
+    "pg": "catalog:",
+    "zod": "catalog:"
   },
   "devDependencies": {}
 }

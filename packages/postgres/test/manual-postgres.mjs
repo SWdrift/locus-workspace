@@ -4,14 +4,12 @@ import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'no
 import { createServer } from 'node:net'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
-import { createLocusCore, createMemoryCredentialProvider, createMemorySecurityStore } from '@locus/core'
-import { api, component } from '../lib/index.js'
+import { createDispatcher, createLocusCore, createMemoryCredentialProvider, createMemorySecurityStore } from '@locus/core'
+import { component, operations } from '../lib/index.js'
 
 const BIN = process.env.PGBIN ?? 'C:/Program Files/PostgreSQL/16/bin'
 const ROOT = 'manual-root-password'
 const APP_PASSWORD = 'manual-postgres-app-password'
-const REFERENCE = 'credential:postgres-local'
-const RESOURCE = { type: 'database', id: 'local' }
 const report = { postgresServer: 'unverified', postgresConsumer: 'unverified' }
 const cleanup = []
 let root
@@ -56,40 +54,45 @@ try {
 
     let host
     const core = createLocusCore({
-      dataDirectory: join(root, 'locus'), components: [component],
+      dataDirectory: join(root, 'locus'), components: [{ component, operations }],
       security: { store: createMemorySecurityStore(), provider: createMemoryCredentialProvider(), receiveHost(value) { host = value } },
     })
     cleanup.push(() => core.dispose())
     await host.initializeRoot(ROOT, ROOT)
     const session = host.createSession('agent')
     cleanup.push(() => { try { host.endSession(session) } catch {} })
-    const security = host.bindComponent(session, component)
-    async function privileged(action) {
-      let challenge
-      try { await action() } catch (error) { if (error.code !== 'authentication-required') throw error; challenge = error.challenge }
-      assert.ok(challenge)
-      await host.resume(await host.authenticate(challenge, ROOT))
-    }
-    await privileged(() => security.execute(
-      { capability: 'register', resource: RESOURCE, parameters: {} },
-      (context) => api.register(context, {
-        credential: REFERENCE,
-        host: '127.0.0.1',
-        port: String(port),
-        database: 'locus_app',
-        username: 'locus_app',
-        password: APP_PASSWORD,
-      }),
-    ))
-    const result = await security.execute(
-      { capability: 'list', resource: RESOURCE, parameters: {} },
-      (context) => api.list(context, {
-        credential: REFERENCE,
-        sql: 'select current_user as user, 1 as value',
-      }),
+    const dispatcher = createDispatcher(
+      core.router, host, session, core.events, core.dataDirectory,
+      { get: () => undefined },
     )
-    assert.equal(result.rows[0].user, 'locus_app')
-    assert.equal(result.rows[0].value, 1)
+    /** root operation 先返回认证挑战；通过后 resume 同一个闭包得到结果。 */
+    async function privileged(action) {
+      const pending = await action()
+      if (pending.ok) return pending
+      const challenge = pending.error.details?.challenge
+      assert.ok(challenge, `期望认证挑战，实际：${JSON.stringify(pending.error)}`)
+      return host.resume(await host.authenticate(challenge, ROOT))
+    }
+
+    const registered = await privileged(() => dispatcher.invoke(
+      {
+        method: 'PUT',
+        uri: 'pg://databases/local',
+        contentType: 'application/json',
+        body: { host: '127.0.0.1', port: String(port), database: 'locus_app', username: 'locus_app' },
+      },
+      { password: APP_PASSWORD },
+    ))
+    assert.equal(registered.ok, true)
+    const result = await dispatcher.invoke({
+      method: 'POST',
+      uri: 'pg://databases/local/queries',
+      contentType: 'application/json',
+      body: { sql: 'select current_user as user, 1 as value' },
+    })
+    assert.equal(result.ok, true)
+    assert.equal(result.data.rows[0].user, 'locus_app')
+    assert.equal(result.data.rows[0].value, 1)
     report.postgresConsumer = 'verified: real pg.Pool authenticated with Core-delivered username/password fields and executed select'
     console.log(JSON.stringify(report))
   }
