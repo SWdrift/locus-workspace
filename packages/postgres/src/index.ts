@@ -1,7 +1,6 @@
 import { parseCredentialRef, SecurityFailure } from '@locus/core'
 import type { CapabilityContext, CapabilityHandler, CredentialRef } from '@locus/core'
 import { defineComponent } from '@locus/core'
-import { Pool } from 'pg'
 
 export interface PostgresRegisterInput {
   readonly credential: CredentialRef
@@ -66,6 +65,8 @@ const register: CapabilityHandler<PostgresRegisterInput, { readonly registered: 
 
 const list: CapabilityHandler<PostgresQueryInput, PostgresQueryResult> = async (context, input) => {
   const reference = parseCredentialRef(input.credential)
+  // 只有 pg list 连接数据库；延迟加载驱动，普通命令不支付 pg 与 dns 的导入成本。
+  const { Pool } = await import('pg')
   const lease = await createPostgresPool(context, 'database-auth', reference, (parameters) => new Pool(parameters))
   try {
     const result = await lease.pool.query(input.sql, input.values ?? [])

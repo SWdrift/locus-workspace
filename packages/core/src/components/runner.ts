@@ -1,6 +1,5 @@
 import { accessSync, constants, statSync } from 'node:fs'
 import { delimiter, isAbsolute, join } from 'node:path'
-import { execa } from 'execa'
 
 export interface ComponentCommandResult {
   readonly exitCode: number
@@ -87,6 +86,8 @@ export function createComponentRunner(): ComponentRunner {
         return { exitCode: 1, stdout: '', stderr: '', errorCode: 'ENOENT', timedOut: false }
       }
       try {
+        // 只有探针与部署需要 execa；延迟到执行边界，普通命令不支付其导入成本。
+        const { execa } = await import('execa')
         const result = await execa(command, [...args], {
           reject: false,
           timeout: options.timeoutMs,

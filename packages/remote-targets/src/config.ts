@@ -1,7 +1,6 @@
 import { createHash } from 'node:crypto'
 import { isAbsolute } from 'node:path'
 import { isCredentialRef } from '@locus/core'
-import { parse as parseYaml, stringify as stringifyYaml } from 'yaml'
 import {
   RemoteTargetsFailure,
   type Capability,
@@ -14,6 +13,7 @@ import {
   type RemoteShell,
   type TargetVia,
 } from './types.ts'
+import { parseYamlDocument, stringifyYamlDocument } from './yaml.ts'
 
 type JsonObject = Record<string, unknown>
 
@@ -82,7 +82,7 @@ function validateRelativePath(value: string, path: string): void {
 
 function parseText(text: string): unknown {
   try {
-    return parseYaml(text)
+    return parseYamlDocument(text)
   } catch (error) {
     failure(`无法解析配置：${error instanceof Error ? error.message : String(error)}`)
   }
@@ -297,5 +297,5 @@ export function targetBinding(target: RemoteTarget): string {
 }
 
 export function serializeDocument(targets: readonly RemoteTarget[]): string {
-  return stringifyYaml({ version: DOCUMENT_VERSION, targets }, { lineWidth: 0 })
+  return stringifyYamlDocument({ version: DOCUMENT_VERSION, targets }, { lineWidth: 0 })
 }

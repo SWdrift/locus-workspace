@@ -1,5 +1,4 @@
 import { constants } from 'node:fs'
-import { execa } from 'execa'
 import { chmod, lstat, mkdtemp, open, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -60,6 +59,8 @@ async function permissions(targets: readonly AclTarget[]): Promise<void> {
     }
     return
   }
+  // Windows ACL 才需要 PowerShell 执行；延迟加载 execa，非凭据命令不支付其导入成本。
+  const { execa } = await import('execa')
   const result = await execa('powershell.exe', ['-NoProfile', '-NonInteractive', '-EncodedCommand', Buffer.from(ACL_SCRIPT, 'utf16le').toString('base64')], {
     input: JSON.stringify({ paths: targets.map(({ path, directory }) => ({ path, directory })) }),
     reject: false,

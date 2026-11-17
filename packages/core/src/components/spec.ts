@@ -1,6 +1,6 @@
 import { isAbsolute } from 'node:path'
-import { parse } from 'yaml'
 import type { CapabilityContext } from '../security/types.ts'
+import { parseYamlDocument } from './yaml.ts'
 
 /** 组件类别：包提供的组件，或仅在数据目录登记的外部组件。 */
 export type ComponentKind = 'locus' | 'external'
@@ -622,7 +622,7 @@ function validateComponent(input: unknown, options: ValidationOptions): Validate
 
 function parseYaml(text: string): unknown {
   try {
-    return parse(text)
+    return parseYamlDocument(text)
   } catch (error) {
     throw new ComponentFailure(
       'invalid-spec',
