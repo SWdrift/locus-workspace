@@ -42,7 +42,6 @@ pnpm locus shell <workspace>
 
 ## 安全 Host 与 Profile
 
-仓库根 `.env` 不再随开发环境提供；开发 shell 使用 `.env.dev`（`LOCUS_HOME=temp`、`LOCUS_FOLDER_NAME=.locus`），由 bash/cmd 先加载，CLI 自身不读取 `.env.dev`。手工验证如果改用其他数据目录，应显式覆盖这两个变量或切换 CWD；不同初始化路径出现的 `security-uninitialized` 不是 Core 故障。开发环境变量与 Root 脚本约定见[开发与验证](../../docs/development.md)。
 仓库根 `.env` 不再随开发环境提供；开发 shell 使用 `.env.dev`（`LOCUS_HOME=temp/.locus`、开发用 `_LOCUS_ROOT_PASSWORD`），pro 使用 `.env.pro`（`LOCUS_HOME=~/.locus`），两者都由 bash/cmd 先加载，CLI 自身不读取。手工验证如果改用其他数据目录，应显式覆盖该变量或切换 CWD；不同初始化路径出现的 `security-uninitialized` 不是 Core 故障。开发环境变量与 Root 脚本约定见[开发与验证](../../docs/development.md)。
 
 

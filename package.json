@@ -16,6 +16,10 @@
     "verify": "pnpm build && pnpm test && pnpm docs:check",
     "verify:full": "pnpm build && pnpm test:all && pnpm docs:check && pnpm e2e",
     "locus": "node apps/cli/lib/index.js",
+    "locus:register": "node scripts/local.mjs register",
+    "locus:unregister": "node scripts/local.mjs unregister",
+    "locus:purge": "node scripts/local.mjs purge",
+    "locus:backup": "node scripts/backup.mjs",
     "docs:check": "node scripts/docs.mjs",
     "docs:test": "node --test scripts/docs.test.mjs"
   },

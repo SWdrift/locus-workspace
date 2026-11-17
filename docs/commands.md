@@ -15,10 +15,26 @@
 | `pnpm verify` | 快速门禁：`build` + `test` + `docs:check` |
 | `pnpm verify:full` | 完整门禁：`build` + `test:all` + `docs:check` + `e2e` |
 | `pnpm locus <参数>` | 运行构建后的独立 CLI，等价于 `node apps/cli/lib/index.js` |
+| `pnpm locus:register` | 安装本机 Skill 与 `locus` 启动器；默认读取 `.env.pro`，退出 0 |
+| `pnpm locus:unregister` | 删除本机注册的 Skill 与启动器，保留数据目录；退出 0 |
+| `pnpm locus:purge --yes` | 删除本机注册、`--env` 解析出的数据目录；没有 `--yes` 只列出计划并退出 1 |
+| `pnpm locus:backup` | 按时间戳把 `--env` 解析出的数据目录备份到 `temp/locus-backup/`，退出 0 |
 | `pnpm docs:check` | Markdown 结构、链接与 Agent Notes 生命周期检查通过 |
 | `pnpm docs:test` | 文档检查器测试通过；仅修改检查器时要求执行 |
 
+## 本机注册与备份
+
 `scripts/local.mjs` 与 `scripts/backup.mjs` 默认读取仓库根 `.env.pro`，相对 `--env` 按当前工作目录解析；`LOCUS_HOME` 中的 `~` 由脚本展开。文件不存在时输出最小创建示例并退出 1。测试数据位于 `temp/.locus`，对应 `.env.dev`；需要操作它时显式传 `--env .env.dev`。环境文件的开发与生产约定见[开发与验证](development.md#开发环境与-_locus_root_password)。
+
+| 命令 | 行为与成功判据 |
+| --- | --- |
+| `pnpm locus:register [--env <文件>] [--agent-dir <目录>] [--bin-dir <目录>] [--force]` | 把 `.agents/skills/locus` 复制到 `PI_CODING_AGENT_DIR`（缺省 `~/.omp/agent`）的 `skills/locus`，写入安装标记；把 `locus` 启动器写入 `~/.local/bin`（Windows 为 `locus.cmd`）。调用者未设置 `LOCUS_HOME` 时，启动器使用环境文件解析出的目录；显式设置时沿用调用者环境。启动器不注入 Root 密码。要求 `pnpm build` 产物存在；已存在非本脚本管理的 Skill 或启动器时拒绝覆盖，`--force` 才替换 |
+| `pnpm locus:unregister [--agent-dir <目录>] [--bin-dir <目录>] [--force]` | 只删除本脚本注册的 Skill 与启动器；数据目录保留。非本脚本管理的目标同样需要 `--force` |
+| `pnpm locus:purge --yes [--env <文件>] [--agent-dir <目录>] [--bin-dir <目录>]` | 删除数据目录与本脚本注册。没有 `--yes` 时只列出将删除的路径并退出 1；拒绝文件系统根、用户主目录和包含仓库的目录。OS Keyring 中的凭据秘密不在删除范围内，需要时使用 `credential remove` 或 `credential cleanup` |
+| `pnpm locus:backup [--env <文件>] [--dest <目录>]` | 备份整个数据目录到 `temp/locus-backup/<YYYYMMDD-HHmmss>`；同一秒冲突时追加序号。复制后核对条目、大小与修改时间，源目录在复制期间变化时删除副本并退出 1。备份包含 Root 离线验证材料，不含 Keyring 秘密与外部挂载目录 |
+
+注册后重启 OMP 或开始新会话，Agent 才会加载安装的 Skill。备份要求没有 Locus 写者。构建产物或仓库路径变化后需要重新注册；`LOCUS_HOME` 变化时同样重新执行 `register`。
+
 ## Workspace 操作
 
 数据目录、首次打开时机与恢复由 [Core](../packages/core/README.md#持久化与恢复)维护。`--json` 可放在子命令前，得到单行 JSON；人类输出与 JSON 都只写 stdout。
