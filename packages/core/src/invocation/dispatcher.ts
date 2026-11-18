@@ -30,16 +30,27 @@ export function createDispatcher(
   events?: EventBus,
   dataDirectory = '',
   componentState?: ComponentStateView,
+  options: { readonly debug?: boolean } = {},
 ): Dispatcher {
+  const debug = options.debug === true
   async function runOne(
     request: InvocationRequest,
     trustedInput?: Readonly<Record<string, unknown>>,
   ): Promise<InvocationResult> {
     const requestId = randomUUID()
     let uri = typeof request.uri === 'string' ? request.uri : ''
+    let operationId: string | undefined
     const failed = (error: unknown): InvocationResult => {
-      const failure = toFailure(error)
-      const result = errorResult(uri, requestId, failure.code, failure.message, failure.details)
+      const failure = toFailure(error, debug)
+      const result = errorResult(
+        uri,
+        requestId,
+        failure.code,
+        failure.message,
+        failure.details,
+        operationId === undefined ? undefined : { method: request.method, operation: operationId },
+      )
+      const domain = failure.details?.domain
       events?.publish(
         Object.freeze({
           specversion: '1.0' as const,
@@ -48,7 +59,13 @@ export function createDispatcher(
           source: 'locus://core',
           ...(uri.length === 0 ? {} : { subject: uri }),
           time: new Date().toISOString(),
-          data: { method: request.method, requestId, code: failure.code },
+          data: {
+            method: request.method,
+            requestId,
+            code: failure.code,
+            ...(operationId === undefined ? {} : { operation: operationId }),
+            ...(typeof domain === 'string' ? { domain } : {}),
+          },
         }),
       )
       return result
@@ -63,6 +80,7 @@ export function createDispatcher(
       const resolved = router.resolve(request.method, request.uri)
       uri = resolved.url.href
       const { operation, url, namespace } = resolved
+      operationId = operation.id
 
       if (request.method === 'GET' && request.body !== undefined) {
         throw new InvocationFailure('invalid-body', 'GET 不接受 Body')

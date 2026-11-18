@@ -39,8 +39,8 @@ export async function withService<T>(
   } catch (error) {
     if (error instanceof RemoteTargetsFailure) {
       throw new InvocationFailure(ERROR_CODES[error.code], error.message, {
-        domain: error.code,
-        ...error.details,
+        details: { domain: error.code, ...error.details },
+        cause: error,
       })
     }
     throw error

@@ -10,6 +10,7 @@ export type ComponentFailureCode =
   | 'io'
 
 export class ComponentFailure extends Error {
+  readonly kind = 'component' as const
   readonly code: ComponentFailureCode
 
   constructor(code: ComponentFailureCode, message: string) {

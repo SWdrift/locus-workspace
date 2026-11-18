@@ -4,7 +4,7 @@ import type { LocusCore } from '@locus/core'
 import type { DefinedComponent } from '@locus/core/components'
 import type { SecurityHost } from '@locus/core/security'
 import { resolve } from 'node:path'
-import { reportError } from './output/errors.ts'
+import { reportError, usageErrorText } from './output/errors.ts'
 import { configureGlobalOptions } from './global-options.ts'
 import type { GlobalOptions } from './global-options.ts'
 import { createProgram } from './program.ts'
@@ -52,6 +52,7 @@ export async function runCli(argv: readonly string[]): Promise<number> {
     const program = createProgram(locus, {
       profile: globalOptions.profile,
       grantScope: globalOptions.grantScope,
+      debug: process.env.LOCUS_DEBUG === 'true',
       ...(host === undefined ? {} : { host }),
     })
     await program.parseAsync([...argv], { from: 'user' })
@@ -74,7 +75,12 @@ function loadEnvironment(): void {
 
 function parseGlobalOptions(argv: readonly string[]): GlobalOptions {
   const parser = configureGlobalOptions(
-    new Command().helpOption(false).allowUnknownOption().allowExcessArguments().exitOverride(),
+    new Command()
+      .helpOption(false)
+      .allowUnknownOption()
+      .allowExcessArguments()
+      .exitOverride()
+      .configureOutput({ outputError: (text, write) => write(usageErrorText(text)) }),
   )
   parser.parse([...argv], { from: 'user' })
   return parser.opts<GlobalOptions>()

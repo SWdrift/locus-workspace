@@ -159,7 +159,12 @@ test('无参数显示帮助，未知命令失败，相对数据目录按工作�
   const unknown = f.run(['bogus'])
   assert.equal(unknown.code, 1)
   assert.equal(unknown.stdout, '')
-  assert.match(unknown.stderr, /未知命令：bogus/)
+  assert.equal(unknown.stderr.split('\n')[0], 'Locus 用法失败 [invalid-argument]：未知命令：bogus')
+
+  const jsonUsage = f.run(['--json', 'get', '--unknown'])
+  assert.equal(jsonUsage.code, 1)
+  assert.deepEqual(JSON.parse(jsonUsage.stdout), { code: 'invalid-argument', message: "unknown option '--unknown'" })
+  assert.match(jsonUsage.stderr, /^Locus 用法失败 \[invalid-argument\]：unknown option '--unknown'/)
 
   const relative = f.run([
     '--json', 'post', 'locus://workspaces', '--data', '{"name":"相对数据目录"}',
@@ -194,9 +199,25 @@ test('--human 始终覆盖 --json，--pretty 美化成功与失败信封及安�
 
   const pretty = f.run(['--json', '--pretty', 'get', 'locus://workspaces/missing'])
   assert.equal(pretty.code, 2)
-  assert.equal(JSON.parse(pretty.stdout).ok, false)
-  assert.equal(JSON.parse(pretty.stdout).error.code, 'not-found')
+  const prettyFailure = JSON.parse(pretty.stdout)
+  assert.equal(prettyFailure.ok, false)
+  assert.equal(prettyFailure.error.code, 'not-found')
+  assert.equal(prettyFailure.meta.operation, 'locus.workspaces.get')
+  assert.equal(prettyFailure.error.details.stack, undefined)
   assert.match(pretty.stdout, /\n  "error": \{/)
+
+  const debugged = f.run(['--json', 'get', 'locus://workspaces/missing'], { LOCUS_DEBUG: 'true' })
+  assert.equal(debugged.code, 2)
+  const debuggedFailure = JSON.parse(debugged.stdout)
+  assert.equal(debuggedFailure.error.code, 'not-found')
+  assert.ok(Array.isArray(debuggedFailure.error.details.stack))
+  assert.equal(debuggedFailure.error.details.stack.some(line => line.includes(debuggedFailure.error.message)), false)
+
+  const debugHuman = f.run(['get', 'locus://workspaces/missing'], { LOCUS_DEBUG: 'true' })
+  assert.equal(debugHuman.code, 2)
+  assert.match(debugHuman.stderr, /Locus 调用失败 \[not-found\]/)
+  assert.match(debugHuman.stderr, /\n {4}at /)
+
   const prettySuccess = f.run(['--pretty', '--json', 'locus://info'])
   assert.equal(data(prettySuccess).version, PRODUCT_VERSION)
   assert.match(prettySuccess.stdout, /\n  "data": \{/)

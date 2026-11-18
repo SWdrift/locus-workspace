@@ -11,7 +11,7 @@ import type { CallOperation, WithCliApi } from './commands/shared.ts'
 import { createCliApi } from './host/api.ts'
 import { createTerminalSecurityUI } from './host/terminal.ts'
 import type { CliSecurityUI } from './host/terminal.ts'
-import { unwrap } from './output/errors.ts'
+import { unwrap, usageErrorText } from './output/errors.ts'
 import { emit } from './output/output.ts'
 
 export interface CreateProgramOptions {
@@ -19,6 +19,7 @@ export interface CreateProgramOptions {
   readonly ui?: CliSecurityUI
   readonly profile?: 'production' | 'development'
   readonly grantScope?: SecurityGrantScope
+  readonly debug?: boolean
 }
 
 /** 命令树只保留 URL 调用与确需本机交互的入口，不访问领域服务。 */
@@ -28,6 +29,7 @@ export function createProgram(locus: LocusCore, options: CreateProgramOptions = 
     new Command()
       .name('locus')
       .exitOverride()
+      .configureOutput({ outputError: (text, write) => write(usageErrorText(text)) })
       .description('Locus 本地工作空间：资源 URL 与 operation。')
       .usage('[options] [get|post|put|patch|delete] <uri...> | [command]')
       .addHelpCommand(false)
@@ -99,6 +101,7 @@ function createApiScope(
       components,
       ui,
       grantScope: program.opts<{ grantScope: SecurityGrantScope }>().grantScope,
+      debug: options.debug === true,
     })
     try {
       return await action(api)

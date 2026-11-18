@@ -377,7 +377,7 @@ test('可信协议错误穿透；伪造同名错误不能泄漏回调秘密', as
   await host.initializeRoot(ROOT_PASSWORD, ROOT_PASSWORD)
   const failures = [
     new DomainFailure('demo-domain', '可展示的领域错误'),
-    new InvocationFailure('not-found', '可展示的协议错误', { component: 'secure' }),
+    new InvocationFailure('not-found', '可展示的协议错误', { details: { component: 'secure' } }),
   ]
   for (const error of failures) {
     await assert.rejects(port.execute(request('secure.user'), () => { throw error }), (value) => value === error)

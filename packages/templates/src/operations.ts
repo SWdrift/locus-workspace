@@ -21,7 +21,10 @@ async function atOperationBoundary<T>(consume: () => Promise<T>): Promise<T> {
     return await consume()
   } catch (error) {
     if (error instanceof TemplateFailure) {
-      throw new InvocationFailure(ERROR_CODES[error.code], error.message, { domain: error.code })
+      throw new InvocationFailure(ERROR_CODES[error.code], error.message, {
+        details: { domain: error.code },
+        cause: error,
+      })
     }
     throw error
   }

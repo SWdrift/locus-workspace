@@ -673,7 +673,7 @@ test('消费与清理双失败保留原分类并脱敏，不伪装成凭据准�
       calls += 1
       deliveredPath = path
       rmSync(dirname(path), { recursive: true })
-      throw new InvocationFailure('conflict', `dual-secret-sentinel ${path}`, { unsafe: path })
+      throw new InvocationFailure('conflict', `dual-secret-sentinel ${path}`, { details: { unsafe: path } })
     }),
     (error) => error instanceof InvocationFailure &&
       error.code === 'conflict' &&

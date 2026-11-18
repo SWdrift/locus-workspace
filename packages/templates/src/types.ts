@@ -33,6 +33,7 @@ export type TemplateFailureCode =
   | 'io'
 
 export class TemplateFailure extends Error {
+  readonly kind = 'domain' as const
   readonly code: TemplateFailureCode
 
   constructor(code: TemplateFailureCode, message: string) {

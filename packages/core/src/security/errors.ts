@@ -75,6 +75,7 @@ const MESSAGES: Record<SecurityFailureCode, string> = {
 
 /** 错误不携带 Provider/消费者原始异常，避免其请求配置与秘密被输出。 */
 export class SecurityFailure extends Error {
+  readonly kind = 'security' as const
   readonly code: SecurityFailureCode
   readonly reason: AccessDeniedReason | undefined
   readonly challenge: SecurityChallenge | undefined

@@ -93,6 +93,8 @@ Dispatcher 只输出规范化 URI 与 requestId；不输出输入 Body、秘密�
 
 能力包在自己的 operation 边界将领域失败转换为 `InvocationFailure`，可在 `details.domain` 保留领域 code；Core 不维护消费者专属码表，也不从错误文案猜测分类。未知 handler 异常只返回固定内部故障信息。结果信封与执行事件在被捕获的执行闭包内产生，Grant 恢复后的失败也遵守相同契约。
 
+各类失败载体的定义、跨层转换点与逐层数据见[错误处理机制](../errors.md)。
+
 ## 事件
 
 事件是 CloudEvents 1.0 子集：`specversion: "1.0"` 与 `id/type/source/subject/time/data`。请求事件为 `locus.request.succeeded` 与 `locus.request.failed`；领域事件由 handler 通过 `context.emit()` 发出，现有远程目标事件包括目标登记、移除、凭据更新、迁移、job 完成与服务重启完成。

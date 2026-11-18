@@ -13,6 +13,7 @@ export interface CliApiOptions {
   readonly components: ComponentStateView
   readonly ui: CliSecurityUI
   readonly grantScope: SecurityGrantScope
+  readonly debug?: boolean
 }
 
 export interface CliApi {
@@ -34,6 +35,7 @@ export function createCliApi(options: CliApiOptions): CliApi {
     options.events,
     options.dataDirectory,
     options.components,
+    { debug: options.debug === true },
   )
   let disposed = false
 

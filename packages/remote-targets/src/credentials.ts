@@ -92,8 +92,7 @@ export async function withCredentialFile<T>(secret: string, consume: (path: stri
     } catch {
       if (failure !== undefined) throw failedCleanup(failure)
       throw new InvocationFailure('unknown-result', '远程操作已完成，但临时凭据清理失败；请勿自动重试', {
-        executionCompleted: true,
-        cleanupFailed: true,
+        details: { executionCompleted: true, cleanupFailed: true },
       })
     }
   }
@@ -197,7 +196,8 @@ function failedCleanup(failure: Error): Error {
       failure.details?.executionCompleted === true,
     cleanupFailed: true,
   }
-  if (failure instanceof InvocationFailure) return new InvocationFailure(failure.code, message, details)
+  if (failure instanceof InvocationFailure)
+    return new InvocationFailure(failure.code, message, { details, cause: failure })
   if (failure instanceof RemoteTargetsFailure) return new RemoteTargetsFailure(failure.code, message, details)
   if (failure instanceof SecurityFailure) {
     const safe = new SecurityFailure(

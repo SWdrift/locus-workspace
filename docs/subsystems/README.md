@@ -4,7 +4,7 @@
 
 未实施子系统可以登记明确标注状态的设计大纲，完整方案仍由 `proposed` Agent Note 唯一维护；实现并验证后才把现行契约迁入所属页面，不将大纲视为交付证据。
 
-目录按所有权分组：`core/` 存放 `packages/core` 自身的子系统，其余页面属于独立包与 CLI。统一调用协议跨 Core、组件、CLI 与远程目标：URI、operation 与 Dispatcher 归[统一资源调用](invocation.md)，授权与凭据模型归 [Core Security](core/security.md)，组件声明见[组件](core/components.md)，命令语法归[实用命令](../commands.md#安全与凭据)，远程目标见[远程目标](remote-targets.md)。
+目录按所有权分组：`core/` 存放 `packages/core` 自身的子系统，其余页面属于独立包与 CLI。统一调用协议跨 Core、组件、CLI 与远程目标：URI、operation 与 Dispatcher 归[统一资源调用](invocation.md)，授权与凭据模型归 [Core Security](core/security.md)，组件声明见[组件](core/components.md)，命令语法归[实用命令](../commands.md#安全与凭据)，远程目标见[远程目标](remote-targets.md)，失败如何跨层上浮归[错误处理机制](../errors.md)。
 
 ## Core 内子系统
 

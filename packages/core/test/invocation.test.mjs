@@ -70,7 +70,7 @@ function demoComponent() {
         throw new DomainFailure('demo-missing', '对象不存在')
       } catch (error) {
         if (error instanceof DomainFailure && error.code === 'demo-missing') {
-          throw new InvocationFailure('not-found', error.message, { domain: error.code })
+          throw new InvocationFailure('not-found', error.message, { details: { domain: error.code } })
         }
         throw error
       }
@@ -91,9 +91,14 @@ function demoComponent() {
     input: z.undefined(), output: z.never(),
     run: () => { throw new Error(INTERNAL_FAILURE_SECRET) },
   })
+  const bareFailure = defineOperation({
+    id: 'demo.bare.failure', method: 'GET', scheme: 'demo', authority: 'actions', path: '/bare-failure', auth: 'user',
+    input: z.undefined(), output: z.never(),
+    run: () => { throw new TypeError(INTERNAL_FAILURE_SECRET) },
+  })
   return defineComponent({
     id: 'demo', version: '1', name: 'demo', summary: '调用协议测试组件', kind: 'locus',
-    operations: [write, read, tty, fail, unclassified, securityFailure, rootFailure], credentials: [auth],
+    operations: [write, read, tty, fail, unclassified, securityFailure, rootFailure, bareFailure], credentials: [auth],
   })
 }
 
@@ -630,11 +635,48 @@ test('领域 operation 自己将领域失败映射为稳定协议错误', async 
 })
 
 test('Dispatcher 不解释能力包的领域错误码', async (t) => {
-  const { dispatcher } = await fixture(t)
+  const { core, dispatcher } = await fixture(t)
+  const failures = []
+  core.events.subscribe('locus.request.failed', event => {
+    failures.push(event)
+    return undefined
+  })
   const result = await dispatcher.invoke({ method: 'GET', uri: 'demo://actions/unclassified' })
   assert.equal(result.ok, false)
   assert.equal(result.error.code, 'internal')
-  assert.equal(result.error.details, undefined)
+  assert.equal(result.error.details.domain, 'target-not-found')
+  assert.equal(result.error.details.stack, undefined)
+  assert.equal(result.meta.operation, 'demo.unclassified')
+  assert.ok(failures.some(event => (
+    event.data.requestId === result.requestId &&
+    event.data.code === 'internal' &&
+    event.data.operation === 'demo.unclassified' &&
+    event.data.domain === 'target-not-found'
+  )))
+})
+
+test('debug 开关只追加源帧，不改变分类与消息', async (t) => {
+  const { core, host, session } = await fixture(t)
+  const dispatcher = createDispatcher(
+    core.router, host, session, core.events, core.dataDirectory,
+    { get: () => undefined },
+    { debug: true },
+  )
+  const result = await dispatcher.invoke({ method: 'GET', uri: 'demo://actions/unclassified' })
+  assert.equal(result.ok, false)
+  assert.equal(result.error.code, 'internal')
+  assert.equal(result.error.message, '内部操作失败')
+  const frames = result.error.details.stack
+  assert.ok(Array.isArray(frames) && frames.length > 0)
+  assert.equal(frames.some(line => line.includes('未经 operation 分类的领域失败')), false)
+
+  const bare = await dispatcher.invoke({ method: 'GET', uri: 'demo://actions/bare-failure' })
+  assert.equal(bare.ok, false)
+  assert.equal(bare.error.code, 'internal')
+  assert.equal(bare.error.message, '内部操作失败')
+  assert.equal(bare.error.details.domain, undefined)
+  assert.ok(Array.isArray(bare.error.details.stack) && bare.error.details.stack.length > 0)
+  assert.equal(bare.error.details.stack.some(line => line.includes(INTERNAL_FAILURE_SECRET)), false)
 })
 
 test('安全错误分类覆盖不可用、认证、授权、凭据与存储故障', async (t) => {

@@ -106,21 +106,24 @@ export interface ApiRouter {
   }[]
 }
 
-export type InvocationErrorCode =
-  | 'invalid-argument'
-  | 'invalid-body'
-  | 'invalid-uri'
-  | 'unsupported-scheme'
-  | 'unsupported-method'
-  | 'unsupported-media-type'
-  | 'not-found'
-  | 'unauthorized'
-  | 'forbidden'
-  | 'conflict'
-  | 'timeout'
-  | 'unavailable'
-  | 'unknown-result'
-  | 'internal'
+export const INVOCATION_ERROR_CODES = [
+  'invalid-argument',
+  'invalid-body',
+  'invalid-uri',
+  'unsupported-scheme',
+  'unsupported-method',
+  'unsupported-media-type',
+  'not-found',
+  'unauthorized',
+  'forbidden',
+  'conflict',
+  'timeout',
+  'unavailable',
+  'unknown-result',
+  'internal',
+] as const
+
+export type InvocationErrorCode = (typeof INVOCATION_ERROR_CODES)[number]
 
 export type InvocationResult<T = unknown> = {
   readonly uri: string

@@ -20,6 +20,10 @@ CLI 是声明驱动的 URL 客户端和可信本地 Host，不维护领域命令
 
 JSON 始终使用调用信封，数据位于 data；--human 优先，诊断写 stderr。0/1/2/3 分别表示调用成功、参数拒绝、业务／授权故障、批量部分失败。业务结果中的 ok 或 exitCode 不改判为通用 CLI 退出码；本地 shell 的子进程退出码除外。
 
+失败一律在 stderr 输出一行 `Locus <类别>失败 [<code>]：<消息>`；没有无码分支，码表复用协议词汇而不另立。`--json` 时 stdout 输出机器可读对象：URL 动词为完整信封，命名命令为 `{code, message, details?}`。调用失败用[协议码](invocation.md#结果与错误)，退出码按参数类与业务类区分；用法拒绝（Commander 解析、未知命令、命令内参数检查）用 `invalid-argument`，退出 1，其文本替换 Commander 自带 `error: ` 前缀、usage 提示随后输出；本机安全与组件失败用所属领域码，退出 2；未分类异常用 `internal`，退出 2。
+
+失败载体、跨层转换点与逐层可见性见[错误处理机制](../errors.md)。
+
 ## 名称解析与确认
 
 资源引用由领域 operation 解释。写入由显式方法表达意图，裸 URI 不推断写动作；初始化与本机接管保留独立 TTY 交互。可信字段来源由声明约束，Root 密码不接受文件或 Body。可选可信字段由 --prompt 或已获准的 --field-file 选择，不按领域分支。
