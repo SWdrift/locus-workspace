@@ -32,155 +32,123 @@
 | --- | --- |
 | `pnpm locus:register [--env <文件>] [--agent-dir <目录>] [--bin-dir <目录>] [--force]` | 把 `.agents/skills/locus` 复制到 `PI_CODING_AGENT_DIR`（缺省 `~/.omp/agent`）的 `skills/locus`，写入安装标记；把 `locus` 启动器写入 `~/.local/bin`（Windows 为 `locus.cmd`）。调用者未设置 `LOCUS_HOME` 时，启动器使用环境文件解析出的目录；显式设置时沿用调用者环境。启动器不注入 Root 密码。要求 `pnpm build` 产物存在；已存在非本脚本管理的 Skill 或启动器时拒绝覆盖，`--force` 才替换 |
 | `pnpm locus:unregister [--agent-dir <目录>] [--bin-dir <目录>] [--force]` | 只删除本脚本注册的 Skill 与启动器；数据目录保留。非本脚本管理的目标同样需要 `--force` |
-| `pnpm locus:purge --yes [--env <文件>] [--agent-dir <目录>] [--bin-dir <目录>]` | 删除数据目录与本脚本注册。没有 `--yes` 时只列出将删除的路径并退出 1；拒绝文件系统根、用户主目录和包含仓库的目录。OS Keyring 中的凭据秘密不在删除范围内，需要时使用 `credential remove` 或 `credential cleanup` |
+| `pnpm locus:purge --yes [--env <文件>] [--agent-dir <目录>] [--bin-dir <目录>]` | 删除数据目录与本脚本注册。没有 `--yes` 时只列出将删除的路径并退出 1；拒绝文件系统根、用户主目录和包含仓库的目录。OS Keyring 中的凭据秘密不在删除范围内，需要时使用 凭据绑定 DELETE 或 cleanup operation |
 | `pnpm locus:backup [--env <文件>] [--dest <目录>]` | 备份整个数据目录到 `temp/locus-backup/<YYYYMMDD-HHmmss>`；同一秒冲突时追加序号。复制后核对条目、大小与修改时间，源目录在复制期间变化时删除副本并退出 1。备份包含 Root 离线验证材料，不含 Keyring 秘密与外部挂载目录 |
 
 注册后重启 OMP 或开始新会话，Agent 才会加载安装的 Skill。备份要求没有 Locus 写者。构建产物或仓库路径变化后需要重新注册；`LOCUS_HOME` 变化时同样重新执行 `register`。
 
-## Workspace 操作
-
-数据目录、首次打开时机与恢复由 [Core](../packages/core/README.md#持久化与恢复)维护。`--json` 可放在子命令前，得到单行 JSON；人类输出与 JSON 都只写 stdout。
-
-| 参数 | 行为与成功判据 |
-| --- | --- |
-| `version` | stdout 根 `package.json` 的 `version`、退出 0；不创建数据目录；来源见[版本管理](versioning.md) |
-| `workspace create <name>` | 返回具有稳定 UUID 的新 Workspace，不要求目录 |
-| `workspace list` | 列出长期 Workspace 与挂载数量；空集合不是错误 |
-| `workspace show <workspace>` / `workspace open <workspace>` | 按 Identity 或唯一名称查看挂载与长期关系 |
-| `workspace rename <workspace> <name>` | 改名，Identity 不变 |
-| `workspace remove <workspace> --yes` | 删除 Workspace 及自有挂载/关系，不删除外部目录 |
-| `workspace mount <workspace> <path> [--name <name>]` | 挂载本机绝对目录；名称默认取目录名 |
-| `workspace mounts <workspace>` | 列出挂载与路径 |
-| `workspace unmount <workspace> <mount> --yes` | 取消挂载，接受挂载 ID 或名称；不删除目录 |
-| `workspace link <workspace> <namespace> <reference> [--kind member\|association] [--source <说明>]` | 显式保存外部引用；默认 association；引用 Workspace 使用 namespace `locus.workspace` |
-| `workspace unlink <workspace> <relation-id> --yes` | 仅解除该关系，不删除目标或其他归属 |
-
 ## URL 调用
 
-`locus get|post|put|patch|delete <uri...>` 直接调用 `locus://`、`rt://`、`template://`、`pg://` 或 `gitea://` operation。多个 URI 只允许 GET；非 GET 的批量调用在 CLI 层拒绝。
+默认命令面来自当前组件声明；先用 help 查看方法、URL 模板、认证与字段说明。五个方法入口只实现一次，新增 operation 不需要 CLI 代码。
 
-| 参数 | 行为与成功判据 |
+```sh
+locus --help
+locus help rt://
+locus help locus://workspaces
+locus --json get locus://operations
+locus --json locus://info
+```
+
+| 入口或参数 | 语义 |
 | --- | --- |
-| `get <uri...>` | 读取资源；按输入顺序返回逐项结果，部分失败不丢弃其他结果 |
-| `post <uri>` / `put <uri>` / `patch <uri>` / `delete <uri>` | 调用对应方法；写入与删除按 operation 的 `auth` 判定 |
-| `--data <json>` | 内联 JSON Body；与 `--file` 互斥 |
-| `--file <path\|->` | 从文件或 stdin（`-`）读取 Body；与 `--data` 互斥 |
-| `--content-type <type>` | 指定 Body 媒体类型；只接受 `application/json` 与 `+json` |
-| `--pretty` / `--human` | `--pretty` 美化 JSON，`--human` 强制人类可读输出；两者都只影响渲染 |
+| get/post/put/patch/delete <uri...> | 显式方法调用；多个 URL 只允许 GET |
+| <uri> | 默认 GET，不推断写操作 |
+| help [uri] | 从当前注册声明读取帮助，不执行 handler |
+| --data <json> / --file <path或-> | 普通 JSON Body，互斥；- 从 stdin 读取 |
+| --field-file <field=path> | 可重复；只用于 tty 且 file:true 的可信字段 |
+| --prompt <field> | 可重复；显式选择可选的 TTY 字段 |
+| --json / --pretty / --human | 信封 JSON／美化／强制人类输出，诊断仍写 stderr |
 
-规范 URI、路由、结果信封与错误码由[统一资源调用](subsystems/invocation.md)维护。退出码：`0` 成功；`1` 参数、URI、方法或媒体类型错误；`2` 业务、授权或远端失败；`3` 批量 GET 部分失败。
+必需可信字段自动隐藏输入；同字段多来源和 Body 注入 tty 字段被拒绝。Root 密码不允许字段文件。所有普通数据由所属 schema 校验，不从内部 Zod 结构生成 flags。完整协议见[统一资源调用](subsystems/invocation.md)。
+
+## Workspace 操作
+
+```sh
+locus post locus://workspaces --data '{"name":"研究"}'
+locus get locus://workspaces
+locus get locus://workspaces/<id>
+locus patch locus://workspaces/<id> --data '{"name":"研究二"}'
+locus post locus://workspaces/<id>/mounts --data '{"path":"/absolute/project","name":"project"}'
+locus delete locus://workspaces/<id>/mounts/<mount>
+locus delete locus://workspaces/<id>
+```
+
+资源规则归 [Core](../packages/core/README.md#workspace-与关系)。路径参数须 URL 编码，JSON 业务结果位于 data；旧 workspace 别名与 --yes 不再存在，显式写入方法表达调用意图。
 
 ## 安全与凭据
 
-以下参数接在 `locus` 后；全局 `--profile production|development` 默认 production，development 数据隔离见 [CLI](../apps/cli/README.md#安全-host-与-profile)。Root 密码与凭据秘密只由可信本地 TTY 隐藏输入；非交互失败，不支持通过 argv、环境变量、`.env` 或普通 stdin spec 提交。`--grant-scope operation|session` 默认 operation；operation 只恢复原 operation 与参数并首次消费，session 只在当前真实 Session 内复用，Session 结束、Root 重置或 Host 关闭即失效，不跨进程；CLI 每条命令结束 Session，因此不跨命令生效。
+```sh
+locus init
+locus security reset-root
+locus get locus://security
+locus get locus://security/provider
+locus get locus://security/operations
+locus put locus://security/operations/<component>/<operation> --data '{"level":"root"}'
+locus delete locus://security/operations/<component>/<operation>
+locus post locus://security/actions/change-root-password
+locus get locus://credentials
+locus post locus://credentials/actions/cleanup --data '{"apply":false}'
+```
 
-### 组件命令
-
-`pg` 当前只用于临时 PostgreSQL 验证消费者；权限控制面验证完成后命令与包会一起移除，不作为长期稳定依赖。普通 User 读取不触发 Root。
-
-| 参数 | 行为与成功判据 |
-| --- | --- |
-| `pg register <resource> --host <host> --database <name> [--port <port>] --username <name>` | Root 批准并隐藏输入 PostgreSQL 密码；通过 `pg://databases/<resource>` 写入 `database-auth` 的公开目标与秘密密码 |
-| `pg list <resource> [--sql <sql>]` | User 级读取 `database-auth` 绑定，使用真实 `pg.Pool` 连接；调用者不能再指定 host、port 或 database；缺少绑定或字段不匹配时不触发 Root |
-| `security operation list` | 列出组件 operation、声明等级、Root 覆盖与最终来源；需要已初始化 Root 元数据 |
-| `security operation set <component:operation> <user\|root>` | Root 覆盖该 operation 的认证等级；`operation` 形如 `postgres:pg.database.register`；降为 user 只允许普通执行，`context.credential.write` 仍要求本次实际获准 Root |
-| `security operation reset <component:operation>` | Root 清除覆盖，恢复 operation 声明等级 |
-
-`security operation list/set/reset` 需要加载全部包定义，CLI 因此按 `security` 命令域注册组件全集。
-
-### Root 诊断
-
-| 参数 | 行为与成功判据 |
-| --- | --- |
-| `init` | 两次隐藏输入，初始化 Root／默认 User 与安装身份；重复调用不覆盖，不删除已有 Workspace |
-| `security status` | 查询初始化、Profile 与固定身份，不输出验证材料；空目录不建库 |
-| `security change-root-password` | 输入新密码后以旧 Root 密码认证，单次恢复原密码变更，旧授权失效 |
-| `security reset-root` | 显示本机管理接管警告，TTY 确认后替换密码；无旧密码，无 `--yes` 绕过，不删除 Workspace／Keyring |
-| `credential provider-status` | 查询 Provider 装配与后端状态；unverified 不等于真实后端已可用，不读取任何条目 |
-| `credential list` | 只输出当前 Profile 的引用元数据与公开字段，不读取秘密 |
-| `credential bindings` | 列出 `component + slot + resourceKey` 绑定与引用，不读取秘密 |
-| `credential remove <credential:id>` | Root 授权删除条目、引用元数据与关联绑定，不输出原值 |
-| `credential status <credential:id>` | Root 检查元数据与 Provider 条目是否存在，只返回 `present`，不输出秘密 |
-| `credential cleanup [--yes]` | Root 检查当前 Profile 精确 Keyring service 下未登记元数据的孤立账户；无 `--yes` 只报告，`--yes` 才删除孤立条目；不删除已知凭据、元数据或绑定 |
-
-`security reset-root` 同时可经 URL `locus post locus://security/actions/reset-root` 调用。URL 入口要求可信 Host 收集 tty 字段 `password`、`confirmation` 与 `confirm`，且 `confirm` 必须为 `RESET ROOT`；`security reset-root` 别名会先显示本机接管警告并完成隐藏输入确认。两条路径都没有 `--yes` 绕过。
-
-普通业务凭据使用组件命令，不提供 `credential put`、`credential bind` 或 get-secret。`credential cleanup` 只按当前安装 UUID 与 Profile 推导出的完整 service 操作，不接受 `locus*` 前缀批量删除，也没有 `--all` 清空当前 Service；已知凭据用 `credential remove`。Provider 的平台容量限制独立判定，超限不分片、不回退明文。丢失重置与备份后果见[安全设计](subsystems/core/security.md#root-认证与恢复)。
+除 init 和 security reset-root 外不保留安全领域别名。Root 密码与确认仅 TTY，非交互明确失败，不接受文件、Body 或环境密码。--profile production|development 与 --grant-scope operation|session 语义见 [CLI](../apps/cli/README.md#安全-host-与-profile)。清理 apply:true 和凭据删除必须得到明确授权；本机接管不接受 --yes 绕过。
 
 ## Shell
 
-`locus shell <workspace>` 启动用户当前平台的 shell 并注入 Workspace 上下文；`<workspace>` 接受 Identity 或唯一名称。
+```sh
+locus shell <workspace>
+locus shell <workspace> --print-env
+locus shell <workspace> --command "locus get locus://info"
+```
 
-| 参数 | 行为与成功判据 |
-| --- | --- |
-| `shell <workspace>` | 进入交互 shell；第一个可访问挂载作为 `cwd`，缺失挂载写 stderr |
-| `shell <workspace> --shell <path>` | 使用指定 shell 可执行文件 |
-| `shell <workspace> --command <command>` | 执行一条命令后退出；CLI 退出码取子 shell 退出码 |
-| `shell <workspace> --print-env` | 只输出上下文 JSON，不启动 shell |
-
-注入清单、缺失挂载与能力边界见 [CLI Shell](../apps/cli/README.md#统一-shell)与 [Skill Shell 参考](../.agents/skills/locus/reference/shell.md)。
+--shell 指定解释器，--command 执行后退出，--print-env 只输出上下文。本地 shell 使用 UUID 或唯一名称，按挂载选择 cwd 并注入 LOCUS_*，不是沙箱；详情见 [CLI](../apps/cli/README.md#统一-shell)。
 
 ## 模板操作
 
-模板命令只操作文件系统，不读取或创建 Workspace。`<template>` 可以是内置 ID（如 `minimal`）或本地模板目录；`<destination>` 相对路径按当前进程目录解析，目标必须不存在。
+```sh
+locus help template://
+locus get template://templates
+locus post template://templates/minimal/instances --data '{"destination":"/absolute/project","dryRun":true}'
+```
 
-| 参数 | 行为与成功判据 |
-| --- | --- |
-| `template list` | 列出内置模板；空集合不是错误 |
-| `template create <template> <destination>` | 复制文件夹，写入 `.template.json` 来源记录 |
-| `template create ... --dry-run` | 只计算文件、目录与 digest，不写目标 |
-
-完整格式、排除规则与失败见 [Templates](../packages/templates/README.md)。
+destination 必须是绝对路径，dryRun 是 Body 字段。复制、来源记录与失败语义归 [Templates](../packages/templates/README.md)。
 
 ## 远程目标
 
-目标定义保存在 `<dataDirectory>/remote-targets/targets.yaml`，探测结果保存在同目录 `state.sqlite`；`dataDirectory` 由 `LOCUS_HOME` / `LOCUS_FOLDER_NAME` 决定，见 [Core](../packages/core/README.md#持久化与恢复)。`remote-targets` 可缩写为 `rt`；`<target>` 接受 id、唯一前缀或唯一标签，歧义时失败并列出候选。`--json` 输出单行 JSON。
+```sh
+locus help rt://
+locus get rt://targets
+locus get rt://targets/<id>/system
+locus put rt://targets/<id> --file registration.json --field-file privateKey=/absolute/key.pem
+locus post rt://targets/<id>/actions/credential --data '{"method":"password"}' --prompt password
+locus post rt://targets/<id>/jobs --data '{"command":["whoami"]}'
+locus delete rt://targets/<id>
+```
 
-| 参数 | 行为与成功判据 |
-| --- | --- |
-| `remote-targets add <id> --spec <file\|-> [--file <path>\|--credential-file <path>] [--dry-run]` | 校验目标；Root 批准后写入配置与对应凭据字段；私钥提供 `--file` 或等价的 `--credential-file`（二者互斥），密码隐藏输入；`--dry-run` 只校验不落盘 |
-| `remote-targets update-credential <target> --method private-key\|password [--file <path>\|--credential-file <path>]` | 只更新目标已绑定的私钥或密码字段，不改目标配置；同时由 Root 重新确认当前目标安全摘要；别名 `register`；`--file` 与 `--credential-file` 等价且互斥 |
-| `remote-targets list` | 列出目标；空集合不是错误 |
-| `remote-targets show <target>` | 显示身份、认证方式、能力、连接与最近探测；不输出凭据值 |
-| `remote-targets migrate <target> --method private-key\|password [--file <path>] --yes` | 显式导入旧凭据文件到 Core、回读验证、绑定目标资源后改写配置；原文件保留；带口令私钥明确阻塞 |
-| `remote-targets remove <target> --yes` | 移除定义与最近探测，不删除外部目标、Core 绑定或信任锚；复用 id 前重新登记正确引用或由 Root 删除旧凭据 |
-| `remote-targets probe <target>` | 执行 `hostname` 并记录结果；成功退出 0，失败退出 1 |
-| `remote-targets services <target>` | 列举 `cmd` 目标的 Windows 服务；非 `cmd` 目标失败 |
-| `remote-targets restart <target> <service>` | 重启 `cmd` 目标服务并记录结果 |
-| `remote-targets exec <target> [command...]` | 执行远端命令；远端退出码原样返回；命令选项放在 `--` 之后 |
-| `remote-targets shell <target>` | 进入交互 Shell；退出码取客户端退出码 |
-
-字段、默认值与失败码见 [Remote Targets](../packages/remote-targets/README.md#配置与契约)。
-
-密钥认证要求 `openssh` 组件为 `healthy`，密码认证要求 `plink` 组件；随后通过 Core 主体授权与凭据绑定，未初始化时需先在本地 TTY 运行 init。普通 User 访问不触发 Root；没有授权 operation 或绑定不能启动客户端。新目标只接受 `method: private-key|password`，凭据按 `component + slot + target id` 绑定；旧 `auth.path/root` 仅供 `migrate` 读取。目标 host/port/login、能力、客户端或信任锚变化后，访问以 `target-config-mismatch` 失败，需 Root 重新执行 `update-credential` 或重新登记。迁移与阻塞条件见 [Remote Targets](../packages/remote-targets/README.md#凭据交付与迁移)。
+registration.json 的 Body 包含 spec 字符串；目标定义和凭据字段由组件校验。远端状态与 exitCode 位于 data，不透传为通用 CLI 退出码。交互 Shell 使用 jobs 的 interactive:true；凭据、迁移、信任与清理失败语义归 [Remote Targets](../packages/remote-targets/README.md)。
 
 ## 组件操作
 
-组件定义位于 `<dataDirectory>/components/`：包组件在首次访问组件服务时物化，动态组件通过 `component add` 登记。版本不一致只标记“需要升级”，由 `component upgrade` 手动改写；字段、状态与失败边界见[组件](subsystems/core/components.md)。
+```sh
+locus help locus://components
+locus get locus://components
+locus get locus://components/docker
+locus post locus://components --data '{"path":"/absolute/component.yaml"}'
+locus post locus://components/docker/actions/probe
+locus post locus://components/my-service/actions/deploy
+locus post locus://components/remote-targets/actions/upgrade
+locus delete locus://components/docker
+```
 
-| 参数 | 行为与成功判据 |
-| --- | --- |
-| `component list` | 列出包组件与动态组件；人类输出含状态时长；空集合不是错误，损坏定义进入 problems |
-| `component show <id>` / `<id>` | 显示定义、版本、外部/部署状态、配置路径与说明；`<id>` 只在未知顶层命令时解析 |
-| `component add <file\|dir\|->` | 校验并登记 `kind: external` 组件；`-` 从 stdin 读取；已存在则失败 |
-| `component upgrade <id>` | 按包代码重写定义字段、保留 `config`、更新 `version`；动态组件明确拒绝 |
-| `component remove <id> --yes` | 只删除动态组件定义与状态，不卸载外部软件 |
-| `component probe <id>` | 执行声明的探针并记录状态；未通过退出 1；`locus` 组件按 `requires` 派生 |
-| `component probe --all` | 逐个探查所有 `external` 组件；无探针的定义跳过；任一未通过退出 1 |
-| `component deploy <id> --yes` | 执行声明的部署入口并记录结果；失败退出 1 |
-
-示例组件位于仓库 `examples/components/`（`docker.yaml`、`openssh.yaml`、`plink.yaml`、`postgres-service.yaml`），复制到其他机器后需重新登记与探测。
+探针和部署的业务结果在 data，调用成功不等于 healthy/deployed；只有用户明确要求时执行副作用。定义、物化和状态归[组件子系统](subsystems/core/components.md)。
 
 ## 事件
 
-`locus events list` 查询最近落库的请求与领域事件；结果是 best-effort 记录，不作为完整审计或重放依据。
+```sh
+locus get 'locus://events?limit=20'
+```
 
-| 参数 | 行为与成功判据 |
-| --- | --- |
-| `events list [--type <type>] [--subject <subject>] [--limit <n>]` | 按类型或 subject 过滤，默认最多 100 条；空集合不是错误 |
+支持 type、subject、limit 查询。记录是 best-effort，不是完整审计或重放日志。
 
 ## 输出与退出码
 
-默认输出人类可读文本；`--json` 输出独立 JSON，诊断写 stderr。普通命令不隐式等待输入，安全交互命令使用可信 TTY；删除 Workspace、取消挂载、解除关系与移除远程目标必须显式携带 `--yes`。安全失败的 JSON stdout 含 code／reason，不能按普通命令失败时 stdout 总为空处理。
-
-退出码：0 表示调用成功；1 表示参数、帮助树或调用参数拒绝，包括未知命令、缺参数、无效选项值、缺少 `--yes`、非法 URI／方法／媒体类型，以及 `remote-targets probe`、`component probe` 未通过、`component deploy` 失败；2 表示业务、授权或持久化失败；3 表示批量 GET 部分失败；`shell --command`、`remote-targets exec` 与 `remote-targets shell` 的子进程退出码原样返回。
+调用 JSON 使用 InvocationResult，数据位于 data；help JSON 是描述数组，本地 Host 输入／认证失败按 code 诊断。退出码 0/1/2/3 分别表示 operation 成功、输入拒绝、业务或授权失败、批量部分失败；业务状态与远端进程退出码必须另外检查。本地 shell --command 仍透传子进程退出码。version 与帮助不创建数据目录，普通未知旧命令退出 1，不提供兼容翻译。

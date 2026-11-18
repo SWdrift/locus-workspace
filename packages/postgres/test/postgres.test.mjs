@@ -102,6 +102,11 @@ test('PostgreSQL 只暴露 operation 契约，不携带 capability 声明', () =
   assert.equal(query.auth, 'user')
   assert.equal(register.path, '/:id')
   assert.equal(query.path, '/:id/queries')
+  for (const item of operations) assert.match(item.summary, /[\u4e00-\u9fff]/)
+  assert.equal(register.fields.password.required, true)
+  assert.equal(register.fields.password.tty, true)
+  assert.equal(register.fields.password.secret, true)
+  assert.match(register.fields.password.description, /PostgreSQL.*密码/)
   assert.throws(() => register.input.parse({ host: HOST, database: DATABASE, username: USERNAME }))
   assert.throws(() => query.input.parse({}))
   assert.deepEqual(

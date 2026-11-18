@@ -8,6 +8,7 @@ import { createLocusCore } from '../lib/index.js'
 import { defineComponent } from '../lib/components/index.js'
 import { defineCredential, defineOperation, DomainFailure, InvocationFailure } from '../lib/invocation/index.js'
 import { createMemoryCredentialProvider, createMemorySecurityStore, createSqliteSecurityStore, SecurityFailure } from '../lib/security/index.js'
+import { bindTrustedComponent } from '../lib/security/policy.js'
 
 const ROOT_PASSWORD = 'Root-安全运行时测试-2026'
 const SECRET = 'credential-secret-不得泄露'
@@ -110,6 +111,45 @@ function request(operation, parameters = null) {
 async function authorize(host, challenge, password = ROOT_PASSWORD, scope = 'operation') {
   return host.authenticate(challenge, password, scope)
 }
+
+test('安全绑定复制完整 operation 描述与字段，并拒绝非法来源标记', () => {
+  const fields = {
+    privateKey: { description: '可信私钥输入，不包含私钥值。', required: true, secret: true, tty: true, file: true },
+  }
+  const operation = {
+    id: 'secure.describe',
+    summary: '安全绑定使用公开声明快照。',
+    method: 'POST',
+    scheme: 'secure',
+    authority: 'items',
+    path: '',
+    auth: 'root',
+    fields,
+  }
+  const component = {
+    id: 'secure', version: '1', name: 'secure', summary: '可信组件。', kind: 'locus', operations: [operation],
+  }
+  const bound = bindTrustedComponent(component)
+  assert.deepEqual(bound.operations, [operation])
+  assert.equal(Object.isFrozen(bound.operations[0]), true)
+  assert.equal(Object.isFrozen(bound.operations[0].fields), true)
+  assert.equal(Object.isFrozen(bound.operations[0].fields.privateKey), true)
+  assert.notEqual(bound.operations[0].fields, fields)
+  operation.summary = '后来修改的说明。'
+  fields.privateKey.file = false
+  assert.equal(bound.operations[0].summary, '安全绑定使用公开声明快照。')
+  assert.equal(bound.operations[0].fields.privateKey.file, true)
+  for (const extra of [
+    { summary: 42 },
+    { fields: { privateKey: { file: true } } },
+    { fields: { privateKey: { tty: true, value: SECRET } } },
+  ]) {
+    assert.throws(
+      () => bindTrustedComponent({ ...component, operations: [{ ...operation, ...extra }] }),
+      (error) => error instanceof SecurityFailure && error.reason === 'invalid-request' && !String(error).includes(SECRET),
+    )
+  }
+})
 
 test('未初始化时 user 可运行，root 明确失败；初始化不可覆盖', async (t) => {
   const { core, host, port, session } = await fixture(t)

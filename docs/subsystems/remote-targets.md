@@ -12,7 +12,7 @@
 
 | 段 | 回答 | 当前字段 |
 | --- | --- | --- |
-| Identity | 以谁的身份访问、凭据引用是什么 | `login`、`auth.method`、`auth.credential`；旧 `auth.path/root` 仅供迁移 |
+| Identity | 以谁的身份访问、如何认证 | `login`、`auth.method`；旧 `auth.path/root` 仅供迁移；凭据引用由 Core 绑定持有 |
 | Access | 能对目标做什么 | `capabilities`（`exec`、`shell`） |
 | Connectivity | 经哪条路径到达 | `transport`、`via`、`host`、`port`、`remoteShell`、`trust` |
 
@@ -23,19 +23,19 @@
 - `<dataDirectory>/remote-targets/targets.yaml`：唯一可编辑真源，保存全部目标定义。
 - `<dataDirectory>/remote-targets/state.sqlite`：只保存最近一次探测结果，可删除并重建。
 - `<dataDirectory>/remote-targets/trust/<id>/`：仅保存 `known_hosts` 等公开材料；`add` 创建目录但不创建秘密文件。
-- 资源秘密保存在 OS Keyring；SQLite 只保存 CredentialRef 元数据与组件／能力／资源绑定。
+- 资源秘密保存在 OS Keyring；SQLite 只保存凭据元数据、operation 覆盖与 `component + slot + resourceKey` 绑定。
 
 目标根目录由 operation 从 Core 注入的 `dataDirectory` 派生，CLI 不自行创建领域服务。写入使用临时文件 + rename；读取时校验字段、id 唯一性与旧凭据路径边界。
 
 ## 流程
 
-1. `add`：校验 spec 与 `method: private-key|password`、检查 id 未占用；Root 批准后按目标 id 写入 `ssh-private-key` 或 `ssh-password` 绑定，再创建 `known_hosts` 目录并整体写入 `targets.yaml`；私钥只走受控文件，密码隐藏输入。
-2. `update-credential`：校验目标当前认证方式，只重写对应 slot 与目标 id 的绑定，不改配置。
+1. `rt.target.preview` 校验并规范化 spec，不写入；CLI 据结果收集对应秘密。`rt.target.register`在 Root 批准后统一校验秘密，按目标 id 写入 `ssh-private-key` 或 `ssh-password` 绑定，再创建 `known_hosts` 目录并整体写入 `targets.yaml`；私钥只走受控文件，密码隐藏输入。
+2. `rt.target.credential.update`：校验目标当前认证方式，只重写对应 slot 与目标 id 的绑定，不改配置。
 3. `show`：按精确 id、唯一前缀或唯一标签解析，附加最近一次探测。
 4. `migrate`：读取旧 `auth.path/root` 文件，经 Root 写入 Core 绑定（key 为目标 id），再改写目标认证方式为 `private-key` 或 `password`；原文件保留。私钥先做受限临时副本预检，带口令明确阻塞。
-5. `probe`：检查传输组件、Core 授权与绑定，取临时凭据，构造 `whoami` 调用，记录成功/失败与时间。
-6. `exec`：检查 `exec` 能力、传输组件、Core 授权与绑定，执行并由 CLI 透传远端退出码。
-7. `shell`：检查 `shell` 能力、传输组件、Core 授权与绑定，以继承 stdio 启动 SSH 客户端。
+5. `rt.system.read`：检查传输组件、Core 授权与绑定，取临时凭据，构造 `hostname` 调用，记录成功/失败与时间。
+6. `rt.job.run`：检查目标 `exec` 能力、传输组件、Core 授权与绑定，执行并在 data.exitCode 返回远端退出码。
+7. `rt.job.run`（`interactive: true`）：检查目标 `shell` 能力、传输组件、Core 授权与绑定，以继承 stdio 启动 SSH 客户端。
 
 ## 不变量
 
@@ -63,7 +63,7 @@
 | 私钥带口令 | `encrypted-key-unsupported`，协议映射为 `invalid-argument`，迁移不写配置 |
 | 凭据缺失 | `credential-missing`，连接前失败，退出码 2 |
 | 传输组件未就绪 | `component-unavailable`，连接前失败，退出码 2 |
-| 远端退出码非零 | `exec` 原样透传；`probe` 记为失败并以 1 退出 |
+| 远端退出码非零 | 由调用方检查 data.exitCode；探测检查 data.ok，通用 CLI 退出码只表示调用信封是否成功 |
 | 主机指纹不符 | SSH/Plink 自身拒绝，stderr 保留诊断 |
 | 执行完成但临时凭据清理失败 | `unknown-result` 与完成／清理标记；不能按“未执行”自动重试 |
 

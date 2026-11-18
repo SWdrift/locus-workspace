@@ -86,8 +86,15 @@ test('组件只导出 component 与 operations，路由元数据显式声明', (
   )
   for (const item of operations) {
     assert.equal(typeof item.run, 'function')
+    assert.match(item.summary, /[\u4e00-\u9fff]/)
     assert.equal('capability' in item, false)
     assert.equal('capabilities' in item, false)
+    for (const field of Object.values(item.fields ?? {})) {
+      assert.equal(field.secret, true)
+      assert.equal(field.tty, true)
+      assert.equal(field.required, false)
+      assert.match(field.description, /认证方式.*必须提供/)
+    }
   }
 })
 

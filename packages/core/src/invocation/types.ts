@@ -17,8 +17,14 @@ export interface CredentialDefinition {
 }
 
 export interface InputField {
-  readonly secret?: boolean
-  readonly tty?: boolean
+  /** 公开说明，不得包含实际凭据或其他秘密值。 */
+  readonly description?: string | undefined
+  readonly required?: boolean | undefined
+  readonly secret?: boolean | undefined
+  /** 只有同时声明 tty: true 时，才可显式允许 Host 从可信文件收集。 */
+  readonly file?: boolean | undefined
+  /** 只能由可信 Host 提供，禁止来自普通 Body。 */
+  readonly tty?: boolean | undefined
 }
 
 /** 保留重复 query 值；路由、授权与建链共用规范 URI，参数只解码一次。 */
@@ -59,19 +65,26 @@ export interface OperationContext {
 
 export interface OperationMetadata {
   readonly id: string
+  /** 公开用途与必要输入说明，不得包含实际秘密值。 */
+  readonly summary?: string | undefined
   readonly method: LocusMethod
   readonly scheme: string
   readonly authority: string
   readonly path: string
   readonly auth: 'user' | 'root' | 'none'
+  /** Host 用于展示、收集与脱敏；字段是否有效仍由 input/query schema 决定。 */
+  readonly fields?: Readonly<Record<string, InputField>> | undefined
+}
+
+/** 运行期发现视图，只包含可公开序列化的声明。 */
+export interface OperationDescription extends OperationMetadata {
+  readonly component: string
 }
 
 export interface OperationDefinition<Q, I, O> extends OperationMetadata {
   readonly query?: OperationSchema<Q>
   readonly input: OperationSchema<I>
   readonly output: OperationSchema<O>
-  /** Host 用于收集与脱敏；tty 字段禁止来自外部 Body，但可进入 handler input。 */
-  readonly fields?: Readonly<Record<string, InputField>>
   readonly run: (query: Q, input: I, context: OperationContext) => NoInfer<O> | Promise<NoInfer<O>>
 }
 

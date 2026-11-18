@@ -6,6 +6,8 @@ import { materialOf } from './credentials.ts'
 
 export const runJob = defineOperation({
   id: 'rt.job.run',
+  summary:
+    '在路径 id 指定目标上运行 SSH 作业（支持完整 ID、唯一 ID 前缀或唯一标签）；JSON Body 的 command 为命令字符串数组，非交互作业必须非空；可选 interactive:true 改为交互 Shell 并忽略 command，无 query；非交互返回 targetId、exitCode、stdout、stderr，交互仅返回 exitCode。',
   method: 'POST',
   scheme: 'rt',
   authority: 'targets',

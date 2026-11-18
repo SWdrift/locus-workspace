@@ -14,7 +14,7 @@ Node.js 24 或更高、pnpm 11.24.0。执行 `pnpm install`，修改源码后执
 
 ```sh
 pnpm locus --help
-pnpm locus workspace list
+pnpm locus get locus://workspaces
 ```
 
 安全开发使用 `--profile development`，CLI 的初始化与管理仍只在可信本地 TTY 输入。

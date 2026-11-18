@@ -2,12 +2,12 @@
 
 ## 范围与边界
 
-项目模板把模板目录复制到新的项目目录，并在目标根写入来源记录。它是文件系统能力，不创建 Workspace、不挂载目录、不读写 `core.sqlite`，也不执行模板内的脚本、hook 或网络请求。包导出 `id: template` 的 `locus` 组件定义，只声明能力与说明，不改变复制行为。
+项目模板把模板目录复制到新的项目目录，并在目标根写入来源记录。它是文件系统能力，不创建 Workspace、不挂载目录、不读写 `core.sqlite`，也不执行模板内的脚本、hook 或网络请求。包导出 `id: template` 的 `locus` 组件定义与 `template.templates.list` / `template.templates.create` operation，只转发复制服务，不改变复制行为。
 
 | 组件 | 职责 |
 | --- | --- |
-| `packages/templates` | 解析模板源、复制文件、计算 digest、写入实例记录；导出组件定义 |
-| `apps/cli` | `locus template` 命令、相对目标路径解析、文本/JSON 投影 |
+| `packages/templates` | 解析模板源、复制文件、计算 digest、写入实例记录；导出 `component` 与 `operations` |
+| `apps/cli` | 通用 template:// 调用与信封输出；目标路径由调用方明确给出 |
 | `.agents/skills/locus` | Agent 使用模板命令的索引与操作参考 |
 
 模块契约见 [Templates README](../../packages/templates/README.md)，命令语法见[实用命令](../commands.md#模板操作)，设计取舍见[项目模板决定](../../.agents/notes/implemented/feature/2026-11-13-project-templates.md)。
@@ -29,7 +29,7 @@
 4. 在目标同级创建临时目录，按相对路径写入目录与文件。
 5. 写入 `.template.json` 实例记录。
 6. 再次确认目标不存在，将临时目录 rename 为目标；失败时清理临时目录。
-7. `--dry-run` 执行第 1 至 3 步并返回文件、目录与 digest，不创建任何目标内容。
+7. Body 中的 `dryRun: true` 执行第 1 至 3 步并返回文件、目录与 digest，不创建任何目标内容。
 
 复制是单次文件系统操作，不跨机器、不做增量同步。源目录在复制期间被并发修改会产生不一致快照；当前不支持重试或校验源快照。
 

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { execFileSync } from 'node:child_process'
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -11,7 +11,7 @@ import { z } from 'zod'
 import { createLocusCore } from '../lib/index.js'
 import {
   createApiRouter, createDispatcher, defineCredential,
-  defineOperation, DomainFailure, InvocationFailure, parseLocusUri,
+  defineOperation, describeOperation, DomainFailure, InvocationFailure, parseLocusUri,
 } from '../lib/invocation/index.js'
 import { defineComponent } from '../lib/components/index.js'
 import { createEventBus } from '../lib/events/index.js'
@@ -52,8 +52,13 @@ function demoComponent() {
   })
   const tty = defineOperation({
     id: 'demo.tty', method: 'POST', scheme: 'demo', authority: 'items', path: '/:id/actions/tty', auth: 'user',
+    summary: '接收必填 value 与可选的可信 prompted 输入。',
     input: z.object({ value: z.string(), prompted: z.string().optional() }),
-    fields: { prompted: { secret: true, tty: true } },
+    // 故意反转必填提示，验证字段元数据不替代 input schema 的实际校验。
+    fields: {
+      value: { description: '普通 Body 中的必填值。', required: false },
+      prompted: { description: '可选的可信输入。', required: true, secret: true, tty: true, file: true },
+    },
     output: z.object({ value: z.string(), prompted: z.string().optional() }),
     run: (_query, input) => input,
   })
@@ -173,6 +178,107 @@ test('注册期拒绝仅参数名不同的歧义路由', () => {
   assert.throws(() => router.register('remote-targets', route('rt.two', '/:name')), { code: 'conflict' })
 })
 
+test('路由注册复制描述字段；发现、建链与查询不执行 schema 或 handler', () => {
+  let parses = 0
+  let runs = 0
+  const schema = { parse(value) { parses += 1; return value } }
+  const fields = { token: { description: '可信访问令牌。', required: false, secret: true, tty: true, file: true } }
+  const source = defineOperation({
+    id: 'demo.describe', summary: '发现声明而不执行业务。',
+    method: 'POST', scheme: 'demo', authority: 'items', path: '/:id', auth: 'user',
+    input: schema, output: schema, query: schema, fields,
+    run() { runs += 1; return undefined },
+  })
+  const router = createApiRouter()
+  router.register('demo', source)
+  source.summary = '后来修改的说明。'
+  fields.token.description = '后来修改的字段说明。'
+  fields.token.required = true
+  const uri = router.build(source.id, { id: '甲 乙' })
+  const resolved = router.resolve('POST', uri)
+  const description = describeOperation(router.operations[0].operation, 'demo')
+  assert.equal(description.summary, '发现声明而不执行业务。')
+  assert.deepEqual(description.fields, {
+    token: { description: '可信访问令牌。', required: false, secret: true, tty: true, file: true },
+  })
+  assert.equal(resolved.operation.fields.token.description, '可信访问令牌。')
+  assert.equal(Object.isFrozen(resolved.operation), true)
+  assert.equal(Object.isFrozen(resolved.operation.fields.token), true)
+  assert.equal(Object.isFrozen(description), true)
+  assert.equal(Object.isFrozen(description.fields), true)
+  assert.equal(Object.isFrozen(description.fields.token), true)
+  assert.equal(resolved.operation.input, schema)
+  assert.equal(Object.isFrozen(schema), false)
+  assert.equal('run' in description, false)
+  assert.equal('input' in description, false)
+  assert.equal('output' in description, false)
+  assert.equal('query' in description, false)
+  assert.deepEqual(JSON.parse(JSON.stringify(description)), description)
+  assert.equal(parses, 0)
+  assert.equal(runs, 0)
+})
+
+test('直接注册路由仍拒绝非法公开描述与隐藏在字段中的值', () => {
+  for (const extra of [
+    { summary: { secret: '不得公开' } },
+    { fields: { token: { description: 42 } } },
+    { fields: { token: { required: 'true' } } },
+    { fields: { token: { file: true } } },
+    { fields: { token: { secret: true, value: '不得公开' } } },
+    { fields: { 'bad-name': {} } },
+  ]) {
+    const router = createApiRouter()
+    assert.throws(() => router.register('demo', defineOperation({
+      id: 'demo.describe', method: 'POST', scheme: 'demo', authority: 'items', path: '', auth: 'user',
+      input: z.undefined(), output: z.undefined(), run: () => undefined,
+      ...extra,
+    })), { code: 'invalid-argument' })
+    assert.equal(router.operations.length, 0)
+  }
+})
+
+test('Core 纯声明消费者发现全部路由且不物化组件、不创建数据目录', async (t) => {
+  const root = mkdtempSync(join(tmpdir(), 'locus-declarations-'))
+  const dataDirectory = join(root, 'unused-data')
+  let runs = 0
+  let parses = 0
+  const schema = { parse(value) { parses += 1; return value } }
+  const component = defineComponent({
+    id: 'consumer', version: '1', name: '消费者', summary: '只读取声明的消费者。', kind: 'locus',
+    operations: [defineOperation({
+      id: 'consumer.get', summary: '读取消费者资源；无需 Body。',
+      method: 'GET', scheme: 'consumer', authority: 'items', path: '/:id', auth: 'user',
+      input: schema, output: schema,
+      fields: { token: { description: '声明本身不包含令牌值。', required: false, secret: true, tty: true } },
+      run() { runs += 1; return '不应执行' },
+    })],
+  })
+  const core = createLocusCore({
+    dataDirectory,
+    components: [component],
+    security: { provider: createMemoryCredentialProvider() },
+  })
+  t.after(async () => {
+    await core.dispose()
+    rmSync(root, { recursive: true, force: true })
+  })
+  assert.equal(existsSync(dataDirectory), false)
+  const descriptions = core.router.operations.map(({ namespace, operation }) => describeOperation(operation, namespace))
+  const uri = core.router.build('consumer.get', { id: '资源' })
+  assert.equal(core.router.resolve('GET', uri).operation.id, 'consumer.get')
+  assert.ok(descriptions.some((item) => item.id === 'consumer.get'))
+  assert.ok(descriptions.some((item) => item.id === 'locus.workspaces.create'))
+  for (const item of descriptions.filter((item) => item.component === 'locus')) {
+    assert.equal(typeof item.summary, 'string', item.id)
+    assert.match(item.summary, /[\u3400-\u9fff]/, item.id)
+    for (const field of Object.values(item.fields ?? {})) assert.equal(typeof field.description, 'string', item.id)
+  }
+  assert.equal(JSON.stringify(descriptions).includes('不应执行'), false)
+  assert.equal(runs, 0)
+  assert.equal(parses, 0)
+  assert.equal(existsSync(dataDirectory), false)
+})
+
 test('注册期拒绝包组件 auth none，初始化例外同时绑定 Core namespace 与 operation id', () => {
   const declaration = {
     method: 'POST', scheme: 'demo', authority: 'actions', path: '/init', auth: 'none',
@@ -229,6 +335,48 @@ test('Dispatcher 建链、结果信封与稳定错误映射', async (t) => {
   })
   assert.equal(media.ok, false)
   assert.equal(media.error.code, 'unsupported-media-type')
+})
+
+test('真实 operation 发现返回 summary 与 fields，并与组件视图及调用表一致', async (t) => {
+  const { core, dispatcher } = await fixture(t)
+  const result = await dispatcher.invoke({ method: 'GET', uri: 'locus://operations' })
+  assert.equal(result.ok, true, JSON.stringify(result))
+  const expected = core.router.operations.map(({ namespace, operation }) => describeOperation(operation, namespace))
+  assert.deepEqual(result.data, expected)
+  const discovery = core.router.resolve('GET', 'locus://operations').operation
+  assert.deepEqual(discovery.output.parse(result.data), result.data)
+  const tty = result.data.find((item) => item.id === 'demo.tty')
+  assert.equal(tty.summary, '接收必填 value 与可选的可信 prompted 输入。')
+  assert.deepEqual(tty.fields.prompted, {
+    description: '可选的可信输入。', required: true, secret: true, tty: true, file: true,
+  })
+  const initialize = result.data.find((item) => item.id === 'locus.security.initialize')
+  assert.equal(initialize.fields.password.required, true)
+  assert.equal(initialize.fields.password.tty, true)
+  assert.equal(initialize.fields.password.secret, true)
+  assert.equal(initialize.fields.password.file, undefined)
+  assert.equal(typeof initialize.fields.password.description, 'string')
+  for (const id of ['locus.security.initialize', 'locus.security.reset-root', 'locus.security.change-root-password']) {
+    const operation = result.data.find((item) => item.id === id)
+    for (const field of Object.values(operation.fields)) {
+      assert.equal(field.tty, true)
+      assert.equal(field.file, undefined)
+    }
+  }
+  for (const item of result.data) {
+    for (const name of ['run', 'input', 'query', 'output']) assert.equal(name in item, false)
+  }
+  assert.equal(JSON.stringify(result).includes(ROOT_PASSWORD), false)
+
+  const view = await dispatcher.invoke({ method: 'GET', uri: 'locus://components/demo' })
+  assert.equal(view.ok, true, JSON.stringify(view))
+  const componentOperation = core.router.resolve('GET', 'locus://components/demo').operation
+  assert.deepEqual(componentOperation.output.parse(view.data), view.data)
+  assert.deepEqual(view.data.operations, result.data.filter((item) => item.component === 'demo').map((item) => {
+    const { component, ...metadata } = item
+    assert.equal(component, 'demo')
+    return metadata
+  }))
 })
 
 test('Workspace 与事件 operation 的输出结构完整且可由公开 schema 解析', async (t) => {
@@ -317,6 +465,43 @@ test('Body 中 tty 字段被拒绝；可信 Host 收集后直接交给 handler',
   )
   assert.equal(accepted.ok, true)
   assert.equal(accepted.data.prompted, 'secret')
+
+  const collision = await dispatcher.invoke(
+    {
+      method: 'POST', uri: 'demo://items/a/actions/tty',
+      body: { value: 'v', prompted: '外部值' }, contentType: 'application/json',
+    },
+    { prompted: '可信值' },
+  )
+  assert.equal(collision.ok, false)
+  assert.equal(collision.error.code, 'invalid-body')
+
+  const wrongType = await dispatcher.invoke(
+    { method: 'POST', uri: 'demo://items/a/actions/tty', body: { value: 'v' }, contentType: 'application/json' },
+    { prompted: 42 },
+  )
+  assert.equal(wrongType.ok, false)
+  assert.equal(wrongType.error.code, 'invalid-argument')
+
+  const undeclared = await dispatcher.invoke(
+    { method: 'POST', uri: 'demo://items/a/actions/tty', body: { value: 'v' }, contentType: 'application/json' },
+    { unknown: '可信来源也不能绕过声明' },
+  )
+  assert.equal(undeclared.ok, false)
+  assert.equal(undeclared.error.code, 'invalid-argument')
+
+  const missingBodyField = await dispatcher.invoke(
+    { method: 'POST', uri: 'demo://items/a/actions/tty', body: {}, contentType: 'application/json' },
+    { prompted: '可信值' },
+  )
+  assert.equal(missingBodyField.ok, false)
+  assert.equal(missingBodyField.error.code, 'invalid-argument')
+
+  const metadataIsNotValidation = await dispatcher.invoke({
+    method: 'POST', uri: 'demo://items/a/actions/tty', body: { value: 'v' }, contentType: 'application/json',
+  })
+  assert.equal(metadataIsNotValidation.ok, true)
+  assert.deepEqual(metadataIsNotValidation.data, { value: 'v' })
 })
 
 test('Root 写凭据、user 读取；缺失 key 在 consume 前失败', async (t) => {

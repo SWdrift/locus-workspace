@@ -6,6 +6,8 @@ import { materialOf } from './credentials.ts'
 
 export const readSystem = defineOperation({
   id: 'rt.system.read',
+  summary:
+    '通过 SSH 在路径 id 指定目标上执行 hostname 并保存探测记录（支持完整 ID、唯一 ID 前缀或唯一标签），返回 targetId、ok、detail 与 checkedAt；无 query 或 JSON Body。',
   method: 'GET',
   scheme: 'rt',
   authority: 'targets',

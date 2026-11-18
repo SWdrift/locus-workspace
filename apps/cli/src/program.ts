@@ -1,28 +1,17 @@
-import { existsSync } from 'node:fs'
-import { join } from 'node:path'
 import { Command } from 'commander'
 import type { LocusCore } from '@locus/core'
-import type { ComponentView } from '@locus/core/components'
 import type { ComponentStateView } from '@locus/core/invocation'
 import type { SecurityGrantScope, SecurityHost } from '@locus/core/security'
 import { configureGlobalOptions } from './global-options.ts'
 import { registerInvocationCommands } from './commands/invocation.ts'
-import { registerWorkspaceCommands } from './commands/workspace.ts'
-import { registerComponentCommands } from './commands/component.ts'
+import { registerHelpCommand } from './commands/help.ts'
 import { registerSecurityCommands } from './commands/security.ts'
-import { registerCredentialCommands } from './commands/credential.ts'
-import { registerTemplateCommands } from './commands/template.ts'
-import { registerPostgresCommands } from './commands/postgres.ts'
-import { registerRemoteTargetCommands } from './commands/remote-targets.ts'
-import { registerEventCommands } from './commands/events.ts'
 import { registerShellCommand } from './commands/shell.ts'
-import { pathParam } from './commands/shared.ts'
 import type { CallOperation, WithCliApi } from './commands/shared.ts'
 import { createCliApi } from './host/api.ts'
 import { createTerminalSecurityUI } from './host/terminal.ts'
 import type { CliSecurityUI } from './host/terminal.ts'
 import { unwrap } from './output/errors.ts'
-import { componentText } from './output/format.ts'
 import { emit } from './output/output.ts'
 
 export interface CreateProgramOptions {
@@ -30,10 +19,9 @@ export interface CreateProgramOptions {
   readonly ui?: CliSecurityUI
   readonly profile?: 'production' | 'development'
   readonly grantScope?: SecurityGrantScope
-  readonly isPackageComponentId?: (id: string) => boolean
 }
 
-/** 这里只创建命令树；命令模块仅接收自身需要的调用端口。 */
+/** 命令树只保留 URL 调用与确需本机交互的入口，不访问领域服务。 */
 export function createProgram(locus: LocusCore, options: CreateProgramOptions = {}): Command {
   const ui = options.ui ?? createTerminalSecurityUI()
   const program = configureGlobalOptions(
@@ -41,7 +29,8 @@ export function createProgram(locus: LocusCore, options: CreateProgramOptions = 
       .name('locus')
       .exitOverride()
       .description('Locus 本地工作空间：资源 URL 与 operation。')
-      .usage('[options] <get|post|put|patch|delete> <uri...> | [command]')
+      .usage('[options] [get|post|put|patch|delete] <uri...> | [command]')
+      .addHelpCommand(false)
       .showHelpAfterError(),
     {
       profile: options.profile ?? 'production',
@@ -63,19 +52,18 @@ export function createProgram(locus: LocusCore, options: CreateProgramOptions = 
       ),
     )
 
-  program.argument('[command]').action(async (command?: string) => {
-    if (command === undefined) {
-      program.help({ error: true })
+  const invokeUris = registerInvocationCommands(program, { router: locus.router, ui, withApi })
+  program.argument('[uri...]').action(async (uris: string[] = []) => {
+    if (uris.length === 0) {
+      program.outputHelp()
       return
     }
-    const packageComponent =
-      options.isPackageComponentId?.(command) ?? locus.router.operations.some(entry => entry.namespace === command)
-    if (!isComponentId(locus.dataDirectory, command, packageComponent)) {
-      program.error(`未知命令：${command}`, { exitCode: 1 })
-      return
+    for (const uri of uris) {
+      if (!/^[a-z][a-z0-9+.-]*:\/\//i.test(uri)) {
+        program.error(`未知命令：${uri}`, { exitCode: 1 })
+      }
     }
-    const result = (await call('GET', `locus://components/${pathParam(command)}`)) as ComponentView
-    emit(program, result, componentText(result))
+    await invokeUris('GET', uris, program)
   })
 
   const version = program.command('version').description('读取 Locus 产品版本')
@@ -83,16 +71,9 @@ export function createProgram(locus: LocusCore, options: CreateProgramOptions = 
     emit(version, locus.info, locus.info.version)
   })
 
-  registerInvocationCommands(program, { router: locus.router, ui, withApi })
-  registerSecurityCommands(program, { call, ui })
-  registerCredentialCommands(program, call)
-  registerWorkspaceCommands(program, call)
-  registerTemplateCommands(program, call)
-  registerPostgresCommands(program, { call, ui })
-  registerRemoteTargetCommands(program, { call, ui })
-  registerComponentCommands(program, call)
-  registerEventCommands(program, call)
-  registerShellCommand(program, call)
+  registerHelpCommand(program, locus.router)
+  registerSecurityCommands(program, { call, ui, router: locus.router })
+  registerShellCommand(program, { call, router: locus.router })
   return program
 }
 
@@ -125,11 +106,4 @@ function createApiScope(
       api.dispose()
     }
   }
-}
-
-/** 只检查组件标识与定义位置，未知命令不会触发服务的惰性建库。 */
-function isComponentId(dataDirectory: string, id: string, packageComponent: boolean): boolean {
-  if (packageComponent) return true
-  const root = join(dataDirectory, 'components')
-  return existsSync(join(root, `${id}.yaml`)) || existsSync(join(root, id, 'component.yaml'))
 }

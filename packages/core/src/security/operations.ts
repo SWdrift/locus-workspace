@@ -63,10 +63,28 @@ const providerStatus = z.object({
 const securityPasswordInput = z.object({ password: z.string(), confirmation: z.string() })
 const resetInput = z.object({ password: z.string(), confirmation: z.string(), confirm: z.string() })
 const ttyFields = Object.freeze({
-  password: Object.freeze({ secret: true, tty: true }),
-  confirmation: Object.freeze({ secret: true, tty: true }),
+  password: Object.freeze({
+    description: '新的 Root 密码，只接受可信本机 TTY 输入。',
+    required: true,
+    secret: true,
+    tty: true,
+  }),
+  confirmation: Object.freeze({
+    description: '再次输入新的 Root 密码，只接受可信本机 TTY 输入。',
+    required: true,
+    secret: true,
+    tty: true,
+  }),
 })
-const resetFields = Object.freeze({ ...ttyFields, confirm: Object.freeze({ secret: true, tty: true }) })
+const resetFields = Object.freeze({
+  ...ttyFields,
+  confirm: Object.freeze({
+    description: '输入 RESET ROOT 确认本机接管，只接受可信本机 TTY 输入。',
+    required: true,
+    secret: true,
+    tty: true,
+  }),
+})
 
 /** 安全与凭据的协议投影独立于 Runtime；Host 只由可信组合根显式提供。 */
 export function createSecurityOperations(
@@ -77,6 +95,7 @@ export function createSecurityOperations(
   return [
     defineOperation({
       id: 'locus.security.status',
+      summary: '读取当前 Profile 的 Root 初始化状态与身份信息；无需 Body 或 query。',
       method: 'GET',
       scheme: 'locus',
       authority: 'security',
@@ -88,6 +107,7 @@ export function createSecurityOperations(
     }),
     defineOperation({
       id: 'locus.security.provider',
+      summary: '读取 Credential Provider 后端状态；不读取秘密条目，无需 Body 或 query。',
       method: 'GET',
       scheme: 'locus',
       authority: 'security',
@@ -99,6 +119,8 @@ export function createSecurityOperations(
     }),
     defineOperation({
       id: 'locus.security.initialize',
+      summary:
+        '首次初始化 Root；仅 human Session，password 与 confirmation 必须由可信本机 TTY 提供，不接受 Body 或字段文件。',
       method: 'POST',
       scheme: 'locus',
       authority: 'security',
@@ -116,6 +138,8 @@ export function createSecurityOperations(
     }),
     defineOperation({
       id: 'locus.security.reset-root',
+      summary:
+        '本机接管并重置 Root；可信本机 TTY 必须提供 password、confirmation 及 confirm（固定为 RESET ROOT），不接受 Body 或字段文件。',
       method: 'POST',
       scheme: 'locus',
       authority: 'security',
@@ -132,6 +156,7 @@ export function createSecurityOperations(
     }),
     defineOperation({
       id: 'locus.security.change-root-password',
+      summary: '经 Root 授权变更密码；password 与 confirmation 必须由可信本机 TTY 提供，不接受 Body 或字段文件。',
       method: 'POST',
       scheme: 'locus',
       authority: 'security',
@@ -147,6 +172,7 @@ export function createSecurityOperations(
     }),
     defineOperation({
       id: 'locus.security.operations.list',
+      summary: '列出全部组件 operation 的默认与有效认证等级及覆盖来源；需要 Root，无需 Body 或 query。',
       method: 'GET',
       scheme: 'locus',
       authority: 'security',
@@ -158,12 +184,14 @@ export function createSecurityOperations(
     }),
     defineOperation({
       id: 'locus.security.operations.set',
+      summary: '覆盖路径 component/operation 的认证等级；Body 必须提供 level（user 或 root），需要 Root。',
       method: 'PUT',
       scheme: 'locus',
       authority: 'security',
       path: '/operations/:component/:operation',
       auth: 'root',
       input: z.object({ level: securityLevel }),
+      fields: { level: { description: '认证等级覆盖值：user 或 root。', required: true } },
       output: operationAuthority,
       run: (_query, input, context) =>
         management().setOperationLevel({
@@ -174,6 +202,7 @@ export function createSecurityOperations(
     }),
     defineOperation({
       id: 'locus.security.operations.reset',
+      summary: '移除路径 component/operation 的认证等级覆盖，恢复代码声明；需要 Root，无需 Body 或 query。',
       method: 'DELETE',
       scheme: 'locus',
       authority: 'security',
@@ -189,6 +218,7 @@ export function createSecurityOperations(
     }),
     defineOperation({
       id: 'locus.credentials.list',
+      summary: '列出当前 Profile 的凭据公开元数据与全部绑定，不返回秘密值；需要 Root，无需 Body 或 query。',
       method: 'GET',
       scheme: 'locus',
       authority: 'credentials',
@@ -203,6 +233,7 @@ export function createSecurityOperations(
     }),
     defineOperation({
       id: 'locus.credentials.component',
+      summary: '列出路径 component 的凭据绑定与相关公开元数据，不返回秘密值；需要 Root，无需 Body 或 query。',
       method: 'GET',
       scheme: 'locus',
       authority: 'credentials',
@@ -224,6 +255,7 @@ export function createSecurityOperations(
     }),
     defineOperation({
       id: 'locus.credentials.get',
+      summary: '按路径 component/slot/key 精确读取绑定与凭据公开元数据，不返回秘密值；需要 Root，无需 Body 或 query。',
       method: 'GET',
       scheme: 'locus',
       authority: 'credentials',
@@ -248,6 +280,7 @@ export function createSecurityOperations(
     }),
     defineOperation({
       id: 'locus.credentials.remove',
+      summary: '按路径 component/slot/key 删除已绑定凭据及其 Provider 条目与绑定；需要 Root，无需 Body 或 query。',
       method: 'DELETE',
       scheme: 'locus',
       authority: 'credentials',
@@ -271,12 +304,14 @@ export function createSecurityOperations(
     }),
     defineOperation({
       id: 'locus.credentials.cleanup',
+      summary: '检查当前 Profile 的孤立 Provider 条目；Body 可选 apply，只有 true 才删除；需要 Root。',
       method: 'POST',
       scheme: 'locus',
       authority: 'credentials',
       path: '/actions/cleanup',
       auth: 'root',
       input: z.object({ apply: z.boolean().optional() }),
+      fields: { apply: { description: '是否实际删除孤立条目；省略或 false 时仅报告。', required: false } },
       output: z.object({
         service: z.string(),
         orphans: z.array(z.string()).readonly(),
@@ -287,12 +322,14 @@ export function createSecurityOperations(
     }),
     defineOperation({
       id: 'locus.credentials.status',
+      summary: '检查凭据公开元数据及秘密条目是否存在；Body 必须提供 reference（credential:...）；需要 Root。',
       method: 'POST',
       scheme: 'locus',
       authority: 'credentials',
       path: '/actions/status',
       auth: 'root',
       input: z.object({ reference: credentialReference }),
+      fields: { reference: { description: 'Core 签发的 credential:... 凭据引用，不是秘密值。', required: true } },
       output: z.object({ metadata: credentialMetadata, present: z.boolean() }),
       run: (_query, input) => management().credentialStatus(input.reference),
     }),

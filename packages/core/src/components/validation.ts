@@ -1,5 +1,7 @@
 import { isAbsolute } from 'node:path'
-import type { InputField, LocusMethod, OperationDefinition, OperationMetadata } from '../invocation/types.ts'
+import { InvocationFailure } from '../invocation/errors.ts'
+import { snapshotOperationMetadata } from '../invocation/operation.ts'
+import type { LocusMethod, OperationDefinition, OperationMetadata } from '../invocation/types.ts'
 import { ComponentFailure } from './errors.ts'
 import type {
   ComponentConfig,
@@ -56,6 +58,7 @@ const DEPLOY_KEYS: Record<string, true> = { argv: true, timeoutMs: true }
 const INFO_KEYS: Record<string, true> = { text: true, json: true }
 const OPERATION_KEYS: Record<string, true> = {
   id: true,
+  summary: true,
   method: true,
   scheme: true,
   authority: true,
@@ -67,7 +70,6 @@ const OPERATION_KEYS: Record<string, true> = {
   fields: true,
   run: true,
 }
-const FIELD_INPUT_KEYS: Record<string, true> = { secret: true, tty: true }
 const CREDENTIAL_KEYS: Record<string, true> = { id: true, fields: true }
 const CREDENTIAL_DEFINITION_KEYS: Record<string, true> = {
   id: true,
@@ -244,27 +246,6 @@ function validateCredentials(value: unknown): readonly ComponentCredential[] {
   })
 }
 
-function validateOperationFields(value: unknown, field: string): Readonly<Record<string, InputField>> {
-  if (value === null || typeof value !== 'object' || Array.isArray(value)) invalid(`${field} 必须是映射`)
-  const output: Record<string, InputField> = Object.create(null) as Record<string, InputField>
-  for (const [name, raw] of Object.entries(value)) {
-    if (!FIELD_NAME.test(name)) invalid(`${field}.${name} 必须以小写字母开头，只包含字母和数字`)
-    const object = requirePlainObject(raw, `${field}.${name}`)
-    requireKeys(object, FIELD_INPUT_KEYS, `${field}.${name}`)
-    if (object.secret !== undefined && typeof object.secret !== 'boolean') {
-      invalid(`${field}.${name}.secret 必须是布尔值`)
-    }
-    if (object.tty !== undefined && typeof object.tty !== 'boolean') {
-      invalid(`${field}.${name}.tty 必须是布尔值`)
-    }
-    output[name] = Object.freeze({
-      ...(object.secret === undefined ? {} : { secret: object.secret }),
-      ...(object.tty === undefined ? {} : { tty: object.tty }),
-    })
-  }
-  return Object.freeze(output)
-}
-
 function validateOperations(
   value: unknown,
   executable: boolean,
@@ -311,30 +292,30 @@ function validateOperations(
     } else if (object.run !== undefined) {
       invalid(`${field}.run 只能出现在 defineComponent 的定义中`)
     }
-    const fields = object.fields === undefined ? undefined : validateOperationFields(object.fields, `${field}.fields`)
-    metadata.push(
-      Object.freeze({
+    let declaration: OperationMetadata
+    try {
+      declaration = snapshotOperationMetadata({
         id,
         method: method as LocusMethod,
         scheme,
         authority,
         path,
         auth,
-      }),
-    )
+        ...(object.summary === undefined ? {} : { summary: object.summary as string }),
+        ...(object.fields === undefined ? {} : { fields: object.fields as OperationMetadata['fields'] }),
+      })
+    } catch (error) {
+      if (error instanceof InvocationFailure) invalid(`${field}：${error.message}`)
+      throw error
+    }
+    metadata.push(declaration)
     if (executable) {
       defined.push(
         Object.freeze({
-          id,
-          method: method as LocusMethod,
-          scheme,
-          authority,
-          path,
-          auth,
+          ...declaration,
           input: inputSchema as OperationDefinition<any, any, any>['input'],
           output: outputSchema as OperationDefinition<any, any, any>['output'],
           ...(object.query === undefined ? {} : { query: querySchema as OperationDefinition<any, any, any>['query'] }),
-          ...(fields === undefined ? {} : { fields }),
           run: object.run as OperationDefinition<any, any, any>['run'],
         }) as OperationDefinition<any, any, any>,
       )

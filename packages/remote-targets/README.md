@@ -13,7 +13,7 @@
 - Node.js 24 或更高；使用构建产物 `lib/`。
 - 首次访问组件服务时物化 `remote-targets` 组件定义；密钥认证要求 `openssh` 组件为 `healthy`，密码认证要求 `plink` 组件；未登记或未就绪时传输前置明确失败。
 - 密钥认证需要 `ssh` 在 `PATH` 中；密码认证需要 Plink，并提供 `connectivity.trust.fingerprint`。
-- 凭据由 Root 通过 `remote-targets add`、`update-credential` 或 `migrate` 写入 Core，并按 `component + slot + target id` 绑定；目标配置只保存认证方式，不保存引用或秘密。
+- 凭据由 Root 通过 `rt.target.register`、`rt.target.credential.update` 或 `rt.target.migrate` 写入 Core，并按 `component + slot + target id` 绑定；CLI 通过通用 URL 方法调用，不提供领域别名。目标配置只保存认证方式，不保存引用或秘密。
 - 目标根目录为 `<dataDirectory>/remote-targets/`，必须由现有 CLI 以绝对数据目录提供；`dataDirectory` 的解析见 [Core](../../packages/core/README.md#持久化与恢复)。
 - 执行前须由可信 Host 初始化 Core Security；probe/exec/shell 需要注入 Core 授权与凭据交付入口，普通 User 获准访问不要求 Root 密码。
 
@@ -66,11 +66,11 @@
 
 Core 返回秘密后，本包在操作系统临时目录创建独占目录与文件：POSIX 目录 0700、文件 0600；Windows 在写入秘密前建立并核验仅当前 SID、SYSTEM 与 Administrators 的 DACL。OpenSSH/Plink 正常或异常返回后删除目录；probe 的 15 秒超时也走同一清理路径。exec/shell 当前未接取消信号，强杀进程可能留下同用户可读的临时文件；不维护 lease、PID 追踪或崩溃恢复平台，这是接受的残留窗口。
 
-升级后已有远程目标凭据缺少 `targetBinding`，读取会以 `credential-fields-mismatch` 失败；Root 需重新执行 `update-credential`（或重新登记目标）补齐。
+升级后已有远程目标凭据缺少 `targetBinding`，读取会以 `credential-fields-mismatch` 失败；Root 需重新执行 credential.update operation（或重新登记目标）补齐。
 
 Core 把目标安全配置摘要 `targetBinding` 作为凭据公开字段保存。摘要覆盖 host、port、login、`access.capabilities`、`remoteShell`、客户端与 trust 锚；认证方法、目标 id 与仅展示字段不纳入。读取凭据时比较当前目标摘要与登记值，不一致以 `target-config-mismatch` 在启动客户端前失败。修改 `targets.yaml` 的安全字段后，必须由 Root 重新执行 `update-credential`（或重新登记目标）才能恢复访问。
 
-旧 `auth.path/root` 不再参与运行时。`remote-targets migrate <target> --method private-key|password [--file <path>] --yes` 先经 migration-source 查询旧路径，由可信 Host 读取旧文件，再经 `rt.target.migrate` 写入 Core，随后按 `component + slot + target id` 绑定并改写目标配置；原文件保留。登记、更新和迁移的私钥统一在包内写入边界用受限临时副本执行 `ssh-keygen -y -P ''` 预检，带口令或无法解析时以 `encrypted-key-unsupported` 阻塞，不自动去口令、不把口令放入 argv/env；直接调用 operation 也不能绕过。密码迁移把旧密码文件写入 Core，之后由 Plink 临时文件交付。真实 Plink 登录未在当前环境验证。
+旧 `auth.path/root` 不再参与运行时。显式迁移调用 先经 migration-source 查询旧路径，由可信 Host 读取旧文件，再经 `rt.target.migrate` 写入 Core，随后按 `component + slot + target id` 绑定并改写目标配置；原文件保留。登记、更新和迁移的私钥统一在包内写入边界用受限临时副本执行 `ssh-keygen -y -P ''` 预检，带口令或无法解析时以 `encrypted-key-unsupported` 阻塞，不自动去口令、不把口令放入 argv/env；直接调用 operation 也不能绕过。密码迁移把旧密码文件写入 Core，之后由 Plink 临时文件交付。真实 Plink 登录未在当前环境验证。
 
 凭据准备、消费与清理分别分类。远端消费成功但临时文件清理失败时，协议返回 `unknown-result`，并带 `details.executionCompleted: true`、`details.cleanupFailed: true`；这不表示远端操作未发生，不应自动重试。消费和清理同时失败时保留原分类，并报告清理失败，不输出秘密或临时路径。
 
@@ -79,7 +79,7 @@ Core 把目标安全配置摘要 `targetBinding` 作为凭据公开字段保存�
 | 错误码 | 触发条件 |
 |---|---|
 | `invalid-spec` | 字段缺失、未知字段、路径逃逸、id 格式错误、缺少远端命令、凭据类型与认证方式不符 |
-| `target-exists` | `add` 的 id 已存在 |
+| `target-exists` | `rt.target.register` 的 id 已存在 |
 | `target-not-found` | 引用无法匹配 |
 | `ambiguous-target` | 前缀或标签匹配多个目标 |
 | `unsupported-protocol` | `transport` 不是 `ssh` |
@@ -117,4 +117,4 @@ Core 把目标安全配置摘要 `targetBinding` 作为凭据公开字段保存�
 
 - `pnpm test` 覆盖配置校验、路径逃逸、引号、SSH/Plink 参数、凭据绑定、迁移、能力检查、组件前置检查与 SQLite 跨实例读取；`packages/remote-targets/test/security-integration.test.mjs` 使用真实 Core 与内存 Provider。
 - 真实目标验证：`node packages/remote-targets/test/manual-ssh.mjs` 在受控临时目录启动本地 OpenSSH sshd，使用 Core 绑定凭据、受限临时私钥和固定 known_hosts 执行 `whoami`，并验证错误私钥拒绝与临时文件清理。
-- CLI 用例只验证命令行独有契约：stdin/文件输入、JSON/人类输出、`--yes` 确认与错误退出码；配置校验与执行语义由服务测试覆盖。
+- CLI 用例只验证通用 URL、可信字段文件／TTY 输入、JSON/人类输出与调用退出码；配置校验与执行语义由服务测试覆盖。

@@ -57,6 +57,16 @@ function invocationFailure(code, domain) {
     error.code === code && error.details?.domain === domain
 }
 
+test('模板 operation 声明中文协议说明与输入结构', () => {
+  for (const item of operations) assert.match(item.summary, /[\u4e00-\u9fff]/)
+  assert.match(create.summary, /destination.*dryRun/)
+  assert.throws(() => create.input.parse({}))
+  assert.deepEqual(create.input.parse({ destination: '/tmp/project', dryRun: true }), {
+    destination: '/tmp/project',
+    dryRun: true,
+  })
+})
+
 test('list 列出内置模板，create 使用 pathParams.id 复制并写入实例记录', async (t) => {
   const f = fixture(t)
   const listed = await list.run(undefined, undefined, contextFor())

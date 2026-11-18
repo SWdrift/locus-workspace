@@ -1,6 +1,43 @@
+import { z } from 'zod'
 import type { ComponentCredential, CredentialField } from '../components/types.ts'
 import type { CredentialValues } from '../security/types.ts'
-import type { CredentialDefinition, InputField, OperationDefinition } from './types.ts'
+import { InvocationFailure } from './errors.ts'
+import type {
+  CredentialDefinition,
+  InputField,
+  OperationDefinition,
+  OperationDescription,
+  OperationMetadata,
+} from './types.ts'
+
+const CREDENTIAL_SLOT = /^[a-z][a-z0-9-]{0,63}$/
+const FIELD_NAME = /^[a-z][a-zA-Z0-9]{0,63}$/
+const publicText = z
+  .string()
+  .min(1)
+  .refine(value => value === value.trim() && !value.includes('\0'))
+const inputField = z
+  .object({
+    description: publicText.optional(),
+    required: z.boolean().optional(),
+    secret: z.boolean().optional(),
+    file: z.boolean().optional(),
+    tty: z.boolean().optional(),
+  })
+  .strict()
+  .refine(field => field.file !== true || field.tty === true)
+
+/** 公开输出契约与声明复制共用此结构，不读取 schema 内部或执行 handler。 */
+export const operationMetadataSchema = z.object({
+  id: z.string(),
+  summary: publicText.optional(),
+  method: z.enum(['GET', 'POST', 'PUT', 'PATCH', 'DELETE']),
+  scheme: z.string(),
+  authority: z.string(),
+  path: z.string(),
+  auth: z.enum(['user', 'root', 'none']),
+  fields: z.record(z.string().regex(FIELD_NAME), inputField).optional(),
+})
 
 /** 类型推导入口；路由冲突与声明合法性由注册阶段检查。 */
 export function defineOperation<Q = undefined, I = unknown, O = unknown>(
@@ -9,9 +46,6 @@ export function defineOperation<Q = undefined, I = unknown, O = unknown>(
   return definition
 }
 
-const CREDENTIAL_SLOT = /^[a-z][a-z0-9-]{0,63}$/
-const FIELD_NAME = /^[a-z][a-zA-Z0-9]{0,63}$/
-
 export function isPlainRecord(value: unknown): value is Record<string, unknown> {
   return (
     value !== null &&
@@ -19,6 +53,30 @@ export function isPlainRecord(value: unknown): value is Record<string, unknown> 
     !Array.isArray(value) &&
     (Object.getPrototypeOf(value) === Object.prototype || Object.getPrototypeOf(value) === null)
   )
+}
+
+/** 复制公开元数据；未知字段值不能借 fields 混入发现结果。 */
+export function snapshotOperationMetadata(operation: OperationMetadata): OperationMetadata {
+  if (operation.fields !== undefined) {
+    if (!isPlainRecord(operation.fields) || Object.values(operation.fields).some(field => !isPlainRecord(field))) {
+      throw new InvocationFailure('invalid-argument', `operation ${operation.id} 的 fields 必须是普通映射`)
+    }
+  }
+  const parsed = operationMetadataSchema.safeParse(operation)
+  if (!parsed.success) {
+    throw new InvocationFailure('invalid-argument', `operation ${operation.id} 的公开描述或字段元数据不合法`)
+  }
+  const metadata = parsed.data
+  if (metadata.fields !== undefined) {
+    for (const field of Object.values(metadata.fields)) Object.freeze(field)
+    Object.freeze(metadata.fields)
+  }
+  return Object.freeze(metadata)
+}
+
+/** Host 可直接从路由表发现能力；此投影没有授权、业务执行或存储副作用。 */
+export function describeOperation(operation: OperationMetadata, namespace: string): OperationDescription {
+  return Object.freeze({ component: namespace, ...snapshotOperationMetadata(operation) })
 }
 
 /** 凭据定义只描述 slot 与字段；秘密字段永不进入公开声明。 */

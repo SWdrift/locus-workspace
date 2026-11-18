@@ -66,6 +66,11 @@ test('Gitea 只暴露 operation 契约，不携带 capability 声明', () => {
   assert.equal(request.auth, 'user')
   assert.equal(register.path, '/:id')
   assert.equal(request.path, '/:id/requests')
+  for (const item of operations) assert.match(item.summary, /[\u4e00-\u9fff]/)
+  assert.equal(register.fields.token.required, true)
+  assert.equal(register.fields.token.tty, true)
+  assert.equal(register.fields.token.secret, true)
+  assert.match(register.fields.token.description, /Gitea API 令牌/)
   assert.throws(() => register.input.parse({ origin: ORIGIN }))
   assert.throws(() => request.input.parse({}))
   assert.deepEqual(register.input.parse({ origin: ORIGIN, token: TOKEN, credential: 'credential:x' }), {

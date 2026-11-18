@@ -1,6 +1,6 @@
 export { createApiRouter } from './router.ts'
 export { createDispatcher } from './dispatcher.ts'
-export { defineCredential, defineOperation } from './operation.ts'
+export { defineCredential, defineOperation, describeOperation } from './operation.ts'
 export { DomainFailure, InvocationFailure } from './errors.ts'
 export { LOCUS_METHODS } from './types.ts'
 export { parseLocusUri } from './uri.ts'
@@ -19,6 +19,7 @@ export type {
   LocusMethod,
   OperationContext,
   OperationDefinition,
+  OperationDescription,
   OperationMetadata,
   OperationSchema,
 } from './types.ts'

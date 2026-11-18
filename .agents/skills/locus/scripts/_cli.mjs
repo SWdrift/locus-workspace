@@ -52,9 +52,9 @@ export function runJson(args) {
 }
 
 export function workspaceList() {
-  return runJson(['--json', 'workspace', 'list'])
+  return runJson(['--json', 'get', 'locus://workspaces']).data
 }
 
 export function resolveWorkspace(reference) {
-  return runJson(['--json', 'workspace', 'show', reference])
+  return runJson(['--json', 'get', `locus://workspaces/${encodeURIComponent(reference)}`]).data
 }

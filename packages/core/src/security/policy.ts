@@ -1,5 +1,7 @@
 import { createHash } from 'node:crypto'
 import type { ComponentCredential, ComponentSpec } from '../components/types.ts'
+import { InvocationFailure } from '../invocation/errors.ts'
+import { snapshotOperationMetadata } from '../invocation/operation.ts'
 import type { OperationMetadata } from '../invocation/types.ts'
 import { deny, SecurityFailure } from './errors.ts'
 import type {
@@ -309,14 +311,12 @@ function snapshotOperation(value: OperationMetadata): OperationMetadata {
     (!value.path.startsWith('/') && value.path !== '')
   )
     deny('invalid-request')
-  return Object.freeze({
-    id: value.id,
-    method: value.method,
-    scheme: value.scheme,
-    authority: value.authority,
-    path: value.path,
-    auth: value.auth,
-  })
+  try {
+    return snapshotOperationMetadata(value)
+  } catch (error) {
+    if (error instanceof InvocationFailure) deny('invalid-request')
+    throw error
+  }
 }
 
 function timestamp(value: unknown): value is number {

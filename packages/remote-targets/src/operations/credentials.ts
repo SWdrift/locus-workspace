@@ -25,8 +25,21 @@ export const password = defineCredential({
 })
 
 export const credentialFields = Object.freeze({
-  privateKey: Object.freeze({ secret: true, tty: true }),
-  password: Object.freeze({ secret: true, tty: true }),
+  privateKey: Object.freeze({
+    secret: true,
+    tty: true,
+    file: true,
+    required: false,
+    description:
+      '按认证方式提供 privateKey/password 之一：认证方式为 private-key 时必须提供未加密 SSH 私钥文本；仅接受可信输入。',
+  }),
+  password: Object.freeze({
+    secret: true,
+    tty: true,
+    file: true,
+    required: false,
+    description: '按认证方式提供 privateKey/password 之一：认证方式为 password 时必须提供 SSH 密码；仅接受可信输入。',
+  }),
 })
 
 export function slotOf(target: RemoteTarget): RemoteCredentialSlot {
@@ -74,6 +87,8 @@ function credentialOf(slot: RemoteCredentialSlot): CredentialDefinition {
 
 export const updateCredential = defineOperation({
   id: 'rt.target.credential.update',
+  summary:
+    '更新路径 id 指定目标的绑定凭据（支持完整 ID、唯一 ID 前缀或唯一标签）；JSON Body 必填 method（private-key 或 password，必须与目标一致），对应秘密由可信输入提供，无 query；返回 target、method 与 updated:true。',
   method: 'POST',
   scheme: 'rt',
   authority: 'targets',
@@ -97,6 +112,8 @@ export const updateCredential = defineOperation({
 
 export const migrate = defineOperation({
   id: 'rt.target.migrate',
+  summary:
+    '将路径 id 指定目标的旧文件认证迁移为 Core 凭据绑定（支持完整 ID、唯一 ID 前缀或唯一标签）；JSON Body 必填 method（旧 key 对应 private-key，旧 password 对应 password），对应秘密由可信输入提供，无 query；返回迁移后的目标配置，不删除旧凭据文件。',
   method: 'POST',
   scheme: 'rt',
   authority: 'targets',

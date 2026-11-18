@@ -34,11 +34,17 @@ function fixture(t) {
   return { root, data, run }
 }
 
-function parseJson(value) {
-  return JSON.parse(value)
+function data(result) {
+  assert.equal(result.code, 0, result.stderr)
+  const envelope = JSON.parse(result.stdout)
+  assert.equal(envelope.ok, true)
+  assert.equal(typeof envelope.uri, 'string')
+  assert.equal(typeof envelope.requestId, 'string')
+  assert.equal(typeof envelope.links, 'object')
+  return envelope.data
 }
 
-test('version 与 help 不创建数据目录，退出码为 0', (t) => {
+test('version、静态帮助与 operation 帮助不执行业务、不创建数据目录', (t) => {
   const f = fixture(t)
   const version = f.run(['version'])
   assert.equal(version.code, 0)
@@ -48,90 +54,129 @@ test('version 与 help 不创建数据目录，退出码为 0', (t) => {
 
   const help = f.run(['--help'])
   assert.equal(help.code, 0)
-  assert.match(help.stdout, /workspace/)
+  assert.match(help.stdout, /get/)
+  assert.match(help.stdout, /pg\.database\.register/)
+  assert.equal(existsSync(f.data), false)
+
+  const registered = f.run(['help'])
+  assert.equal(registered.code, 0, registered.stderr)
+  assert.match(registered.stdout, /locus\.workspaces\.create/)
+  assert.match(registered.stdout, /rt\.target\.register/)
+  assert.equal(existsSync(f.data), false)
+
+  const scheme = f.run(['help', 'pg://'])
+  assert.equal(scheme.code, 0, scheme.stderr)
+  assert.match(scheme.stdout, /pg\.database\.register/)
+  assert.match(scheme.stdout, /pg\.database\.query/)
+  assert.doesNotMatch(scheme.stdout, /rt\.target\.register/)
+
+  const route = f.run(['help', 'pg://databases/app'])
+  assert.equal(route.code, 0, route.stderr)
+  assert.match(route.stdout, /pg\.database\.register/)
+  assert.match(route.stdout, /password/)
+  assert.match(route.stdout, /host/)
   assert.equal(existsSync(f.data), false)
 })
 
-test('Workspace 创建、列举、打开、改名与 JSON 输出跨进程保持身份', (t) => {
+test('Workspace URL 创建、裸 URI 读取与文件 Body 改名跨进程保持身份', (t) => {
   const f = fixture(t)
-  const created = f.run(['workspace', 'create', '研究'])
-  assert.equal(created.code, 0)
-  assert.match(created.stdout, /Workspace: 研究/)
-  const idMatch = /Identity: ([0-9a-f-]+)/.exec(created.stdout)
-  assert.ok(idMatch)
-  const id = idMatch[1]
+  const created = data(f.run([
+    '--json', 'post', 'locus://workspaces', '--data', '{"name":"研究"}',
+  ]))
+  const id = created.id
+  assert.match(id, /^[0-9a-f-]+$/)
 
-  const listed = f.run(['--json', 'workspace', 'list'])
-  assert.equal(listed.code, 0)
-  const workspaces = parseJson(listed.stdout)
+  const workspaces = data(f.run(['--json', 'get', 'locus://workspaces']))
   assert.equal(workspaces.length, 1)
   assert.equal(workspaces[0].name, '研究')
   assert.equal(workspaces[0].id, id)
 
-  const opened = f.run(['workspace', 'open', id])
-  assert.equal(opened.code, 0)
-  assert.match(opened.stdout, new RegExp(`Identity: ${id}`))
+  const opened = data(f.run(['--json', `locus://workspaces/${id}`]))
+  assert.equal(opened.id, id)
+  assert.equal(opened.name, '研究')
 
-  const renamed = f.run(['--json', 'workspace', 'rename', id, '研究二'])
-  assert.equal(renamed.code, 0)
-  assert.equal(parseJson(renamed.stdout).name, '研究二')
-  assert.equal(parseJson(renamed.stdout).id, id)
+  const body = join(f.root, 'rename.json')
+  writeFileSync(body, '{"name":"研究二"}', 'utf8')
+  const renamed = data(f.run(['--json', 'patch', `locus://workspaces/${id}`, '--file', body]))
+  assert.equal(renamed.name, '研究二')
+  assert.equal(renamed.id, id)
+  assert.equal(data(f.run(['--json', 'get', `locus://workspaces/${id}`])).name, '研究二')
 })
 
-test('显式关系幂等、拒绝自引用，解除必须确认且只移除关系', (t) => {
+test('关系 Body 保持来源与幂等，拒绝自引用，DELETE 只移除关系', (t) => {
   const f = fixture(t)
-  const created = parseJson(f.run(['--json', 'workspace', 'create', '关系']).stdout)
+  const created = data(f.run([
+    '--json', 'post', 'locus://workspaces', '--data', '{"name":"关系"}',
+  ]))
   const id = created.id
+  const body = JSON.stringify({
+    kind: 'association',
+    namespace: 'example.resource',
+    id: 'abc',
+    source: { kind: 'manual', detail: 'CLI 显式输入' },
+  })
 
-  const linked = parseJson(
-    f.run(['--json', 'workspace', 'link', id, 'example.resource', 'abc']).stdout,
-  )
+  const linked = data(f.run([
+    '--json', 'post', `locus://workspaces/${id}/relations`, '--data', body,
+  ]))
   assert.equal(linked.kind, 'association')
   assert.deepEqual(linked.target, { namespace: 'example.resource', id: 'abc' })
   assert.deepEqual(linked.source, { kind: 'manual', detail: 'CLI 显式输入' })
 
-  const repeated = parseJson(
-    f.run(['--json', 'workspace', 'link', id, 'example.resource', 'abc']).stdout,
-  )
+  const repeated = data(f.run([
+    '--json', 'post', `locus://workspaces/${id}/relations`, '--data', body,
+  ]))
   assert.equal(repeated.id, linked.id)
 
-  const selfLink = f.run(['workspace', 'link', id, 'locus.workspace', id])
+  const selfLink = f.run([
+    'post', `locus://workspaces/${id}/relations`, '--data',
+    JSON.stringify({ kind: 'association', namespace: 'locus.workspace', id }),
+  ])
   assert.equal(selfLink.code, 2)
   assert.equal(selfLink.stdout, '')
   assert.match(selfLink.stderr, /不能把自身/)
 
-  const missingConfirmation = f.run(['workspace', 'unlink', id, linked.id])
-  assert.equal(missingConfirmation.code, 1)
-  assert.equal(missingConfirmation.stdout, '')
-
-  const unlinked = f.run(['workspace', 'unlink', id, linked.id, '--yes'])
-  assert.equal(unlinked.code, 0)
-  assert.match(unlinked.stdout, /外部资源未删除/)
-  assert.deepEqual(parseJson(f.run(['--json', 'workspace', 'show', id]).stdout).relations, [])
+  assert.deepEqual(
+    data(f.run(['--json', 'get', `locus://workspaces/${id}/relations`])),
+    [linked],
+  )
+  const unlinked = data(f.run([
+    '--json', 'delete', `locus://workspaces/${id}/relations/${linked.id}`,
+  ]))
+  assert.equal(unlinked.removedRelationId, linked.id)
+  const remaining = data(f.run(['--json', 'get', `locus://workspaces/${id}`]))
+  assert.equal(remaining.id, id)
+  assert.deepEqual(remaining.relations, [])
 })
 
-test('无参数与未知命令给出稳定失败，相对数据目录按工作目录解析', (t) => {
+test('无参数显示帮助，未知命令失败，相对数据目录按工作目录解析', (t) => {
   const f = fixture(t)
   const noCommand = f.run([])
-  assert.equal(noCommand.code, 1)
-  assert.equal(noCommand.stdout, '')
+  assert.equal(noCommand.code, 0)
+  assert.match(noCommand.stdout, /get/)
+  assert.equal(existsSync(f.data), false)
 
   const unknown = f.run(['bogus'])
   assert.equal(unknown.code, 1)
   assert.equal(unknown.stdout, '')
   assert.match(unknown.stderr, /未知命令：bogus/)
 
-  const relative = f.run(['--json', 'workspace', 'create', '相对数据目录'], {
-    LOCUS_HOME: 'relative-data',
-  })
+  const relative = f.run([
+    '--json', 'post', 'locus://workspaces', '--data', '{"name":"相对数据目录"}',
+  ], { LOCUS_HOME: 'relative-data' })
   assert.equal(relative.code, 0)
   assert.equal(existsSync(join(f.root, 'relative-data', 'core.sqlite')), true)
 })
 
-test('--human 始终覆盖 --json 的失败输出，--pretty 也适用于异常 JSON', (t) => {
+test('--human 始终覆盖 --json，--pretty 美化成功与失败信封及安全异常', (t) => {
   const f = fixture(t)
   for (const flags of [['--json', '--human'], ['--human', '--json', '--pretty']]) {
-    const missing = f.run([...flags, 'workspace', 'show', 'missing'])
+    const success = f.run([...flags, 'get', 'locus://info'])
+    assert.equal(success.code, 0, success.stderr)
+    assert.deepEqual(JSON.parse(success.stdout), { version: PRODUCT_VERSION })
+    assert.equal(success.stderr, '')
+
+    const missing = f.run([...flags, 'get', 'locus://workspaces/missing'])
     assert.equal(missing.code, 2)
     assert.equal(missing.stdout, '')
     assert.match(missing.stderr, /not-found/)
@@ -147,10 +192,60 @@ test('--human 始终覆盖 --json 的失败输出，--pretty 也适用于异常 
     assert.match(invocation.stderr, /not-found/)
   }
 
-  const pretty = f.run(['--json', '--pretty', 'workspace', 'show', 'missing'])
+  const pretty = f.run(['--json', '--pretty', 'get', 'locus://workspaces/missing'])
   assert.equal(pretty.code, 2)
-  assert.equal(parseJson(pretty.stdout).code, 'not-found')
-  assert.match(pretty.stdout, /^\{\n  "code":/)
+  assert.equal(JSON.parse(pretty.stdout).ok, false)
+  assert.equal(JSON.parse(pretty.stdout).error.code, 'not-found')
+  assert.match(pretty.stdout, /\n  "error": \{/)
+  const prettySuccess = f.run(['--pretty', '--json', 'locus://info'])
+  assert.equal(data(prettySuccess).version, PRODUCT_VERSION)
+  assert.match(prettySuccess.stdout, /\n  "data": \{/)
+
+  const security = f.run(['--json', '--pretty', 'init'])
+  assert.equal(security.code, 2)
+  assert.equal(JSON.parse(security.stdout).code, 'authentication-unavailable')
+  assert.match(security.stdout, /^\{\n  "code":/)
+})
+
+test('URL 参数、Body 与可信文件选择错误不执行业务', (t) => {
+  const f = fixture(t)
+  const body = join(f.root, 'body.json')
+  const secret = join(f.root, 'secret.txt')
+  writeFileSync(body, '{"name":"不得创建"}', 'utf8')
+  writeFileSync(secret, 'field-file-sentinel-不得输出', 'utf8')
+  const invalid = [
+    ['get'],
+    ['post', 'locus://workspaces', 'locus://info', '--data', '{"name":"x"}'],
+    ['get', 'locus://info', '--data', '{}'],
+    ['post', 'locus://workspaces', '--data', '{'],
+    ['post', 'locus://workspaces', '--data', '{}', '--file', body],
+    ['post', 'locus://workspaces', '--file', body, '--content-type', 'text/plain'],
+    ['post', 'locus://workspaces', '--field-file', `name=${secret}`],
+    ['put', 'pg://databases/app', '--field-file', `unknown=${secret}`],
+    ['post', 'locus://security/actions/init', '--field-file', `password=${secret}`],
+    ['put', 'pg://databases/app', '--field-file', 'password'],
+    ['put', 'pg://databases/app', '--field-file', `password=${secret}`, '--field-file', `password=${secret}`],
+    ['put', 'pg://databases/app', '--data', '{"password":"不得混入"}', '--field-file', `password=${secret}`],
+    ['put', 'pg://databases/app', '--field-file', `password=${join(f.root, 'missing')}`],
+    ['put', 'pg://databases/app', '--prompt', 'unknown'],
+    ['post', 'locus://workspaces', '--prompt', 'name'],
+    ['put', 'pg://databases/app', '--prompt', 'password', '--prompt', 'password'],
+    ['put', 'pg://databases/app', '--field-file', `password=${secret}`, '--prompt', 'password'],
+  ]
+  for (const args of invalid) {
+    const rejected = f.run(args)
+    assert.equal(rejected.code, 1, `${args.join(' ')}\n${rejected.stderr}`)
+    assert.equal(rejected.stdout, '')
+    assert.notEqual(rejected.stderr, '')
+    assert.equal(rejected.stderr.includes('field-file-sentinel-不得输出'), false)
+  }
+  assert.equal(existsSync(f.data), false)
+
+  const stdin = data(f.run([
+    '--json', 'post', 'locus://workspaces', '--file', '-', '--content-type', 'application/vnd.locus+json',
+  ], {}, '{"name":"标准输入"}'))
+  assert.equal(stdin.name, '标准输入')
+  assert.equal(data(f.run(['--json', 'get', 'locus://workspaces'])).length, 1)
 })
 
 test('读取工作目录 .env，显式环境变量优先', (t) => {
@@ -166,50 +261,58 @@ test('读取工作目录 .env，显式环境变量优先', (t) => {
       env: { ...base, ...overrides },
     })
 
-  const created = run(['--json', 'workspace', 'create', '环境数据'])
+  const created = run(['--json', 'post', 'locus://workspaces', '--data', '{"name":"环境数据"}'])
   assert.equal(created.status, 0, created.stderr)
   assert.equal(existsSync(join(f.root, 'env-data', '.locus', 'core.sqlite')), true)
 
-  const explicit = run(['--json', 'workspace', 'list'], { LOCUS_HOME: f.data })
+  const explicit = run(['--json', 'get', 'locus://workspaces'], { LOCUS_HOME: f.data })
   assert.equal(explicit.status, 0, explicit.stderr)
-  assert.deepEqual(JSON.parse(explicit.stdout), [])
+  assert.deepEqual(JSON.parse(explicit.stdout).data, [])
   assert.equal(existsSync(join(f.data, '.locus', 'core.sqlite')), true)
 })
 
 test('挂载目录、注入 shell 上下文，并在删除 Workspace 时清理自有记录', (t) => {
   const f = fixture(t)
-  const workspace = parseJson(f.run(['--json', 'workspace', 'create', '挂载语境']).stdout)
+  const workspace = data(f.run([
+    '--json', 'post', 'locus://workspaces', '--data', '{"name":"挂载语境"}',
+  ]))
   const appPath = join(f.root, 'app')
   const dataPath = join(f.root, 'data-folder')
   mkdirSync(appPath)
   mkdirSync(dataPath)
 
-  const app = parseJson(
-    f.run(['--json', 'workspace', 'mount', workspace.id, appPath, '--name', 'app']).stdout,
-  )
+  const app = data(f.run([
+    '--json', 'post', `locus://workspaces/${workspace.id}/mounts`, '--data',
+    JSON.stringify({ path: appPath, name: 'app' }),
+  ]))
   assert.equal(app.name, 'app')
   assert.equal(app.path, appPath)
 
-  const data = parseJson(
-    f.run(['--json', 'workspace', 'mount', workspace.id, dataPath]).stdout,
-  )
-  assert.equal(data.name, 'data-folder')
+  const mountedData = data(f.run([
+    '--json', 'post', `locus://workspaces/${workspace.id}/mounts`, '--data',
+    JSON.stringify({ path: dataPath }),
+  ]))
+  assert.equal(mountedData.name, 'data-folder')
 
-  const duplicate = f.run(['workspace', 'mount', workspace.id, appPath])
+  const duplicate = f.run([
+    'post', `locus://workspaces/${workspace.id}/mounts`, '--data', JSON.stringify({ path: appPath }),
+  ])
   assert.equal(duplicate.code, 2)
   assert.match(duplicate.stderr, /路径已挂载/)
 
-  const mounted = parseJson(f.run(['--json', 'workspace', 'mounts', workspace.id]).stdout)
+  const mounted = data(f.run(['--json', 'get', `locus://workspaces/${workspace.id}/mounts`]))
   assert.deepEqual(mounted.map((mount) => mount.name), ['app', 'data-folder'])
-  assert.equal(parseJson(f.run(['--json', 'workspace', 'show', '挂载语境']).stdout).mounts.length, 2)
+  assert.equal(data(f.run([
+    '--json', 'get', `locus://workspaces/${encodeURIComponent('挂载语境')}`,
+  ])).mounts.length, 2)
 
-  const context = parseJson(f.run(['shell', '挂载语境', '--print-env']).stdout)
+  const context = JSON.parse(f.run(['shell', '挂载语境', '--print-env']).stdout)
   assert.equal(context.cwd, appPath)
   assert.equal(context.environment.LOCUS_WORKSPACE_ID, workspace.id)
   assert.equal(context.environment.LOCUS_WORKSPACE_NAME, '挂载语境')
   assert.equal(context.environment.LOCUS_WORKSPACE_ROOT, appPath)
   assert.equal(context.environment.LOCUS_MOUNT_APP, appPath)
-  assert.equal(parseJson(context.environment.LOCUS_MOUNTS).length, 2)
+  assert.equal(JSON.parse(context.environment.LOCUS_MOUNTS).length, 2)
   const pathValue = Object.entries(context.environment)
     .find(([key]) => key.toLowerCase() === 'path')?.[1] ?? ''
   assert.match(pathValue, /locus-shell-/)
@@ -222,29 +325,25 @@ test('挂载目录、注入 shell 上下文，并在删除 Workspace 时清理�
   const shellExit = f.run(['shell', workspace.id, '--command', 'exit 7'])
   assert.equal(shellExit.code, 7)
 
-  const unconfirmed = f.run(['workspace', 'unmount', workspace.id, 'app'])
-  assert.equal(unconfirmed.code, 1)
-  const unmounted = f.run(['workspace', 'unmount', workspace.id, 'app', '--yes'])
-  assert.equal(unmounted.code, 0)
+  const unmounted = data(f.run([
+    '--json', 'delete', `locus://workspaces/${workspace.id}/mounts/app`,
+  ]))
+  assert.equal(unmounted.removedMount, 'app')
   assert.deepEqual(
-    parseJson(f.run(['--json', 'workspace', 'mounts', workspace.id]).stdout).map((mount) => mount.name),
+    data(f.run(['--json', 'get', `locus://workspaces/${workspace.id}/mounts`])).map((mount) => mount.name),
     ['data-folder'],
   )
 
-  const removeUnconfirmed = f.run(['workspace', 'remove', workspace.id])
-  assert.equal(removeUnconfirmed.code, 1)
-  const removed = f.run(['workspace', 'remove', workspace.id, '--yes'])
-  assert.equal(removed.code, 0)
-  assert.deepEqual(parseJson(f.run(['--json', 'workspace', 'list']).stdout), [])
+  const removed = data(f.run(['--json', 'delete', `locus://workspaces/${workspace.id}`]))
+  assert.equal(removed.removed, true)
+  assert.deepEqual(data(f.run(['--json', 'get', 'locus://workspaces'])), [])
   assert.equal(existsSync(appPath), true)
   assert.equal(existsSync(dataPath), true)
 })
 
-test('组件：物化包定义、动态登记、顶层入口与手动升级', (t) => {
+test('组件 URL 保持物化、动态登记、契约隔离与手动升级', (t) => {
   const f = fixture(t)
-  const listed = f.run(['--json', 'component', 'list'])
-  assert.equal(listed.code, 0)
-  const initial = parseJson(listed.stdout)
+  const initial = data(f.run(['--json', 'get', 'locus://components']))
   assert.equal(initial.problems.length, 0)
   assert.equal('info' in initial.components[0], false)
   assert.equal(existsSync(join(f.data, 'components', 'remote-targets.yaml')), true)
@@ -253,9 +352,10 @@ test('组件：物化包定义、动态登记、顶层入口与手动升级', (t
   const materializedDefinition = parseComponent(materialized)
   assert.equal(materializedDefinition.version, remoteTargets.version)
   assert.doesNotMatch(materialized, /capabilities:/)
+  assert.doesNotMatch(materialized, /operations:/)
   assert.doesNotMatch(materialized, /credentials:/)
 
-  const postgres = parseJson(f.run(['--json', 'component', 'show', 'postgres']).stdout)
+  const postgres = data(f.run(['--json', 'get', 'locus://components/postgres']))
   assert.deepEqual(postgres.operations.map((operation) => operation.id), ['pg.database.register', 'pg.database.query'])
   assert.deepEqual(postgres.operations.map((operation) => operation.auth), ['root', 'user'])
   assert.deepEqual(postgres.credentials[0].fields, [
@@ -266,53 +366,49 @@ test('组件：物化包定义、动态登记、顶层入口与手动升级', (t
     { name: 'password', secret: true, required: true },
   ])
   assert.equal('kind' in postgres.credentials[0], false)
-  const postgresText = f.run(['component', 'show', 'postgres']).stdout
-  assert.match(postgresText, /pg.database.register/)
-  assert.match(postgresText, /pg.database.query/)
-  assert.match(postgresText, /database-auth/)
-  const gitea = parseJson(f.run(['--json', 'component', 'show', 'gitea']).stdout)
+  assert.equal(postgres.operations.every((operation) => operation.summary.length > 0), true)
+  assert.equal(postgres.operations[0].fields.password.tty, true)
+  assert.equal(postgres.operations[0].fields.password.secret, true)
+  const gitea = data(f.run(['--json', 'get', 'locus://components/gitea']))
   assert.equal(gitea.operations[0].id, 'gitea.repository.register')
-  assert.equal(parseJson(f.run(['--json', 'component', 'show', 'remote-targets']).stdout).version, remoteTargets.version)
+  assert.equal(data(f.run(['--json', 'get', 'locus://components/remote-targets'])).version, remoteTargets.version)
 
-  const bareTemplate = parseJson(f.run(['--json', 'template']).stdout)
-  assert.equal(bareTemplate.id, 'template')
-  assert.equal(bareTemplate.source, 'package')
+  const template = data(f.run(['--json', 'get', 'locus://components/template']))
+  assert.equal(template.id, 'template')
+  assert.equal(template.source, 'package')
 
   const unknown = f.run(['docker'])
   assert.equal(unknown.code, 1)
   assert.match(unknown.stderr, /未知命令：docker/)
 
-  const added = f.run([
-    '--json',
-    'component',
-    'add',
-    join(EXAMPLES, 'docker.yaml'),
-  ])
-  assert.equal(added.code, 0, added.stderr)
-  const docker = parseJson(added.stdout)
+  const docker = data(f.run([
+    '--json', 'post', 'locus://components', '--data',
+    JSON.stringify({ path: join(EXAMPLES, 'docker.yaml') }),
+  ]))
   assert.equal(docker.id, 'docker')
   assert.equal(docker.source, 'dynamic')
   assert.equal('capabilities' in docker, false)
   assert.equal('credentials' in docker, false)
   assert.match(docker.info.text, /docker --version/)
 
-  const viaTopLevel = f.run(['--json', 'docker'])
-  assert.equal(viaTopLevel.code, 0)
-  assert.equal(parseJson(viaTopLevel.stdout).id, 'docker')
+  assert.equal(data(f.run(['--json', 'get', 'locus://components/docker'])).id, 'docker')
+  const viaTopLevel = f.run(['docker'])
+  assert.equal(viaTopLevel.code, 1)
+  assert.match(viaTopLevel.stderr, /未知命令：docker/)
 
-  const reserved = f.run(['component', 'add', '-'], {}, `id: version
+  const reserved = f.run(['--json', 'post', 'locus://components', '--file', '-'], {}, JSON.stringify({ text: `id: version
 version: '1'
 name: version
 summary: 保留 id
 kind: external
 probe:
   argv: [node, --version]
-`)
+` }))
   assert.equal(reserved.code, 0, reserved.stderr)
-  assert.equal(parseJson(f.run(['--json', 'component', 'show', 'version']).stdout).id, 'version')
-  assert.equal(parseJson(f.run(['--json', 'version']).stdout).version, PRODUCT_VERSION)
+  assert.equal(data(f.run(['--json', 'get', 'locus://components/version'])).id, 'version')
+  assert.equal(JSON.parse(f.run(['--json', 'version']).stdout).version, PRODUCT_VERSION)
 
-  const capabilities = f.run(['component', 'add', '-'], {}, `id: capability-smuggler
+  const capabilities = f.run(['post', 'locus://components', '--file', '-'], {}, JSON.stringify({ text: `id: capability-smuggler
 version: '1'
 name: capability-smuggler
 summary: 非法能力
@@ -320,18 +416,27 @@ kind: external
 capabilities:
   - id: exec
     resourceType: server
-`)
+` }))
   assert.equal(capabilities.code, 1)
   assert.match(capabilities.stderr, /capabilities/)
-  const credentials = f.run(['component', 'add', '-'], {}, `id: credential-smuggler
+  const credentials = f.run(['post', 'locus://components', '--file', '-'], {}, JSON.stringify({ text: `id: credential-smuggler
 version: '1'
 name: credential-smuggler
 summary: 非法凭据
 kind: external
 credentials: []
-`)
+` }))
   assert.equal(credentials.code, 1)
   assert.match(credentials.stderr, /credentials/)
+  const operations = f.run(['post', 'locus://components', '--data', JSON.stringify({ text: `id: operation-smuggler
+version: '1'
+name: operation-smuggler
+summary: 非法操作
+kind: external
+operations: []
+` })])
+  assert.equal(operations.code, 1)
+  assert.match(operations.stderr, /operations/)
 
   const file = join(f.data, 'components', 'remote-targets.yaml')
   writeFileSync(
@@ -339,12 +444,13 @@ credentials: []
     JSON.stringify({ ...materializedDefinition, version: 'test-outdated' }),
     'utf8',
   )
-  const pending = parseJson(f.run(['--json', 'component', 'show', 'remote-targets']).stdout)
+  const pending = data(f.run(['--json', 'get', 'locus://components/remote-targets']))
   assert.equal(pending.needsUpgrade, true)
   assert.equal(pending.codeVersion, remoteTargets.version)
-  const upgraded = f.run(['--json', 'component', 'upgrade', 'remote-targets'])
-  assert.equal(upgraded.code, 0, upgraded.stderr)
-  assert.equal(parseJson(upgraded.stdout).needsUpgrade, false)
+  const upgraded = data(f.run([
+    '--json', 'post', 'locus://components/remote-targets/actions/upgrade',
+  ]))
+  assert.equal(upgraded.needsUpgrade, false)
 })
 
 test('组件探针与部署按参数执行，remove 只对动态组件生效', (t) => {
@@ -357,20 +463,12 @@ kind: external
 probe:
   argv: [node, --version]
 `
-  const added = f.run(['--json', 'component', 'add', '-'], {}, probeYaml)
-  assert.equal(added.code, 0, added.stderr)
-  const probed = f.run(['--json', 'component', 'probe', 'probe-node'])
-  assert.equal(probed.code, 0, probed.stderr)
-  assert.equal(parseJson(probed.stdout).external.state, 'healthy')
-  const humanProbe = f.run(['component', 'probe', 'probe-node'])
-  assert.equal(humanProbe.code, 0, humanProbe.stderr)
-  assert.match(humanProbe.stdout, /^probe-node\s+healthy/)
-  assert.doesNotMatch(humanProbe.stdout, /外部状态：/)
-  const humanList = f.run(['component', 'list'])
-  assert.match(
-    humanList.stdout,
-    /probe-node\s+dynamic\s+external\s+1\s+healthy/,
-  )
+  data(f.run(['--json', 'post', 'locus://components', '--data', JSON.stringify({ text: probeYaml })]))
+  const probed = data(f.run(['--json', 'post', 'locus://components/probe-node/actions/probe']))
+  assert.equal(probed.external.state, 'healthy')
+  const observed = data(f.run(['--json', 'get', 'locus://components/probe-node']))
+  assert.equal(observed.external.state, 'healthy')
+  assert.equal(observed.external.checkedAt, probed.external.checkedAt)
 
   const deployYaml = `id: deploy-node
 version: '1'
@@ -380,29 +478,40 @@ kind: external
 deploy:
   argv: [node, --version]
 `
-  assert.equal(f.run(['component', 'add', '-'], {}, deployYaml).code, 0)
-  assert.equal(f.run(['component', 'deploy', 'deploy-node']).code, 1)
-  const deployed = f.run(['--json', 'component', 'deploy', 'deploy-node', '--yes'])
-  assert.equal(deployed.code, 0, deployed.stderr)
-  assert.equal(parseJson(deployed.stdout).deploy.state, 'deployed')
+  data(f.run(['--json', 'post', 'locus://components', '--data', JSON.stringify({ text: deployYaml })]))
+  const beforeDeploy = data(f.run(['--json', 'get', 'locus://components/deploy-node']))
+  assert.equal(beforeDeploy.deploy.state, 'not-deployed')
+  const deployed = data(f.run(['--json', 'post', 'locus://components/deploy-node/actions/deploy']))
+  assert.equal(deployed.deploy.state, 'deployed')
 
-  const removed = f.run(['component', 'remove', 'probe-node', '--yes'])
-  assert.equal(removed.code, 0, removed.stderr)
+  const removed = data(f.run(['--json', 'delete', 'locus://components/probe-node']))
+  assert.deepEqual(removed, { component: 'probe-node', removed: true })
   assert.equal(existsSync(join(f.data, 'components', 'probe-node.yaml')), false)
-  const packageRemoval = f.run(['component', 'remove', 'template', '--yes'])
+  const packageRemoval = f.run(['delete', 'locus://components/template'])
   assert.equal(packageRemoval.code, 2)
   assert.match(packageRemoval.stderr, /由包定义/)
 })
 
-test('未知顶层命令不创建数据目录', (t) => {
+test('未知命令及删除的领域别名均拒绝且不创建数据目录', (t) => {
   const f = fixture(t)
-  const unknown = f.run(['bogus'])
-  assert.equal(unknown.code, 1)
-  assert.match(unknown.stderr, /未知命令：bogus/)
+  for (const command of [
+    'bogus', 'workspace', 'component', 'template', 'remote-targets', 'rt', 'pg', 'events', 'credential',
+    'postgres', 'gitea',
+  ]) {
+    const unknown = f.run([command])
+    assert.equal(unknown.code, 1, command)
+    assert.equal(unknown.stdout, '')
+    assert.match(unknown.stderr, /未知命令/)
+  }
+  for (const command of ['status', 'provider-status', 'change-root-password', 'operation']) {
+    const unknown = f.run(['security', command])
+    assert.equal(unknown.code, 1, command)
+    assert.equal(unknown.stdout, '')
+  }
   assert.equal(existsSync(f.data), false)
 })
 
-test('component probe --all 汇总外部组件状态并跳过无探针定义', (t) => {
+test('组件批量探针 URL 汇总外部状态并持久化，跳过无探针定义', (t) => {
   const f = fixture(t)
   const specs = [
     `id: bulk-up
@@ -429,12 +538,10 @@ kind: external
 `,
   ]
   for (const spec of specs) {
-    assert.equal(f.run(['component', 'add', '-'], {}, spec).code, 0)
+    data(f.run(['--json', 'post', 'locus://components', '--data', JSON.stringify({ text: spec })]))
   }
 
-  const all = f.run(['--json', 'component', 'probe', '--all'])
-  assert.equal(all.code, 1)
-  const payload = parseJson(all.stdout)
+  const payload = data(f.run(['--json', 'post', 'locus://components/actions/probe']))
   assert.deepEqual(payload.probed.map((item) => item.id).sort(), ['bulk-missing', 'bulk-up'])
   assert.equal(
     payload.probed.find((item) => item.id === 'bulk-up').external.state,
@@ -447,12 +554,10 @@ kind: external
   assert.equal(payload.skipped.length, 1)
   assert.match(payload.skipped[0].reason, /未声明探针/)
 
-  const human = f.run(['component', 'probe', '--all'])
-  assert.equal(human.code, 1)
-  assert.match(human.stdout, /bulk-up\s+healthy/)
-  assert.match(human.stdout, /bulk-missing\s+absent/)
-  assert.match(human.stdout, /bulk-noprobe\s+跳过/)
-
-  assert.equal(f.run(['component', 'probe']).code, 1)
-  assert.equal(f.run(['component', 'probe', 'bulk-up', '--all']).code, 1)
+  const persisted = data(f.run(['--json', 'get', 'locus://components']))
+  assert.equal(persisted.components.find((item) => item.id === 'bulk-up').external.state, 'healthy')
+  assert.equal(persisted.components.find((item) => item.id === 'bulk-missing').external.state, 'absent')
+  const noProbe = f.run(['--json', 'post', 'locus://components/bulk-noprobe/actions/probe'])
+  assert.equal(noProbe.code, 1)
+  assert.equal(JSON.parse(noProbe.stdout).error.code, 'unsupported-method')
 })

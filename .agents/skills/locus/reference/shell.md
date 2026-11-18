@@ -6,7 +6,7 @@
 
 ```sh
 locus shell <workspace>
-locus shell <workspace> --command "locus workspace show <workspace>"
+locus shell <workspace> --command "locus get locus://workspaces/<workspace>"
 locus shell <workspace> --print-env
 locus shell <workspace> --shell /path/to/shell
 ```

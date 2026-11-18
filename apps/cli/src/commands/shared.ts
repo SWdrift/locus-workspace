@@ -9,7 +9,3 @@ export type CallOperation = (
 ) => Promise<unknown>
 
 export type WithCliApi = <T>(action: (api: CliApi) => Promise<T>) => Promise<T>
-
-export function pathParam(value: string): string {
-  return encodeURIComponent(value)
-}

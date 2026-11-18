@@ -4,7 +4,7 @@ import { createComponentOperations } from './components/operations.ts'
 import type { ComponentsService, DefinedComponent } from './components/types.ts'
 import { createEventOperations } from './events/operations.ts'
 import type { EventBus } from './events/types.ts'
-import { defineOperation } from './invocation/operation.ts'
+import { defineOperation, describeOperation, operationMetadataSchema } from './invocation/operation.ts'
 import type { OperationMetadata } from './invocation/types.ts'
 import { createSecurityOperations } from './security/operations.ts'
 import type { SecurityHost, SecurityService } from './security/types.ts'
@@ -27,6 +27,7 @@ interface CoreOperationDependencies {
 export function createLocusComponent(deps: CoreOperationDependencies): DefinedComponent {
   const info = defineOperation({
     id: 'locus.info.get',
+    summary: '读取当前 Locus 版本；无需 Body 或 query。',
     method: 'GET',
     scheme: 'locus',
     authority: 'info',
@@ -38,33 +39,15 @@ export function createLocusComponent(deps: CoreOperationDependencies): DefinedCo
   })
   const operations = defineOperation({
     id: 'locus.operations.list',
+    summary: '发现当前已注册的全部 operation 路由、用途与输入字段；无需 Body 或 query。',
     method: 'GET',
     scheme: 'locus',
     authority: 'operations',
     path: '',
     auth: 'user',
     input: z.undefined(),
-    output: z.array(
-      z.object({
-        component: z.string(),
-        id: z.string(),
-        method: z.string(),
-        scheme: z.string(),
-        authority: z.string(),
-        path: z.string(),
-        auth: z.string(),
-      }),
-    ),
-    run: () =>
-      deps.operations().map(({ namespace, operation }) => ({
-        component: namespace,
-        id: operation.id,
-        method: operation.method,
-        scheme: operation.scheme,
-        authority: operation.authority,
-        path: operation.path,
-        auth: operation.auth,
-      })),
+    output: z.array(operationMetadataSchema.extend({ component: z.string() })),
+    run: () => deps.operations().map(({ namespace, operation }) => describeOperation(operation, namespace)),
   })
   return defineComponent({
     id: 'locus',

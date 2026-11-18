@@ -1,4 +1,5 @@
 import { InvocationFailure } from './errors.ts'
+import { snapshotOperationMetadata } from './operation.ts'
 import { AUTHORITY, encodeSegment, parseLocusUri, SCHEME } from './uri.ts'
 import { LOCUS_METHODS } from './types.ts'
 import type { ApiRouter, LocusMethod, OperationDefinition } from './types.ts'
@@ -21,6 +22,7 @@ export function createApiRouter(): ApiRouter {
 
   function register(namespace: string, operation: OperationDefinition<any, any, any>): void {
     assertMetadata(namespace, operation)
+    const registered = Object.freeze({ ...operation, ...snapshotOperationMetadata(operation) })
     if (byId.has(operation.id)) {
       throw new InvocationFailure('conflict', `operation id 重复：${operation.id}`)
     }
@@ -32,7 +34,7 @@ export function createApiRouter(): ApiRouter {
         `operation 路由冲突：${operation.method} ${operation.scheme}://${operation.authority}${operation.path}`,
       )
     }
-    const route: Route = Object.freeze({ namespace, operation, segments, signature })
+    const route: Route = Object.freeze({ namespace, operation: registered, segments, signature })
     byId.set(operation.id, route)
     routes.push(route)
   }

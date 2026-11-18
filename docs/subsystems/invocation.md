@@ -4,7 +4,7 @@
 
 ## 边界
 
-所有业务操作都是 operation，具有稳定的 `method + scheme + authority + path`。CLI 命令只是别名；渲染、确认、`--profile`、`--json`、`--help`、补全与交互 attach 属于客户端，不进入 Core 或领域 handler 的业务分支。
+所有业务操作都是 operation，具有稳定的 `method + scheme + authority + path`。CLI 默认入口由这些声明投影为通用 URL 调用和帮助；渲染、确认、`--profile`、`--json`、`--help`、补全与交互 attach 属于客户端，不进入 Core 或领域 handler 的业务分支。
 
 Core 只认识 `locus://` 自有资源，不内置其他 Scheme。`rt://` 属于 remote-targets，`template://` 属于 templates，`pg://` 属于 postgres，`gitea://` 属于 gitea。组合根显式注册组件 operation；不做动态插件发现。
 
@@ -30,15 +30,15 @@ pg://databases/<id>/queries
 gitea://repositories/<id>/requests
 ```
 
-`locus://operations` 返回当前组合根实际注册的 operation 表，是运行期路由清单的唯一来源。
+`locus://operations` 返回当前组合根实际注册的 operation 描述，包含 summary 与公开 fields；它和组件视图、CLI 帮助共用 describeOperation，不包含 schema 或 handler。
 
 ## Operation 契约
 
-`defineOperation()` 接收 `id`、`method`、`scheme`、`authority`、`path`、`auth`、可选 `query`、`input`、`output`、可选 `fields` 与 `run`。`input`、`output` 必填，`query` 可选。
+`defineOperation()` 接收 `id`、`method`、`scheme`、`authority`、`path`、`auth`、可选 `query`、`input`、`output`、可选 `fields` 与 `run`。`input`、`output` 必填，`query` 可选；summary 解释用途与普通 JSON 输入，fields 是可序列化公开字段说明。
 
 - `run(query, input, context)`：`query` 来自 URL query，`input` 来自 JSON Body 与可信 Host 收集的字段；路径参数只在 `context.url.pathParams`，不重复进入 input。
 - `input` 与 `query` 在调用前解析；`output` 只约束返回类型，并在契约测试中解析，不在副作用完成后改判业务结果。
-- `fields` 是与 schema 分离的输入元数据：`secret` 用于提示与脱敏，`tty` 表示只能由可信 Host 收集。外部 Body 出现 tty 字段直接拒绝；Host 收集的字段合并后交给 handler。
+- `fields` 是与 schema 分离的输入元数据：`secret` 用于提示与脱敏，`tty` 表示只能由可信 Host 收集；description/required 用于展示与收集，file:true 允许有界普通文件来源。外部 Body 出现 tty 字段直接拒绝；Host 收集的字段合并后交给 handler。
 - `context` 提供 `namespace`、`operationId`、`requestId`、`dataDirectory`、规范 `url`、只读组件状态窄视图、`credential` 端口与 `emit()` 领域事件入口。
 - operation 输出是可序列化 DTO；响应流、连接和原生客户端对象由所属适配器消费并释放。组件描述性元数据深度冻结，handler 声明只冻结外壳，不递归冻结 schema 等外部对象的内部缓存。
 
@@ -105,7 +105,7 @@ Dispatcher 只输出规范化 URI 与 requestId；不输出输入 Body、秘密�
 
 `locus get|post|put|patch|delete <uri...>` 直接调用 operation。多 URI 只允许 GET；`--data` 与 `--file`（含 `-`）互斥，Body 只接受 `application/json` 与 `+json`；`--json` 输出信封，`--pretty` 只影响 JSON，未指定时输出人类可读结果。退出码：`0` 成功；`1` 参数、URI、方法或媒体类型错误；`2` 业务、授权或远端失败；`3` 批量部分失败。
 
-现有 `workspace`、`component`、`pg`、`template`、`remote-targets`、`security`、`credential`、`events` 命令是 operation 别名；命令语法见[实用命令](../commands.md)。`version`、`help`、本地 `shell` 与补全保持客户端实现。
+裸 URL 默认 GET，help [uri] 从已注册声明读取方法和字段；不执行 handler。纯转发领域命令与组件 id 顶层回退已删除，特殊手写入口仅 version、init、security reset-root 和本地 shell。普通 Body 使用 JSON；可选可信字段通过 --prompt 选择，字段文件必须在声明中显式获准，Root 密码不允许文件。语法见[实用命令](../commands.md)。
 
 ## 限制
 

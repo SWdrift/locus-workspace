@@ -2,111 +2,44 @@
 
 ## 范围与边界
 
-CLI 是 Locus 的统一入口：把命令解析成领域调用，把结果投影成人类文本或 JSON，并提供 Workspace shell 与本地可信安全 Host。当前覆盖 Workspace、组件、项目模板、远程目标、PostgreSQL 组件命令和安全／凭据诊断。
-
-| 组件 | 在本子系统中的职责 |
-| --- | --- |
-| `apps/cli` | 命令树、参数与名称解析、确认、渲染、退出码、shell 启动 |
-| `packages/core` | Workspace、组件、operation 路由与 Dispatcher、统一权限平面、凭据保管与持久化；CLI 只调用公开服务及可信组合根 Host 端口 |
-| `packages/postgres`、`packages/gitea` | Compose operation、凭据字段与 handler；CLI 经 Dispatcher 调用，不决定权限 |
-| `packages/templates` | 模板复制与实例记录；导出 `locus` 组件定义；CLI 解析目标路径并投影结果 |
-| `packages/remote-targets` | 远程目标定义、校验、探测与执行；导出 `locus` 组件定义；CLI 读取 `--spec` 并投影结果 |
-| `.agents/skills/locus` | Agent 的调用参考与只读脚本；经 CLI 的 JSON 契约工作 |
-| `docs/commands.md` | 命令语法与成功判据 |
-
-CLI 不拥有领域规则，不直接写 `core.sqlite`，不保存隐式当前 Workspace，也不在命令之间保留状态。每次进程创建一个 Core，命令结束 `dispose()`；`version` 与 `--help` 不创建数据目录。组合根维护一份包组件 id／别名／loader 清单，命令、Host、输出和 shell 按职责组织，源码定位见 [CLI 导航](../../apps/cli/README.md#源码导航)。语法见[实用命令](../commands.md)，组件职责见[项目架构](../architecture.md#组件与依赖)。URL、operation、凭证交付与授权判定的通用规则归[统一资源调用](invocation.md)。
+CLI 是声明驱动的 URL 客户端和可信本地 Host，不维护领域命令树。组件在代码中声明 operation，Core 汇总路由和授权，CLI 从实际注册表产生帮助、发现和可信输入交互。具体协议归[统一资源调用](invocation.md)，语法归[实用命令](../commands.md)，源码入口归 [CLI](../../apps/cli/README.md#源码导航)。
 
 ## 设计原则
 
-1. **领域前缀加动作**：普通领域采用 `locus <domain> <action>`；同时提供 `locus get|post|put|patch|delete <uri...>` 直接调用 operation。顶层保留 version、shell、一次性安全初始化 init 和组件只读投影，不按内部类型扩张命令数量。
-2. **CLI 只做投影**：参数、确认、人类/JSON 渲染、退出码与 shell 注入归 CLI；创建、改名、关系、挂载与模板复制全部经 Dispatcher 调用 Core 或领域包的 operation。CLI 不复制业务组合，也不建立第二套持久化。
-3. **人类默认，JSON 为契约**：默认可读文本；`--json` 输出单行对象；stdout 只写结果，stderr 写诊断；JSON 不混入提示、ANSI 或人类摘要。
-4. **显式引用，无隐式当前对象**：每条命令都必须给出 Workspace、挂载或模板引用；不保存“上次使用的 Workspace”，不把上一条命令的选项带入下一条。
-5. **输入分边界**：普通命令不提示；删除 Workspace 等显式携带 `--yes`。安全管理只由本地可信 TTY 隐藏输入，非交互明确失败，不能用 --yes 跳过 Root 认证。
-6. **有限且稳定的退出码**：调用成功、用法拒绝与业务失败各自固定；子进程退出码原样透传，调用方可以据此判断。
-7. **一次进程，无守护**：不做长驻服务、不做跨命令缓存、不自动重试；失败后由调用方重新执行。
-8. **平台差异收在边界**：shell 选择、临时启动器与引号处理由 CLI 内部完成；命令面在 Windows 与 POSIX 保持一致。
-9. **失败可判**：错误写 stderr，包含失败主体与原因；未知命令、歧义名称、缺少确认都不静默降级或自行修正输入。
-10. **复杂输入用文档承载**：业务多字段输入用配置文件或 stdin 文档；Root 密码是例外，绝不能通过这些普通输入通道提供。
-11. **扩展在组合根**：独立消费者能力建立普通 package，`defineComponent` 返回 `component` 与 `operations`；CLI 在组合根显式接入并在 `apps/cli` 定义命令，组件不注册 CLI，也不加载插件代码。
+同一份 operation 声明拥有 URL、方法、summary 和公开字段说明；schema 拥有运行时校验。CLI 不检查 Zod 内部，不根据领域配置猜测参数，也不复制业务 DTO。自动化是声明投影，不是插件加载或源码生成。
 
 ## 命令树
 
-| 领域 | 动作 | 后端 |
-| --- | --- | --- |
-| `version` | 读取产品版本 | Core 信息 |
-| `get`、`post`、`put`、`patch`、`delete` | 按资源 URL 直接调用 operation | Core Dispatcher；多 URI 只允许 GET |
-| `init`、`security`、`credential` | 本地初始化、状态、Root 管理、operation 等级覆盖与凭据诊断／清理 | Core Security 与可信 CLI Host；完整语法归命令手册 |
-| `events` | `list` | Core 事件查询 |
-| `pg` | `register`、`list` | PostgreSQL 组件的 `pg://` operation，经 Root 提权与凭据交付 |
-| `workspace` | `create`、`list`、`show`（别名 `open`）、`rename`、`remove`、`link`、`unlink`、`mount`、`mounts`、`unmount` | Core 的 Workspace、关系与挂载服务 |
-| `template` | `list`、`create` | Templates |
-| `remote-targets`（别名 `rt`） | `add`、`update-credential`、`list`、`show`、`migrate`、`remove`、`probe`、`services`、`restart`、`exec`、`shell` | Remote Targets 的 `rt://` operation 与 Core 凭据交付 |
-| `component` | `add`、`list`、`show`、`upgrade`、`remove`、`probe`、`deploy` | Core 组件服务 |
-| `shell` | 在 Workspace 上下文启动用户 shell | Core 挂载与 CLI 注入 |
-
-`locus <id>` 只对未知顶层命令解析为 `component show <id>`，不进入 `--help`；包组件与已登记动态组件都可用。`component` 的命令语法与成功判据见[实用命令](../commands.md#组件操作)。CLI 组合根按顶层命令的包域加载并注册包定义：`component`、`security` 与未知组件入口使用全集，`pg`、`remote-targets`、`template` 只注册各自包；URL 动词与 `events` 使用默认全集。组件命令只调用已注册的 operation，不直接访问 Keyring。组件包不包含 CLI 命令、参数、提示或退出码，`component.info` 也不列 CLI 用法。
-
-`shell` 留在顶层是因为它服务于 Workspace 上下文，是既有入口；新的远端 shell 必须挂在自己的领域前缀下，避免与它语义冲突。参数、成功判据与失败码由[实用命令](../commands.md)维护，本节只描述命令树结构。
-
-本地 shell 的 Workspace 读取仍经 Dispatcher，遵守该 operation 的 Root 覆盖；启动器只消费已返回的 Workspace 与挂载，不再直读领域服务。远程目标 preview 和 migration-source 也经 operation 查询，CLI 只收集文件／TTY 输入，不解释 spec 或执行私钥合法性校验。
+默认入口是 get/post/put/patch/delete <uri...>；裸 URI 表示 GET。help [uri] 显示已装配声明。手写入口仅 version、init、security reset-root、shell。旧领域命令直接删除，没有翻译 shim，也没有 locus <component-id> 回退。
 
 ## 调用生命周期
 
-1. 入口读取工作目录的 `.env`（不覆盖已有环境变量），解析受限 Profile 后按顶层命令的包域异步加载所需包定义（`component` 与 `operations`），再装配 Core，并通过闭包取得 Host。数据目录与 Profile 规则归 [CLI README](../../apps/cli/README.md#安全-host-与-profile)，读取版本或帮助不建库、不物化组件。
-2. 构造命令树时在创建子命令前启用 exitOverride；声明全局 `--json`／`--pretty`／`--human`／`--profile`／`--grant-scope`，由入口决定退出码并保证 finally 释放。
-3. 动作把参数组装成规范 URI 与 Body，经 Dispatcher 调用已注册 operation；首次访问组件服务时由 Core 物化已注册的包定义。CLI 不直接写 SQLite、组件定义、模板文件或目标配置。
-4. 结果经统一的 `emit()` 输出：JSON 为单行对象，否则为人类文本。Dispatcher 的失败信封映射为 CLI 退出码，安全错误在 JSON stdout 提供固定 code／reason。
-5. Commander 用法错误返回 1；参数、URI、方法或媒体类型错误返回 1；业务、授权或远端失败返回 2；批量 GET 部分失败返回 3。子进程退出码原样返回。
-6. `finally` 中释放 Core，数据库句柄与临时资源不跨命令保留。
+组合根解析受限全局选项并显式加载所需定义，再创建 Core 与可信 Host。帮助只读声明；调用时解析 Body 和可信字段，经 Dispatcher 完成校验、授权、执行与信封输出。Root 只恢复原闭包，结束时释放 Session 与 Core。
 
 ## 输出与退出码
 
-| 退出码 | 含义 | 触发 |
-| --- | --- | --- |
-| `0` | 成功 | 命令完成；查询空集合也算成功 |
-| `1` | 参数、帮助树或调用参数拒绝 | 未知命令、缺参数、非法选项值、缺少 `--yes`、非法 URI／方法／媒体类型、`remote-targets probe` 失败、`component probe` 未通过、`component deploy` 失败 |
-| `2` | 业务、授权或持久化失败 | 名称歧义、找不到对象、重复挂载、模板目标已存在、授权不足、文件系统或数据库失败 |
-| `3` | 批量部分失败 | 多个 URI 的 GET 调用中至少一项失败 |
-| 子进程退出码 | `shell --command`、`remote-targets exec`、`remote-targets shell` 的退出码 | 原样透传 |
-
-单行 JSON 与人类文本都只写 stdout；诊断、缺失挂载提示与错误写 stderr。面向人的文案使用中文，标识符、命令与协议名保留原文。
+JSON 始终使用调用信封，数据位于 data；--human 优先，诊断写 stderr。0/1/2/3 分别表示调用成功、参数拒绝、业务／授权故障、批量部分失败。业务结果中的 ok 或 exitCode 不改判为通用 CLI 退出码；本地 shell 的子进程退出码除外。
 
 ## 名称解析与确认
 
-- Workspace 引用优先匹配稳定 Identity；否则按名称匹配。多个同名 Workspace 时失败并要求使用 Identity，找不到时失败；不做模糊匹配。
-- 挂载引用接受挂载 ID 或名称；模板引用接受内置 ID 或本地模板目录，路径存在时本地目录优先。
-- 远程目标引用优先精确 id，其次唯一前缀，最后唯一标签；歧义时列出候选并失败。
-- 组件引用使用稳定 id；`locus <id>` 只接受已注册的包组件或数据目录中存在的定义，拼写错误不会创建数据目录。
-- 删除 Workspace、取消挂载、解除关系与移除远程目标必须携带 `--yes`；CLI 不进入交互确认，脚本与 Agent 的行为一致。
-- 名称解析失败不自动创建对象，也不回退到其他同名或最近使用的对象。
+资源引用由领域 operation 解释。写入由显式方法表达意图，裸 URI 不推断写动作；初始化与本机接管保留独立 TTY 交互。可信字段来源由声明约束，Root 密码不接受文件或 Body。可选可信字段由 --prompt 或已获准的 --field-file 选择，不按领域分支。
 
 ## 统一 Shell
 
-`locus shell <workspace>` 启动用户当前平台的 shell，并注入 Workspace 上下文：
-
-- 临时目录写入 `locus` 与 `locus.cmd` 启动器，前置到 `PATH`，不依赖全局安装；
-- `LOCUS_CLI`、`LOCUS_WORKSPACE_ID`、`LOCUS_WORKSPACE_NAME`、`LOCUS_WORKSPACE_ROOT`；
-- `LOCUS_MOUNTS` 与每个挂载的 `LOCUS_MOUNT_<NAME>`，名称冲突时追加序号。
-
-shell 选择顺序为 `--shell`、`$SHELL`、平台默认（Windows 为 `powershell.exe`，POSIX 为 `/bin/sh`）；按 shell 类型选择交互与命令参数。工作目录取第一个可访问挂载，否则使用用户主目录；缺失挂载写 stderr 并跳过。`--command` 执行一条命令后退出，`--print-env` 只输出上下文 JSON。
-
-注入的是环境与命令，不是权限沙箱；CLI 不修改 shell profile、不提升权限，也不替用户改写挂载路径。
+本地 shell 经 Workspace GET 获取上下文，使用 Core 生成的 URL，遵守授权覆盖。启动、终端 attach 与环境注入属于本机客户端，语义见 [Shell 参考](../../.agents/skills/locus/reference/shell.md)。
 
 ## Agent 投影
 
-Agent 以单行 JSON 为机器接口，普通工作与 Human 共用 User 权限；Root 输入只能由本地可信 Host 完成，不能把密码放 Prompt、参数或环境。非交互认证失败不静默跳过，也不建设审批队列。shell 环境不是 Session／Grant，`--print-env` 不得携带秘密；完整边界归 [Core Security](core/security.md)。
+Agent 使用 URL 与 JSON 信封，优先读取当前声明，不维护别名表。秘密只通过可信 Host；普通 User 使用不重复提权。初始化、非交互拒绝和本机接管不能靠 argv、环境密码或伪造身份绕过。
 
 ## 失败边界
 
-失败发生在进入领域调用之前时不执行原操作；进入领域后由所属模块定义事务和释放边界。Credential Provider 与 SQLite 不是跨系统事务，不能承诺所有失败都无残留。安全错误只输出固定分类，不透传后端异常；JSON 失败 stdout 可以含完整 code／reason 对象。
-
-CLI 不补偿已经成功的操作：模板在 rename 成功后不回滚，Workspace 删除也不恢复外部目录。调用方应按退出码与 stderr 判断，而不是把“命令返回”当作成功。
+输入与授权拒绝不执行原操作；副作用与清理由领域包拥有。请求失败和业务返回失败是不同层次，调用方同时检查信封和 data。事件与数据持久性归所属模块，不声称跨存储事务或完整审计。
 
 ## 演进
 
-新领域沿用 `locus <domain> <action>`，先建立普通 package、导出组件定义，再在组合根注册命令；不增加隐式当前对象、插件加载器或第二套持久化。组件的定义、状态与升级边界见[组件](core/components.md)，此处只描述 CLI 投影。
+新增领域扩展 operation 声明，不增加 CLI 手写命令。只有本机终端、可信安全交互等不能用通用 URL 输入表达的行为才增加特殊入口。决定见[声明驱动的 URL 命令](../../.agents/notes/implemented/architecture/2026-11-18-declaration-driven-url-cli.md)。
 
 ## 验证
 
-CLI 子进程用例位于 `apps/cli/test/`，通过真实子进程运行构建后的 bin，使用临时 `LOCUS_HOME` 覆盖版本、Workspace 读写、关系、挂载、shell 上下文、组件物化/登记/探针/部署/升级、JSON 与退出码，并验证跨进程恢复；各模块命令域用例位于模块 `test/`。e2e 覆盖真实进程、完整命令链与 `pnpm locus` 包装。测试分层与运行约束见[测试系统](../testing.md#归属与去重)，快速门禁为 `pnpm verify`。
+[CLI 测试](../../apps/cli/test/cli.test.mjs)、[可信 Host 测试](../../apps/cli/test/security.test.mjs)及[跨进程流程](../../tests/e2e/cli-workflow.mjs)覆盖声明投影与执行。测试隔离和冷却见[测试系统](../testing.md)。

@@ -11,6 +11,7 @@ export function createWorkspaceOperations(deps: {
   return [
     defineOperation({
       id: 'locus.workspaces.list',
+      summary: '列出全部 Workspace 及其挂载和关系；无需 Body 或 query。',
       method: 'GET',
       scheme: 'locus',
       authority: 'workspaces',
@@ -22,17 +23,20 @@ export function createWorkspaceOperations(deps: {
     }),
     defineOperation({
       id: 'locus.workspaces.create',
+      summary: '创建具有稳定 Identity 的 Workspace；Body 必须提供 name。',
       method: 'POST',
       scheme: 'locus',
       authority: 'workspaces',
       path: '',
       auth: 'user',
       input: workspaceInput,
+      fields: { name: { description: 'Workspace 名称，不要求唯一。', required: true } },
       output: workspaceOutput,
       run: (_query, input) => deps.workspaces.create(input.name),
     }),
     defineOperation({
       id: 'locus.workspaces.get',
+      summary: '按路径 id（Identity 或唯一名称）读取 Workspace、挂载与关系；无需 Body 或 query。',
       method: 'GET',
       scheme: 'locus',
       authority: 'workspaces',
@@ -44,12 +48,14 @@ export function createWorkspaceOperations(deps: {
     }),
     defineOperation({
       id: 'locus.workspaces.rename',
+      summary: '按路径 id（Identity 或唯一名称）重命名 Workspace；Body 必须提供 name。',
       method: 'PATCH',
       scheme: 'locus',
       authority: 'workspaces',
       path: '/:id',
       auth: 'user',
       input: workspaceInput,
+      fields: { name: { description: '新的 Workspace 名称，不改变 Identity。', required: true } },
       output: workspaceOutput,
       run: (_query, input, context) => {
         const workspace = resolveWorkspace(deps.workspaces, context.url.pathParams.id ?? '')
@@ -58,6 +64,7 @@ export function createWorkspaceOperations(deps: {
     }),
     defineOperation({
       id: 'locus.workspaces.remove',
+      summary: '删除路径 id 指定的 Workspace、挂载及相关 Workspace 引用；不删除外部资源，无需 Body 或 query。',
       method: 'DELETE',
       scheme: 'locus',
       authority: 'workspaces',
@@ -73,6 +80,7 @@ export function createWorkspaceOperations(deps: {
     }),
     defineOperation({
       id: 'locus.workspaces.mounts.list',
+      summary: '列出路径 id 指定 Workspace 的本机目录挂载；无需 Body 或 query。',
       method: 'GET',
       scheme: 'locus',
       authority: 'workspaces',
@@ -87,12 +95,17 @@ export function createWorkspaceOperations(deps: {
     }),
     defineOperation({
       id: 'locus.workspaces.mounts.add',
+      summary: '为路径 id 指定的 Workspace 添加挂载；Body 必须提供本机绝对路径 path，可选 name。',
       method: 'POST',
       scheme: 'locus',
       authority: 'workspaces',
       path: '/:id/mounts',
       auth: 'user',
       input: mountInput,
+      fields: {
+        path: { description: '本机绝对目录路径；只登记引用，不检查目录存在性。', required: true },
+        name: { description: '挂载名称；省略时由目录名生成，同一 Workspace 内必须唯一。', required: false },
+      },
       output: mountOutput,
       run: (_query, input, context) => {
         const workspace = resolveWorkspace(deps.workspaces, context.url.pathParams.id ?? '')
@@ -101,6 +114,7 @@ export function createWorkspaceOperations(deps: {
     }),
     defineOperation({
       id: 'locus.workspaces.mounts.remove',
+      summary: '删除 Workspace 路径 id 下由 mount（挂载 Identity 或名称）指定的挂载；不删除目录，无需 Body 或 query。',
       method: 'DELETE',
       scheme: 'locus',
       authority: 'workspaces',
@@ -117,6 +131,7 @@ export function createWorkspaceOperations(deps: {
     }),
     defineOperation({
       id: 'locus.workspaces.relations.list',
+      summary: '列出路径 id 指定 Workspace 的 member 与 association 关系；无需 Body 或 query。',
       method: 'GET',
       scheme: 'locus',
       authority: 'workspaces',
@@ -128,12 +143,23 @@ export function createWorkspaceOperations(deps: {
     }),
     defineOperation({
       id: 'locus.workspaces.relations.add',
+      summary:
+        '确认 Workspace 关系；Body 必填 kind（member/association）、namespace、id，可选 source:{kind:manual/discovery,detail}。',
       method: 'POST',
       scheme: 'locus',
       authority: 'workspaces',
       path: '/:id/relations',
       auth: 'user',
       input: relationInput,
+      fields: {
+        kind: { description: '关系种类：member（成员）或 association（关联）。', required: true },
+        namespace: { description: '目标资源的命名空间；locus.workspace 目标必须存在。', required: true },
+        id: { description: '目标资源 Identity，不是当前 Workspace 的路径 id。', required: true },
+        source: {
+          description: '可选确认来源对象 {kind:"manual"|"discovery",detail:string}；默认人工显式确认。',
+          required: false,
+        },
+      },
       output: relationOutput,
       run: (_query, input, context) => {
         const workspace = resolveWorkspace(deps.workspaces, context.url.pathParams.id ?? '')
@@ -147,6 +173,7 @@ export function createWorkspaceOperations(deps: {
     }),
     defineOperation({
       id: 'locus.workspaces.relations.remove',
+      summary: '按路径 relation（关系 Identity）解除 Workspace 路径 id 的关系；不删除目标资源，无需 Body 或 query。',
       method: 'DELETE',
       scheme: 'locus',
       authority: 'workspaces',

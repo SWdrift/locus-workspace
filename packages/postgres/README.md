@@ -20,7 +20,7 @@ import { component, operations } from '@locus/postgres'
 const core = createLocusCore({ components: [{ component, operations }] })
 ```
 
-`register` 是 `PUT pg://databases/<id>`，声明为 Root：写入 `database-auth` 的公开目标字段与秘密密码，返回稳定 `CredentialRef`。`query` 是 `POST pg://databases/<id>/queries`，声明为 User：只读取该 `<id>` 的绑定字段，使用新的 `pg.Pool` 执行查询并在 `finally` 中 `end()`。CLI 命令入口由 `apps/cli` 维护，见[命令手册](../../docs/commands.md#安全与凭据)；普通 User 使用不触发 Root。
+`register` 是 `PUT pg://databases/<id>`，声明为 Root：写入 `database-auth` 的公开目标字段与秘密密码，返回稳定 `CredentialRef`。`query` 是 `POST pg://databases/<id>/queries`，声明为 User：只读取该 `<id>` 的绑定字段，使用新的 `pg.Pool` 执行查询并在 `finally` 中 `end()`。CLI 使用通用 pg:// 入口，见[命令手册](../../docs/commands.md#安全与凭据)；普通 User 使用不触发 Root。
 
 ## 契约与失败
 

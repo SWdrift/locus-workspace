@@ -2,6 +2,8 @@
 
 Status: implemented
 
+> CLI 别名策略由[声明驱动的 URL 命令入口](2026-11-18-declaration-driven-url-cli.md)取代；本文继续维护统一 URL、授权和凭据调用模型的取舍。
+
 ## 问题
 
 原先 Core 以组件 `capabilities` 为授权键，CLI 通过 `executeComponent` 逐项调用 handler；资源没有统一 URL，调用者需要理解命令树、能力 id、资源对象与 CredentialRef。凭证预检、绑定键和 Root 覆盖都围绕能力展开，导致同一业务动作在 CLI、组件与 Core 之间出现多套描述。

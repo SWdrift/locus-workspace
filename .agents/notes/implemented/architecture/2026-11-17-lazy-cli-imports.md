@@ -2,6 +2,8 @@
 
 Status: implemented
 
+> 按领域命令选择加载域的部分已由[声明驱动的 URL 命令入口](2026-11-18-declaration-driven-url-cli.md)取代：发现与通用调用加载完整声明，少数本机入口仍保持惰性。下文计时是原实现的历史证据。
+
 ## 问题
 
 CLI 原先在每个命令启动时静态导入全部组件包与 Core 组件服务。实测 `locus version` 加载 296 个文件模块、约 0.39s；其中 `execa` 111 个文件、`yaml` 72 个、`pg` 及其协议与类型约 27 个。`version`、`--help`、Workspace 与安全命令不执行探针、不连接 PostgreSQL、也不读写组件定义，却承担同一笔固定导入成本。

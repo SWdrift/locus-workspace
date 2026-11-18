@@ -13,7 +13,7 @@ import {
   parseComponent,
 } from '../lib/components/index.js'
 import { createComponentOperations } from '../lib/components/operations.js'
-import { defineCredential, defineOperation } from '../lib/invocation/index.js'
+import { defineCredential, defineOperation, describeOperation } from '../lib/invocation/index.js'
 
 function fixture(t) {
   const root = mkdtempSync(join(tmpdir(), 'locus-components-'))
@@ -128,6 +128,87 @@ kind: locus
   assert.equal(yaml.id, 'demo')
 })
 
+test('operation 公开声明复制并冻结 summary 与 fields，和 handler 表保持一致', () => {
+  const fields = {
+    token: { description: '通过可信输入提供访问令牌。', required: true, secret: true, tty: true, file: true },
+    note: { description: '可选备注。', required: false, secret: false, tty: false },
+  }
+  const input = z.object({ token: z.string(), note: z.string().optional() })
+  const source = operation({ summary: '使用可信令牌连接示例资源。', fields, input })
+  const defined = definedPackage('demo', '1', { operations: [source] })
+  const declaration = defined.component.operations[0]
+  assert.deepEqual(declaration, {
+    id: 'demo.connect',
+    summary: '使用可信令牌连接示例资源。',
+    method: 'GET',
+    scheme: 'demo',
+    authority: 'items',
+    path: '/:id',
+    auth: 'user',
+    fields,
+  })
+  assert.deepEqual(describeOperation(defined.operations[0], 'demo'), { component: 'demo', ...declaration })
+  assert.notEqual(declaration.fields, fields)
+  assert.notEqual(declaration.fields.token, fields.token)
+  assert.equal(Object.isFrozen(declaration.fields), true)
+  assert.equal(Object.isFrozen(declaration.fields.token), true)
+  assert.equal(Object.isFrozen(defined.operations[0].fields.note), true)
+  assert.equal(defined.operations[0].input, input)
+  assert.equal(Object.isFrozen(input), false)
+
+  source.summary = '调用方后来修改的说明。'
+  fields.token.description = '调用方后来修改的字段说明。'
+  fields.note.required = true
+  assert.equal(declaration.summary, '使用可信令牌连接示例资源。')
+  assert.equal(declaration.fields.token.description, '通过可信输入提供访问令牌。')
+  assert.equal(declaration.fields.note.required, false)
+  assert.deepEqual(defined.operations[0].input.parse({ token: '仅供输入验证' }), { token: '仅供输入验证' })
+  assert.deepEqual(JSON.parse(JSON.stringify(declaration)), declaration)
+  assert.deepEqual(Object.keys(declaration).sort(), [
+    'auth', 'authority', 'fields', 'id', 'method', 'path', 'scheme', 'summary',
+  ])
+})
+
+test('可执行与公开组件契约一致拒绝非法 summary 和字段元数据', () => {
+  const declaration = definedPackage('demo', '1', { operations: [operation()] }).component.operations[0]
+  const illegal = [
+    { summary: null },
+    { summary: 12 },
+    { summary: '' },
+    { summary: ' 首尾空白 ' },
+    { summary: '不能包含\0字符' },
+    { fields: null },
+    { fields: [] },
+    { fields: new Map() },
+    { fields: { 'bad-name': {} } },
+    { fields: { token: '不是字段声明' } },
+    { fields: { token: [] } },
+    { fields: { token: new Date() } },
+    { fields: { token: { description: false } } },
+    { fields: { token: { description: '' } } },
+    { fields: { token: { description: '说明\0字符' } } },
+    { fields: { token: { required: 'true' } } },
+    { fields: { token: { secret: 1 } } },
+    { fields: { token: { tty: 'true' } } },
+    { fields: { token: { file: 'true', tty: true } } },
+    { fields: { token: { file: true } } },
+    { fields: { token: { file: true, tty: false } } },
+    { fields: { token: { secret: true, value: '不得进入元数据的秘密值' } } },
+  ]
+  for (const extra of illegal) {
+    assert.throws(
+      () => definedPackage('demo', '1', { operations: [operation(extra)] }),
+      failureCode('invalid-spec'),
+    )
+    assert.throws(
+      () => parseComponent(packageSpec('demo', '1', { operations: [{ ...declaration, ...extra }] }), {
+        allowContract: true,
+      }),
+      failureCode('invalid-spec'),
+    )
+  }
+})
+
 test('可编辑 YAML 拒绝 operations 与 credentials', () => {
   assert.throws(() => parseComponent(externalYaml('demo', 'operations: []')), failureCode('invalid-spec'))
   assert.throws(() => parseComponent(`
@@ -193,13 +274,28 @@ test('包组件物化只写描述性元数据，operation 与凭据从代码合�
   })
   const core = setup.open({
     components: [definedPackage('demo', '1', {
-      operations: [operation()],
+      operations: [operation({
+        summary: '读取示例资源；无需 Body。',
+        fields: { note: { description: '可选备注说明。', required: false, secret: false, tty: true, file: true } },
+      })],
       credentials: [credential],
       config: { mode: 'demo' },
     })],
   })
   const view = core.components.show('demo')
   assert.equal(view.operations?.length, 1)
+  assert.equal(view.operations[0].summary, '读取示例资源；无需 Body。')
+  assert.deepEqual(view.operations[0].fields, {
+    note: { description: '可选备注说明。', required: false, secret: false, tty: true, file: true },
+  })
+  assert.deepEqual(
+    view.operations,
+    core.router.operations.filter((item) => item.namespace === 'demo').map(({ namespace, operation }) => {
+      const { component, ...metadata } = describeOperation(operation, namespace)
+      assert.equal(component, 'demo')
+      return metadata
+    }),
+  )
   assert.equal(view.credentials?.[0].id, 'demo-auth')
   const path = join(setup.dataDirectory, 'components', 'demo.yaml')
   const text = readFileSync(path, 'utf8')
@@ -243,7 +339,10 @@ test('组件 operations 保持惰性访问，输出契约覆盖真实服务结�
   const core = setup.open({
     componentRunner: runner,
     components: [definedPackage('demo', '2', {
-      operations: [operation()],
+      operations: [operation({
+        summary: '读取示例资源；无需 Body。',
+        fields: { token: { description: '访问令牌的可信输入。', required: true, secret: true, tty: true, file: true } },
+      })],
       credentials: [defineCredential({
         id: 'demo-auth',
         fields: [{ name: 'token', secret: true, required: true }],

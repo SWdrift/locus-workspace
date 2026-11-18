@@ -2,7 +2,7 @@
 
 ## 范围
 
-组件是 Locus 识别、登记和观察的一种软件或基础设施能力单元。Core 只回答“有哪些组件、它们现在怎么样”，不代替组件执行安装、服务管理或业务操作。本页覆盖 `packages/core` 的组件机制、`apps/cli` 的 `component` 命令域与 `locus <id>` 入口；具体命令语法见[实用命令](../../commands.md#组件操作)。
+组件是 Locus 识别、登记和观察的一种软件或基础设施能力单元。Core 只回答“有哪些组件、它们现在怎么样”，不代替组件执行安装、服务管理或业务操作。本页覆盖 `packages/core` 的组件机制、`apps/cli` 的 `component` 命令域与 `GET locus://components/<id>` 入口；具体命令语法见[实用命令](../../commands.md#组件操作)。
 
 不包含：远程环境上的组件实例、组件依赖图求解、自动安装与启动、动态生成每个组件的子命令、把组件发现当作授权。
 
@@ -11,7 +11,7 @@
 | `kind` | 来源 | 定义位置 | 外部状态 | 可删除 |
 | --- | --- | --- | --- | --- |
 | `locus` | 包代码，首次访问时物化 | `<dataDirectory>/components/<id>.yaml` | 声明 `requires` 时由依赖派生 | 否 |
-| `external` | 用户通过 `component add` 登记 | 单文件或文件夹 | 自身 `probe` | 是 |
+| `external` | 用户通过 `locus.components.register` 登记 | 单文件或文件夹 | 自身 `probe` | 是 |
 
 包组件只允许 `kind: locus`；动态组件只允许 `kind: external`。纯 Locus 组件与依赖外部的 Locus 组件不是两种 kind，后者用 `requires` 表达。
 
@@ -19,17 +19,17 @@
 
 ## 定义
 
-包定义由 `@locus/core` 的 `defineComponent()` 校验并冻结，返回 `component` 与 `operations`；`component add` 只接受 YAML 文本中的描述性元数据。YAML 不接受 `operations`/`credentials`，避免形成第二份可编辑真源。
+包定义由 `@locus/core` 的 `defineComponent()` 校验并冻结，返回 `component` 与 `operations`；`locus.components.register` 只接受 YAML 文本中的描述性元数据。YAML 不接受 `operations`/`credentials`，避免形成第二份可编辑真源。
 
 | 字段 | 必填 | 说明 |
 | --- | --- | --- |
-| `id` | 是 | 小写字母开头，只含小写字母、数字与短横线；用于文件名与显式引用；登记边界保留 Core 自有的 `locus`；与 CLI 命令同名时使用 `component show <id>`，不抢占命令 |
+| `id` | 是 | 小写字母开头，只含小写字母、数字与短横线；用于文件名与显式引用；登记边界保留 Core 自有的 `locus`；组件通过 URL 引用，不与 CLI 命令名绑定 |
 | `version` | 是 | 非空字符串，只做相等比较，不解释语义 |
 | `name`、`summary` | 是 | 展示用名称与一句话说明 |
 | `kind` | 是 | `locus` 或 `external` |
 | `requires` | 否 | 仅 `locus`；依赖的组件 id，不能重复或引用自身 |
-| `operations` | 否 | 仅代码定义；operation id、method、scheme、authority、path、`auth`、query/input/output 与 handler；不产生授权 |
-| `credentials` | 否 | 仅代码定义；凭据槽数组：id 与 fields（name/secret/required）；不授予凭据，也不进入 YAML |
+| `operations` | 否 | 仅代码定义；operation id、method、scheme、authority、path、`auth`、query/input/output、输入字段元数据（`secret`/`tty`）与 handler；不产生授权 |
+| `credentials` | 否 | 仅代码定义；凭据槽数组：id 与 fields（name/secret/required/tty）；不授予凭据，也不进入 YAML |
 | `config` | 否 | 内联映射，或相对 `<dataDirectory>` 的文件/文件夹路径；Core 不解释内容 |
 | `probe` | 否 | 仅 `external`；`kind` 为 `argv`（默认）、`tcp` 或 `http`，共同支持 `timeoutMs` 与 `onFailure` |
 | `deploy` | 否 | `argv` 与 `timeoutMs`；缺少即 `not-deployable` |
@@ -58,7 +58,7 @@ probe:
 
 1. 首次访问组件服务时，把包定义的描述性元数据写入 `<dataDirectory>/components/<id>.yaml`；`version` 一并写入。
 2. 文件已存在时不自动改写。版本与代码一致则直接使用；不一致仍使用文件，并在 `list`/`show` 标记“需要升级”。
-3. `component upgrade` 按代码重写描述性字段，保留文件中的 `config`，更新 `version`；只对 `locus` 组件生效。
+3. `locus.components.upgrade` 按代码重写描述性字段，保留文件中的 `config`，更新 `version`；只对 `locus` 组件生效。
 4. 物化文件被删除后，下次访问按当前版本重建；文件非法时报错且不覆盖，删除后可重建。
 5. 同名单文件与文件夹并存视为冲突，只影响该 id。
 
@@ -68,7 +68,7 @@ YAML 物化只保存描述性元数据；`operations`/`credentials` 属于包代
 
 ## 状态
 
-外部状态只在显式 `probe` 时写入，读取不探测。未探查不落值，展示为“未探查”。`component list` 同时显示距最近观察的时长，避免把旧 `healthy` 当成当前事实。`component probe --all` 逐个探查 `external` 组件；没有探针的定义跳过，派生状态由依赖组件在读取时汇总。
+外部状态只在显式 `probe` 时写入，读取不探测。未探查不落值，展示为“未探查”。`locus.components.list` 携带最近观察时间，调用方不能把旧 `healthy` 当成当前事实。`locus.components.probe-all` 逐个探查 `external` 组件；没有探针的定义跳过，派生状态由依赖组件在读取时汇总。
 
 | 状态 | 判定 |
 | --- | --- |
@@ -97,7 +97,7 @@ YAML 物化只保存描述性元数据；`operations`/`credentials` 属于包代
 
 组件 YAML 是可复制、可手工编辑的元数据文件；`operations`/`credentials` 属于包代码的可信契约，不写入 YAML。状态保存在 `core.sqlite` 的 `component_states` 表，不随定义迁移。删除动态组件只删除定义与状态，不卸载、不停止外部软件。
 
-多个动态定义可以直接复制到 `components/`（单文件或 `<id>/component.yaml`），不经过 `component add`；文件仍需满足定义 schema，损坏的定义进入 `problems`，不影响其他组件。
+多个动态定义可以直接复制到 `components/`（单文件或 `<id>/component.yaml`），不经过 `locus.components.register`；文件仍需满足定义 schema，损坏的定义进入 `problems`，不影响其他组件。
 
 ## 与远程目标的关系
 
@@ -126,7 +126,7 @@ Remote Targets 依赖 Core 的 `defineOperation`、`OperationContext` 与 `Invoc
 | 定义文件无法解析 | 该 id 进入 problems；`show` 失败并给出路径 |
 | 动态组件 id 已存在或属于包 | `component-exists` 或 `component-package`，退出码 2 |
 | 未声明探针 / 部署入口 | `no-probe` / `no-deploy`，协议映射为 `unsupported-method`，退出码 1 |
-| 探针未通过 | 写入对应状态，CLI 退出 1 |
+| 探针未通过 | 写入对应状态，CLI 仍按 operation 信封返回；调用方检查业务状态 |
 | 部署失败 | 写入 `failed`，CLI 退出 1 |
 | 传输组件未就绪 | `component-unavailable`，协议映射为 `unavailable`，连接前失败 |
 

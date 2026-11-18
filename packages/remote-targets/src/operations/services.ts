@@ -6,6 +6,8 @@ import { materialOf } from './credentials.ts'
 
 export const listServices = defineOperation({
   id: 'rt.services.list',
+  summary:
+    '通过 SSH 读取路径 id 指定 Windows 目标的服务列表（支持完整 ID、唯一 ID 前缀或唯一标签，要求 cmd 远程 Shell），返回 name/status 数组；无 query 或 JSON Body。',
   method: 'GET',
   scheme: 'rt',
   authority: 'targets',
@@ -22,6 +24,8 @@ export const listServices = defineOperation({
 
 export const restartService = defineOperation({
   id: 'rt.service.restart',
+  summary:
+    '通过 SSH 重启路径 id 指定 Windows 目标上路径 name 指定的服务（id 支持完整 ID、唯一 ID 前缀或唯一标签，要求 cmd 远程 Shell），返回重启后的 name/status；无 query 或 JSON Body。',
   method: 'POST',
   scheme: 'rt',
   authority: 'targets',
