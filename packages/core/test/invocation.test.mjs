@@ -1,19 +1,26 @@
 import assert from 'node:assert/strict'
 import { execFileSync } from 'node:child_process'
-import { mkdtempSync, rmSync } from 'node:fs'
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { DatabaseSync } from 'node:sqlite'
 import { fileURLToPath } from 'node:url'
 import test from 'node:test'
 import { z } from 'zod'
+import { createLocusCore } from '../lib/index.js'
 import {
-  createApiRouter, createDispatcher, createEventBus, createLocusCore,
-  createMemoryCredentialProvider, createMemorySecurityStore, defineComponent, defineCredential,
-  defineOperation, DomainFailure, parseLocusUri,
-} from '../lib/index.js'
+  createApiRouter, createDispatcher, defineCredential,
+  defineOperation, DomainFailure, InvocationFailure, parseLocusUri,
+} from '../lib/invocation/index.js'
+import { defineComponent } from '../lib/components/index.js'
+import { createEventBus } from '../lib/events/index.js'
+import {
+  createMemoryCredentialProvider, createMemorySecurityStore, SecurityFailure,
+} from '../lib/security/index.js'
 
 const ROOT_PASSWORD = 'Root-仅供调用测试-2026'
+const INTERNAL_FAILURE_SECRET = 'internal-error-secret-sentinel'
 
 function demoComponent() {
   const auth = defineCredential({
@@ -52,12 +59,36 @@ function demoComponent() {
   })
   const fail = defineOperation({
     id: 'demo.fail', method: 'GET', scheme: 'demo', authority: 'actions', path: '/fail', auth: 'user',
-    input: z.undefined(), output: z.unknown(),
-    run: () => { throw new DomainFailure('target-not-found', '目标不存在') },
+    input: z.undefined(), output: z.never(),
+    run: () => {
+      try {
+        throw new DomainFailure('demo-missing', '对象不存在')
+      } catch (error) {
+        if (error instanceof DomainFailure && error.code === 'demo-missing') {
+          throw new InvocationFailure('not-found', error.message, { domain: error.code })
+        }
+        throw error
+      }
+    },
+  })
+  const unclassified = defineOperation({
+    id: 'demo.unclassified', method: 'GET', scheme: 'demo', authority: 'actions', path: '/unclassified', auth: 'user',
+    input: z.undefined(), output: z.never(),
+    run: () => { throw new DomainFailure('target-not-found', '未经 operation 分类的领域失败') },
+  })
+  const securityFailure = defineOperation({
+    id: 'demo.security-failure', method: 'GET', scheme: 'demo', authority: 'actions', path: '/security/:code', auth: 'user',
+    input: z.undefined(), output: z.never(),
+    run: (_query, _input, context) => { throw new SecurityFailure(context.url.pathParams.code) },
+  })
+  const rootFailure = defineOperation({
+    id: 'demo.root.failure', method: 'POST', scheme: 'demo', authority: 'actions', path: '/root-failure', auth: 'root',
+    input: z.undefined(), output: z.never(),
+    run: () => { throw new Error(INTERNAL_FAILURE_SECRET) },
   })
   return defineComponent({
     id: 'demo', version: '1', name: 'demo', summary: '调用协议测试组件', kind: 'locus',
-    operations: [write, read, tty, fail], credentials: [auth],
+    operations: [write, read, tty, fail, unclassified, securityFailure, rootFailure], credentials: [auth],
   })
 }
 
@@ -142,6 +173,42 @@ test('注册期拒绝仅参数名不同的歧义路由', () => {
   assert.throws(() => router.register('remote-targets', route('rt.two', '/:name')), { code: 'conflict' })
 })
 
+test('注册期拒绝包组件 auth none，初始化例外同时绑定 Core namespace 与 operation id', () => {
+  const declaration = {
+    method: 'POST', scheme: 'demo', authority: 'actions', path: '/init', auth: 'none',
+    input: z.undefined(), output: z.object({ initialized: z.literal(true) }),
+    run: () => ({ initialized: true }),
+  }
+  const router = createApiRouter()
+  for (const [namespace, id] of [
+    ['demo', 'demo.initialize'],
+    ['demo', 'locus.security.initialize'],
+    ['locus', 'locus.other.initialize'],
+  ]) {
+    assert.throws(() => router.register(namespace, defineOperation({ ...declaration, id })), {
+      code: 'invalid-argument',
+    })
+  }
+  router.register('locus', defineOperation({ ...declaration, id: 'locus.security.initialize' }))
+  assert.equal(router.resolve('POST', 'demo://actions/init').namespace, 'locus')
+})
+
+test('Core 初始化仍只接受 human Session', async (t) => {
+  const { core, host } = await fixture(t)
+  const session = host.createSession('agent')
+  try {
+    const dispatcher = createDispatcher(core.router, host, session, core.events)
+    const result = await dispatcher.invoke(
+      { method: 'POST', uri: 'locus://security/actions/init' },
+      { password: ROOT_PASSWORD, confirmation: ROOT_PASSWORD },
+    )
+    assert.equal(result.ok, false)
+    assert.equal(result.error.code, 'forbidden')
+  } finally {
+    host.endSession(session)
+  }
+})
+
 test('Dispatcher 建链、结果信封与稳定错误映射', async (t) => {
   const { dispatcher } = await fixture(t)
   const info = await dispatcher.invoke({ method: 'GET', uri: 'locus://info' })
@@ -162,6 +229,77 @@ test('Dispatcher 建链、结果信封与稳定错误映射', async (t) => {
   })
   assert.equal(media.ok, false)
   assert.equal(media.error.code, 'unsupported-media-type')
+})
+
+test('Workspace 与事件 operation 的输出结构完整且可由公开 schema 解析', async (t) => {
+  const { core, dispatcher } = await fixture(t)
+  async function invoke(request) {
+    const result = await dispatcher.invoke(request)
+    assert.equal(result.ok, true, JSON.stringify(result))
+    const { operation } = core.router.resolve(request.method, request.uri)
+    assert.deepEqual(operation.output.parse(result.data), result.data)
+    return result.data
+  }
+  const workspace = await invoke({
+    method: 'POST', uri: 'locus://workspaces', body: { name: '契约 Workspace' }, contentType: 'application/json',
+  })
+  const uri = `locus://workspaces/${workspace.id}`
+  await invoke({ method: 'GET', uri: 'locus://workspaces' })
+  await invoke({ method: 'GET', uri })
+  await invoke({ method: 'PATCH', uri, body: { name: '已改名' }, contentType: 'application/json' })
+  const mount = await invoke({
+    method: 'POST', uri: `${uri}/mounts`, body: { path: core.dataDirectory, name: 'data' }, contentType: 'application/json',
+  })
+  await invoke({ method: 'GET', uri: `${uri}/mounts` })
+  const relation = await invoke({
+    method: 'POST', uri: `${uri}/relations`,
+    body: { kind: 'member', namespace: 'demo.item', id: 'one' }, contentType: 'application/json',
+  })
+  assert.equal(relation.source.kind, 'manual')
+  assert.equal(typeof relation.source.detail, 'string')
+  const explicitSource = { kind: 'discovery', detail: '测试客户端确认' }
+  const explicit = await invoke({
+    method: 'POST', uri: `${uri}/relations`,
+    body: { kind: 'association', namespace: 'demo.item', id: 'two', source: explicitSource }, contentType: 'application/json',
+  })
+  assert.deepEqual(explicit.source, explicitSource)
+  await invoke({ method: 'GET', uri: `${uri}/relations` })
+  await invoke({ method: 'DELETE', uri: `${uri}/relations/${relation.id}` })
+  await invoke({ method: 'DELETE', uri: `${uri}/mounts/${mount.id}` })
+  await invoke({ method: 'GET', uri: 'locus://events?type=locus.request.succeeded&limit=10' })
+  await invoke({ method: 'DELETE', uri })
+})
+
+test('Workspace 数据库损坏在调用边界归为内部故障，不伪装成参数错误', async (t) => {
+  const { core, dispatcher } = await fixture(t)
+  const filename = join(core.dataDirectory, 'core.sqlite')
+  const damaged = Buffer.from('保留损坏库供恢复，不重建')
+  writeFileSync(filename, damaged)
+  const result = await dispatcher.invoke({
+    method: 'POST', uri: 'locus://workspaces', body: { name: '有效名称' }, contentType: 'application/json',
+  })
+  assert.equal(result.ok, false)
+  assert.equal(result.error.code, 'internal')
+  assert.deepEqual(readFileSync(filename), damaged)
+})
+
+test('Workspace 写锁故障不归为参数错误且不修改已确认对象', async (t) => {
+  const { core, dispatcher } = await fixture(t)
+  const workspace = core.workspaces.create('保留对象')
+  const locker = new DatabaseSync(join(core.dataDirectory, 'core.sqlite'))
+  try {
+    locker.exec('BEGIN IMMEDIATE')
+    const result = await dispatcher.invoke({
+      method: 'PATCH', uri: `locus://workspaces/${workspace.id}`,
+      body: { name: '不能提交' }, contentType: 'application/json',
+    })
+    assert.equal(result.ok, false)
+    assert.equal(result.error.code, 'internal')
+    locker.exec('ROLLBACK')
+  } finally {
+    locker.close()
+  }
+  assert.deepEqual(core.workspaces.get(workspace.id), workspace)
 })
 
 test('Body 中 tty 字段被拒绝；可信 Host 收集后直接交给 handler', async (t) => {
@@ -280,12 +418,72 @@ test('请求不能设置 principal；body 中的 principal 不提升权限', asy
   assert.equal(result.error.code, 'unauthorized')
 })
 
-test('领域失败在协议边界映射为稳定错误码', async (t) => {
+test('Root 恢复后的 handler 失败仍返回信封、记录失败事件且不泄漏原始异常', async (t) => {
+  const { dispatcher, host, core } = await fixture(t)
+  const failures = []
+  core.events.subscribe('locus.request.failed', (event) => {
+    failures.push(event)
+    return undefined
+  })
+  const challenge = await dispatcher.invoke({ method: 'POST', uri: 'demo://actions/root-failure' })
+  const result = await authorize(host, challenge)
+  assert.equal(result.ok, false)
+  assert.equal(result.error.code, 'internal')
+  assert.equal(result.requestId, challenge.requestId)
+  assert.equal(JSON.stringify(result).includes(INTERNAL_FAILURE_SECRET), false)
+  assert.ok(failures.some((event) => (
+    event.data.requestId === result.requestId && event.data.code === 'internal'
+  )))
+})
+
+test('领域 operation 自己将领域失败映射为稳定协议错误', async (t) => {
   const { dispatcher } = await fixture(t)
   const result = await dispatcher.invoke({ method: 'GET', uri: 'demo://actions/fail' })
   assert.equal(result.ok, false)
   assert.equal(result.error.code, 'not-found')
-  assert.equal(result.error.details.domain, 'target-not-found')
+  assert.equal(result.error.details.domain, 'demo-missing')
+})
+
+test('Dispatcher 不解释能力包的领域错误码', async (t) => {
+  const { dispatcher } = await fixture(t)
+  const result = await dispatcher.invoke({ method: 'GET', uri: 'demo://actions/unclassified' })
+  assert.equal(result.ok, false)
+  assert.equal(result.error.code, 'internal')
+  assert.equal(result.error.details, undefined)
+})
+
+test('安全错误分类覆盖不可用、认证、授权、凭据与存储故障', async (t) => {
+  const { dispatcher } = await fixture(t)
+  const codes = {
+    'security-unavailable': 'unavailable',
+    'security-uninitialized': 'unauthorized',
+    'security-already-initialized': 'conflict',
+    'security-disposed': 'unavailable',
+    'access-denied': 'forbidden',
+    'authentication-required': 'unauthorized',
+    'authentication-failed': 'unauthorized',
+    'authentication-cancelled': 'unauthorized',
+    'authentication-unavailable': 'unavailable',
+    'authentication-rate-limited': 'unavailable',
+    'challenge-expired': 'unauthorized',
+    'challenge-revoked': 'unauthorized',
+    'grant-expired': 'unauthorized',
+    'grant-consumed': 'unauthorized',
+    'grant-revoked': 'unauthorized',
+    'credential-missing': 'not-found',
+    'credential-fields-mismatch': 'invalid-argument',
+    'provider-unavailable': 'unavailable',
+    'credential-too-large': 'unavailable',
+    'delivery-failed': 'unavailable',
+    'operation-failed': 'internal',
+    io: 'internal',
+  }
+  for (const [code, expected] of Object.entries(codes)) {
+    const result = await dispatcher.invoke({ method: 'GET', uri: `demo://actions/security/${code}` })
+    assert.equal(result.ok, false, code)
+    assert.equal(result.error.code, expected, code)
+    assert.equal(result.error.details.security, code)
+  }
 })
 
 test('同步监听器抛错不阻断其余监听器；异步返回值不被接受为契约', () => {
@@ -299,4 +497,30 @@ test('同步监听器抛错不阻断其余监听器；异步返回值不被接�
   })
   assert.deepEqual(received, ['one'])
   assert.equal(bus.list({ type: 'demo.event' }).length, 1)
+  bus.dispose()
+})
+
+test('事件存储故障保留内存观察结果，dispose 后总线所有操作明确拒绝', () => {
+  const bus = createEventBus({
+    append() { throw new Error('写入故障') },
+    list() { throw new Error('读取故障') },
+  })
+  const event = {
+    specversion: '1.0', id: 'retained', type: 'demo.event', source: 'locus://demo',
+    time: new Date().toISOString(), data: {},
+  }
+  const listener = () => undefined
+  bus.subscribe(event.type, listener)
+  bus.publish(event)
+  assert.deepEqual(bus.list(), [event])
+  bus.dispose()
+  bus.dispose()
+  for (const operation of [
+    () => bus.publish(event),
+    () => bus.list(),
+    () => bus.subscribe(event.type, listener),
+    () => bus.unsubscribe(event.type, listener),
+  ]) {
+    assert.throws(operation, { code: 'unavailable' })
+  }
 })

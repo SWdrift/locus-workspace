@@ -4,7 +4,9 @@ import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'no
 import { createServer } from 'node:net'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
-import { createDispatcher, createLocusCore, createMemoryCredentialProvider, createMemorySecurityStore } from '@locus/core'
+import { createLocusCore } from '@locus/core'
+import { createDispatcher } from '@locus/core/invocation'
+import { createMemoryCredentialProvider, createMemorySecurityStore } from '@locus/core/security'
 import { component, operations } from '../lib/index.js'
 
 const BIN = process.env.PGBIN ?? 'C:/Program Files/PostgreSQL/16/bin'

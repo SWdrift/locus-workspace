@@ -5,6 +5,7 @@ import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { spawnSync } from 'node:child_process'
 import test from 'node:test'
+import { parseComponent } from '@locus/core/components'
 
 const CLI = fileURLToPath(new URL('../lib/index.js', import.meta.url))
 const EXAMPLES = fileURLToPath(new URL('../../../examples/components/', import.meta.url))
@@ -127,6 +128,31 @@ test('无参数与未知命令给出稳定失败，相对数据目录按工作�
   assert.equal(existsSync(join(f.root, 'relative-data', 'core.sqlite')), true)
 })
 
+test('--human 始终覆盖 --json 的失败输出，--pretty 也适用于异常 JSON', (t) => {
+  const f = fixture(t)
+  for (const flags of [['--json', '--human'], ['--human', '--json', '--pretty']]) {
+    const missing = f.run([...flags, 'workspace', 'show', 'missing'])
+    assert.equal(missing.code, 2)
+    assert.equal(missing.stdout, '')
+    assert.match(missing.stderr, /not-found/)
+
+    const security = f.run([...flags, 'init'])
+    assert.equal(security.code, 2)
+    assert.equal(security.stdout, '')
+    assert.match(security.stderr, /authentication-unavailable/)
+
+    const invocation = f.run([...flags, 'get', 'locus://missing'])
+    assert.equal(invocation.code, 2)
+    assert.equal(invocation.stdout, '')
+    assert.match(invocation.stderr, /not-found/)
+  }
+
+  const pretty = f.run(['--json', '--pretty', 'workspace', 'show', 'missing'])
+  assert.equal(pretty.code, 2)
+  assert.equal(parseJson(pretty.stdout).code, 'not-found')
+  assert.match(pretty.stdout, /^\{\n  "code":/)
+})
+
 test('读取工作目录 .env，显式环境变量优先', (t) => {
   const f = fixture(t)
   writeFileSync(join(f.root, '.env'), 'LOCUS_HOME=env-data\nLOCUS_FOLDER_NAME=.locus\n')
@@ -223,12 +249,13 @@ test('组件：物化包定义、动态登记、顶层入口与手动升级', (t
   assert.equal('info' in initial.components[0], false)
   assert.equal(existsSync(join(f.data, 'components', 'remote-targets.yaml')), true)
   const materialized = readFileSync(join(f.data, 'components', 'remote-targets.yaml'), 'utf8')
-  assert.match(materialized, /version: "5"/)
+  const remoteTargets = initial.components.find((component) => component.id === 'remote-targets')
+  const materializedDefinition = parseComponent(materialized)
+  assert.equal(materializedDefinition.version, remoteTargets.version)
   assert.doesNotMatch(materialized, /capabilities:/)
   assert.doesNotMatch(materialized, /credentials:/)
 
   const postgres = parseJson(f.run(['--json', 'component', 'show', 'postgres']).stdout)
-  assert.equal(postgres.version, '4')
   assert.deepEqual(postgres.operations.map((operation) => operation.id), ['pg.database.register', 'pg.database.query'])
   assert.deepEqual(postgres.operations.map((operation) => operation.auth), ['root', 'user'])
   assert.deepEqual(postgres.credentials[0].fields, [
@@ -244,9 +271,8 @@ test('组件：物化包定义、动态登记、顶层入口与手动升级', (t
   assert.match(postgresText, /pg.database.query/)
   assert.match(postgresText, /database-auth/)
   const gitea = parseJson(f.run(['--json', 'component', 'show', 'gitea']).stdout)
-  assert.equal(gitea.version, '4')
   assert.equal(gitea.operations[0].id, 'gitea.repository.register')
-  assert.equal(parseJson(f.run(['--json', 'component', 'show', 'remote-targets']).stdout).version, '5')
+  assert.equal(parseJson(f.run(['--json', 'component', 'show', 'remote-targets']).stdout).version, remoteTargets.version)
 
   const bareTemplate = parseJson(f.run(['--json', 'template']).stdout)
   assert.equal(bareTemplate.id, 'template')
@@ -282,8 +308,9 @@ kind: external
 probe:
   argv: [node, --version]
 `)
-  assert.equal(reserved.code, 1)
-  assert.match(reserved.stderr, /内置顶层命令/)
+  assert.equal(reserved.code, 0, reserved.stderr)
+  assert.equal(parseJson(f.run(['--json', 'component', 'show', 'version']).stdout).id, 'version')
+  assert.equal(parseJson(f.run(['--json', 'version']).stdout).version, PRODUCT_VERSION)
 
   const capabilities = f.run(['component', 'add', '-'], {}, `id: capability-smuggler
 version: '1'
@@ -309,12 +336,12 @@ credentials: []
   const file = join(f.data, 'components', 'remote-targets.yaml')
   writeFileSync(
     file,
-    readFileSync(file, 'utf8').replace('version: "5"', 'version: "0"'),
+    JSON.stringify({ ...materializedDefinition, version: 'test-outdated' }),
     'utf8',
   )
   const pending = parseJson(f.run(['--json', 'component', 'show', 'remote-targets']).stdout)
   assert.equal(pending.needsUpgrade, true)
-  assert.equal(pending.codeVersion, '5')
+  assert.equal(pending.codeVersion, remoteTargets.version)
   const upgraded = f.run(['--json', 'component', 'upgrade', 'remote-targets'])
   assert.equal(upgraded.code, 0, upgraded.stderr)
   assert.equal(parseJson(upgraded.stdout).needsUpgrade, false)

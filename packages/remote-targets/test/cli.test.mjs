@@ -77,6 +77,8 @@ test('组件只导出 component 与 operations，路由元数据显式声明', (
       ['rt.target.credential.update', 'POST', '/:id/actions/credential', 'root'],
       ['rt.target.get', 'GET', '/:id', 'user'],
       ['rt.target.migrate', 'POST', '/:id/actions/migrate', 'root'],
+      ['rt.target.migration-source', 'GET', '/:id/actions/migration-source', 'user'],
+      ['rt.target.preview', 'POST', '/:id/actions/preview', 'user'],
       ['rt.target.register', 'PUT', '/:id', 'root'],
       ['rt.target.remove', 'DELETE', '/:id', 'root'],
       ['rt.targets.list', 'GET', '', 'user'],
@@ -101,11 +103,11 @@ test('list/get/remove handler 只依赖 dataDirectory 与路径参数', async (t
 
   await assert.rejects(
     async () => get.run(undefined, undefined, f.context({ id: 'unknown' })),
-    (error) => error.code === 'target-not-found',
+    (error) => error.code === 'not-found' && error.details.domain === 'target-not-found',
   )
   await assert.rejects(
     async () => get.run(undefined, undefined, f.context()),
-    (error) => error.code === 'ambiguous-target',
+    (error) => error.code === 'conflict' && error.details.domain === 'ambiguous-target',
   )
 
   const removed = await remove.run(undefined, undefined, f.context({ id: 'win-x' }))

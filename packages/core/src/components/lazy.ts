@@ -1,5 +1,5 @@
 import { createRequire } from 'node:module'
-import type { ComponentServiceOptions, ComponentsService } from './service.ts'
+import type { ComponentServiceOptions, ComponentsService } from './types.ts'
 
 type ServiceModule = {
   readonly createComponentService: (options: ComponentServiceOptions) => ComponentsService

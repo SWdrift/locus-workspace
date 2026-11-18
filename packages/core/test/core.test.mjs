@@ -6,6 +6,8 @@ import { isAbsolute, join, resolve } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import test from 'node:test'
 import { createLocusCore, LOCUS_VERSION } from '../lib/index.js'
+import { createCoreEventStore } from '../lib/events/index.js'
+import { WorkspaceFailure } from '../lib/workspaces/index.js'
 
 const PRODUCT_VERSION = JSON.parse(
   readFileSync(new URL('../../../package.json', import.meta.url), 'utf8'),
@@ -118,6 +120,36 @@ test('数据目录由 LOCUS_HOME 与 LOCUS_FOLDER_NAME 决定，显式选项优�
   }
 })
 
+test('development 只隔离隐式数据目录，显式 dataDirectory 完整决定位置', async (t) => {
+  const setup = fixture(t)
+  const previousHome = process.env.LOCUS_HOME
+  const previousFolder = process.env.LOCUS_FOLDER_NAME
+  const cores = []
+  try {
+    process.env.LOCUS_HOME = join(setup.root, 'home')
+    process.env.LOCUS_FOLDER_NAME = 'production'
+    const production = createLocusCore()
+    cores.push(production)
+    const development = createLocusCore({ security: { profile: 'development' } })
+    cores.push(development)
+    const explicit = createLocusCore({
+      dataDirectory: join(setup.root, 'explicit'),
+      security: { profile: 'development' },
+    })
+    cores.push(explicit)
+    assert.equal(production.dataDirectory, join(setup.root, 'home', 'production'))
+    assert.equal(development.dataDirectory, join(production.dataDirectory, 'profiles', 'development'))
+    assert.equal(explicit.dataDirectory, join(setup.root, 'explicit'))
+    for (const core of cores) assert.equal(existsSync(core.dataDirectory), false)
+  } finally {
+    for (const core of cores) await core.dispose()
+    if (previousHome === undefined) delete process.env.LOCUS_HOME
+    else process.env.LOCUS_HOME = previousHome
+    if (previousFolder === undefined) delete process.env.LOCUS_FOLDER_NAME
+    else process.env.LOCUS_FOLDER_NAME = previousFolder
+  }
+})
+
 test('零目录 Workspace 的身份、改名与关系来源跨重开及备份恢复保持稳定', async (t) => {
   const setup = fixture(t)
   const core = setup.open()
@@ -190,7 +222,7 @@ test('Workspace 不能把自身保存为嵌套引用，且失败不写入半条�
   const before = core.workspaces.get(workspace.id)
   assert.throws(
     () => core.workspaces.link(workspace.id, 'member', { namespace: 'locus.workspace', id: workspace.id }, { kind: 'manual', detail: '自身' }),
-    /不能把自身/,
+    { code: 'conflict' },
   )
   assert.deepEqual(core.workspaces.get(workspace.id), before)
 })
@@ -237,12 +269,13 @@ test('无效输入在打开数据库前拒绝，已有数据库不写入无效�
     () => service.link('id', 'member', target, { kind: 'manual', detail: ' ' }),
     () => service.unlink('id', ''),
   ]
-  for (const operation of invalidOperations) assert.throws(operation)
+  const invalidArgument = (error) => error instanceof WorkspaceFailure && error.code === 'invalid-argument'
+  for (const operation of invalidOperations) assert.throws(operation, invalidArgument)
   assert.equal(existsSync(setup.dataDirectory), false)
 
   const workspace = service.create('合法数据')
   const before = readFileSync(join(setup.dataDirectory, 'core.sqlite'))
-  for (const operation of invalidOperations) assert.throws(operation)
+  for (const operation of invalidOperations) assert.throws(operation, invalidArgument)
   assert.deepEqual(service.get(workspace.id), workspace)
   assert.deepEqual(readFileSync(join(setup.dataDirectory, 'core.sqlite')), before)
 })
@@ -259,8 +292,8 @@ test('缺失 Workspace、关系或嵌套目标给出可定位错误，不改变�
     { kind: 'manual', detail: '确认' },
   )
   const before = readFileSync(join(setup.dataDirectory, 'core.sqlite'))
-  assert.throws(() => core.workspaces.get('missing-workspace'), /missing-workspace/)
-  assert.throws(() => core.workspaces.rename('missing-workspace', '改名'), /missing-workspace/)
+  assert.throws(() => core.workspaces.get('missing-workspace'), { code: 'not-found' })
+  assert.throws(() => core.workspaces.rename('missing-workspace', '改名'), { code: 'not-found' })
   assert.throws(
     () =>
       core.workspaces.link(
@@ -269,16 +302,16 @@ test('缺失 Workspace、关系或嵌套目标给出可定位错误，不改变�
         { namespace: 'locus.workspace', id: 'missing-nested-target' },
         { kind: 'manual', detail: '不能确认不存在的 Workspace' },
       ),
-    /missing-nested-target/,
+    { code: 'not-found' },
   )
   assert.throws(
     () => core.workspaces.link('missing-workspace', 'member', relation.target, relation.source),
-    /missing-workspace/,
+    { code: 'not-found' },
   )
-  assert.throws(() => core.workspaces.unlink(workspace.id, 'missing-relation'), /missing-relation/)
+  assert.throws(() => core.workspaces.unlink(workspace.id, 'missing-relation'), { code: 'not-found' })
   assert.throws(
     () => core.workspaces.unlink(other.id, relation.id),
-    (error) => error.message.includes(other.id) && error.message.includes(relation.id),
+    { code: 'not-found' },
   )
   assert.deepEqual(core.workspaces.get(workspace.id).relations, [relation])
   assert.deepEqual(readFileSync(join(setup.dataDirectory, 'core.sqlite')), before)
@@ -327,7 +360,10 @@ test('损坏数据库明确失败，不重建或覆盖原数据', (t) => {
   const corrupt = Buffer.from('这不是 SQLite 数据，不能静默覆盖')
   writeFileSync(filename, corrupt)
   const core = setup.open()
-  assert.throws(() => core.workspaces.create('不能伪造成功'), /core\.sqlite/)
+  assert.throws(
+    () => core.workspaces.create('不能伪造成功'),
+    (error) => error instanceof Error && !(error instanceof WorkspaceFailure),
+  )
   assert.deepEqual(readFileSync(filename), corrupt)
 })
 
@@ -391,10 +427,10 @@ test('dispose 关闭已打开的连接并阻止捕获的服务继续使用，重
   const workspace = service.create('释放资源')
   await core.dispose()
   await core.dispose()
-  assert.throws(() => core.info, /已释放/)
-  assert.throws(() => core.dataDirectory, /已释放/)
-  assert.throws(() => core.workspaces, /已释放/)
-  assert.throws(() => core.mounts, /已释放/)
+  assert.throws(() => core.info, { code: 'disposed' })
+  assert.throws(() => core.dataDirectory, { code: 'disposed' })
+  assert.throws(() => core.workspaces, { code: 'disposed' })
+  assert.throws(() => core.mounts, { code: 'disposed' })
   const operations = [
     () => service.create('新对象'),
     () => service.list(),
@@ -412,8 +448,43 @@ test('dispose 关闭已打开的连接并阻止捕获的服务继续使用，重
     () => mounts.list(workspace.id),
     () => mounts.add(workspace.id, join(setup.root, 'another')),
   ]
-  for (const operation of operations) assert.throws(operation, /已释放/)
+  for (const operation of operations) assert.throws(operation, { code: 'disposed' })
   assert.deepEqual(setup.open().workspaces.get(workspace.id), workspace)
+})
+
+test('Core 释放后的事件总线与捕获的事件存储不能重新打开或创建数据库', async (t) => {
+  const setup = fixture(t)
+  const core = setup.open()
+  core.workspaces.create('事件生命周期')
+  const bus = core.events
+  const store = createCoreEventStore(setup.dataDirectory)
+  const event = {
+    specversion: '1.0', id: 'terminal-state', type: 'demo.event', source: 'locus://demo',
+    time: new Date().toISOString(), data: {},
+  }
+  bus.publish(event)
+  assert.deepEqual(store.list({ type: event.type }), [event])
+  store.dispose()
+  await core.dispose()
+  rmSync(setup.dataDirectory, { recursive: true })
+  const listener = () => undefined
+  for (const operation of [
+    () => bus.publish(event),
+    () => bus.list(),
+    () => bus.subscribe(event.type, listener),
+    () => bus.unsubscribe(event.type, listener),
+    () => store.append(event),
+    () => store.list(),
+  ]) {
+    assert.throws(operation, { code: 'unavailable' })
+  }
+  const unopenedDirectory = join(setup.root, 'unopened-events')
+  const unopened = createCoreEventStore(unopenedDirectory)
+  unopened.dispose()
+  assert.throws(() => unopened.append(event), { code: 'unavailable' })
+  assert.throws(() => unopened.list(), { code: 'unavailable' })
+  assert.equal(existsSync(setup.dataDirectory), false)
+  assert.equal(existsSync(unopenedDirectory), false)
 })
 
 test('挂载名称与路径在 Workspace 内唯一，删除 Workspace 级联自有记录', (t) => {
@@ -435,17 +506,17 @@ test('挂载名称与路径在 Workspace 内唯一，删除 Workspace 级联自�
 
   assert.throws(
     () => core.mounts.add(workspace.id, join(setup.root, 'alpha')),
-    /路径已挂载/,
+    { code: 'conflict' },
   )
   assert.throws(
     () => core.mounts.add(workspace.id, join(setup.root, 'gamma'), { name: 'ALPHA' }),
-    /挂载名称已存在/,
+    { code: 'conflict' },
   )
   assert.throws(
     () => core.mounts.add(workspace.id, join(setup.root, 'gamma'), { name: 'bad name' }),
-    /挂载名称/,
+    { code: 'invalid-argument' },
   )
-  assert.throws(() => core.mounts.add(workspace.id, 'relative-path'), /绝对路径/)
+  assert.throws(() => core.mounts.add(workspace.id, 'relative-path'), { code: 'invalid-argument' })
 
   core.workspaces.link(
     workspace.id,
@@ -466,7 +537,7 @@ test('挂载名称与路径在 Workspace 内唯一，删除 Workspace 级联自�
   )
 
   core.workspaces.remove(workspace.id)
-  assert.throws(() => core.workspaces.get(workspace.id), /找不到 Workspace/)
+  assert.throws(() => core.workspaces.get(workspace.id), { code: 'not-found' })
   assert.deepEqual(core.workspaces.list().map((item) => item.id), [other.id])
   assert.deepEqual(core.workspaces.get(other.id).relations, [])
   assert.deepEqual(core.mounts.list(other.id), [])

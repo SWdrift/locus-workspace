@@ -5,7 +5,8 @@ import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { spawnSync } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
-import { createLocusCore, createMemoryCredentialProvider } from '../../packages/core/lib/index.js'
+import { createLocusCore } from '../../packages/core/lib/index.js'
+import { createMemoryCredentialProvider } from '../../packages/core/lib/security/index.js'
 
 // 真实构建产物层：只验证跨进程恢复、完整命令链、退出码与 pnpm 入口，
 // 领域矩阵与单条命令细节由 `pnpm test` / `pnpm test:all` 覆盖。

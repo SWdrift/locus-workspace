@@ -6,14 +6,14 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import test from 'node:test'
 import { z } from 'zod'
+import { createLocusCore } from '../lib/index.js'
 import {
   ComponentFailure,
-  createLocusCore,
   defineComponent,
-  defineCredential,
-  defineOperation,
   parseComponent,
-} from '../lib/index.js'
+} from '../lib/components/index.js'
+import { createComponentOperations } from '../lib/components/operations.js'
+import { defineCredential, defineOperation } from '../lib/invocation/index.js'
 
 function fixture(t) {
   const root = mkdtempSync(join(tmpdir(), 'locus-components-'))
@@ -52,7 +52,7 @@ function definedPackage(id, version = '1', extra = {}) {
 function operation(extra = {}) {
   return defineOperation({
     id: 'demo.connect', method: 'GET', scheme: 'demo', authority: 'items', path: '/:id', auth: 'user',
-    input: z.undefined(), output: z.unknown(),
+    input: z.undefined(), output: z.string(),
     run: async () => 'connected',
     ...extra,
   })
@@ -113,6 +113,10 @@ test('defineComponent 把 operation 与可序列化规格分开', () => {
   assert.equal('input' in defined.component.credentials[0], false)
   assert.equal(defined.operations.length, 1)
   assert.equal(typeof defined.operations[0].run, 'function')
+  assert.equal(Object.isFrozen(defined), true)
+  assert.equal(Object.isFrozen(defined.operations), true)
+  assert.equal(Object.isFrozen(defined.operations[0]), true)
+  assert.equal(Object.isFrozen(defined.component.credentials[0].fields[0]), true)
 
   const yaml = parseComponent(`
 id: demo
@@ -159,6 +163,26 @@ test('external 组件不能声明 operations 或 credentials', () => {
     id: 'outside', version: '1', name: 'outside', summary: '外部', kind: 'external',
     operations: [operation()],
   }), failureCode('invalid-spec'))
+})
+
+test('组件 id 不受 CLI 命令名限制，仅登记边界保留 locus', (t) => {
+  const setup = fixture(t)
+  const ids = ['version', 'workspace', 'component', 'shell', 'help', 'rt', 'init', 'security', 'credential', 'pg']
+  const core = setup.open({ components: ids.map((id) => definedPackage(id)) })
+  assert.deepEqual(core.components.list().components.map((item) => item.id).sort(), [...ids].sort())
+  for (const id of ids) {
+    assert.equal(existsSync(join(setup.dataDirectory, 'components', `${id}.yaml`)), true)
+  }
+  const dynamic = setup.open({ dataDirectory: join(setup.root, 'dynamic') })
+  for (const id of ids) assert.equal(dynamic.components.addFromText(externalYaml(id)).id, id)
+  assert.throws(() => dynamic.components.addFromText(externalYaml('locus')), failureCode('invalid-spec'))
+  assert.throws(
+    () => setup.open({ components: [definedPackage('locus')] }),
+    failureCode('invalid-definition'),
+  )
+  const reservedPath = join(setup.root, 'dynamic', 'components', 'locus.yaml')
+  writeFileSync(reservedPath, externalYaml('locus'), 'utf8')
+  assert.equal(dynamic.components.list().problems[0].id, 'locus')
 })
 
 test('包组件物化只写描述性元数据，operation 与凭据从代码合并', async (t) => {
@@ -211,6 +235,79 @@ kind: locus
   core.components.remove('external-one')
   assert.equal(existsSync(join(setup.dataDirectory, 'components', 'external-one.yaml')), false)
   assert.throws(() => core.components.remove('demo'), failureCode('component-package'))
+})
+
+test('组件 operations 保持惰性访问，输出契约覆盖真实服务结果', async (t) => {
+  const setup = fixture(t)
+  const runner = fakeRunner(() => result({ stdout: 'ok' }))
+  const core = setup.open({
+    componentRunner: runner,
+    components: [definedPackage('demo', '2', {
+      operations: [operation()],
+      credentials: [defineCredential({
+        id: 'demo-auth',
+        fields: [{ name: 'token', secret: true, required: true }],
+      })],
+      info: { json: { nested: [null, true, 2, '说明'] } },
+    })],
+  })
+  let accesses = 0
+  const operations = createComponentOperations(() => {
+    accesses += 1
+    return core.components
+  })
+  assert.equal(accesses, 0)
+
+  async function invoke(id, input, component) {
+    const operation = operations.find((item) => item.id === `locus.components.${id}`)
+    assert.ok(operation)
+    const context = { url: { pathParams: { id: component } } }
+    const output = await operation.run(undefined, operation.input.parse(input), context)
+    assert.deepEqual(operation.output.parse(output), output)
+    return output
+  }
+
+  const added = await invoke('register', { text: externalYaml('outside', `deploy:
+  argv: [deploy]`) })
+  assert.equal(added.external.state, null)
+  assert.equal((await invoke('get', undefined, 'demo')).credentials[0].id, 'demo-auth')
+  assert.equal((await invoke('upgrade', undefined, 'demo')).version, '2')
+  assert.equal((await invoke('probe', undefined, 'outside')).external.state, 'healthy')
+  assert.equal((await invoke('deploy', undefined, 'outside')).deploy.state, 'deployed')
+  writeFileSync(join(setup.dataDirectory, 'components', 'broken.yaml'), 'id: [', 'utf8')
+  const listed = await invoke('list')
+  assert.equal(listed.components.length, 2)
+  assert.equal(listed.problems[0].id, 'broken')
+  assert.deepEqual(await invoke('remove', undefined, 'outside'), { component: 'outside', removed: true })
+
+  const get = operations.find((item) => item.id === 'locus.components.get')
+  assert.throws(() => get.output.parse({ ...listed.components[0], deploy: { state: 'invalid', detail: '' } }))
+  const list = operations.find((item) => item.id === 'locus.components.list')
+  assert.throws(() => list.output.parse({ components: [{}], problems: [] }))
+  const probeAll = operations.find((item) => item.id === 'locus.components.probe-all')
+  assert.throws(() => probeAll.output.parse({ probed: [], skipped: [{ id: 'outside' }] }))
+})
+
+test('probe-all 只探查 external，失败列入 skipped 并继续其余组件', async (t) => {
+  const setup = fixture(t)
+  const runner = fakeRunner(() => result({ stdout: 'healthy' }))
+  const core = setup.open({ componentRunner: runner, components: [definedPackage('package')] })
+  core.components.addFromText(externalYaml('healthy'))
+  core.components.addFromText(`id: no-probe
+version: '1'
+name: No probe
+summary: 未声明探针
+kind: external
+`)
+  writeFileSync(join(setup.dataDirectory, 'components', 'broken.yaml'), 'id: [', 'utf8')
+  const probeAll = createComponentOperations(() => core.components)
+    .find((item) => item.id === 'locus.components.probe-all')
+  const output = await probeAll.run(undefined, undefined, undefined)
+  assert.deepEqual(probeAll.output.parse(output), output)
+  assert.deepEqual(output.probed.map((item) => item.id), ['healthy'])
+  assert.deepEqual(output.skipped, [{ id: 'no-probe', reason: '组件 no-probe 未声明探针' }])
+  assert.deepEqual(runner.calls.map((call) => call.argv[0]), ['healthy'])
+  assert.equal(core.components.list().problems[0].id, 'broken')
 })
 
 test('探针按退出、ENOENT 与超时分类，并跨重开保留状态', async (t) => {

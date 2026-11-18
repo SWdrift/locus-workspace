@@ -4,6 +4,8 @@ import { chmod, lstat, mkdtemp, open, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { TextDecoder } from 'node:util'
+import { DomainFailure, InvocationFailure } from '@locus/core/invocation'
+import { SecurityFailure } from '@locus/core/security'
 import { RemoteTargetsFailure } from './types.ts'
 import { createCommandRunner } from './runner.ts'
 
@@ -45,41 +47,22 @@ interface AclTarget {
   readonly directory: boolean
 }
 
-/** 加固目录与文件；Windows 合并为一次 PowerShell 调用，避免每次交付承担两次解释器启动。 */
-async function permissions(targets: readonly AclTarget[]): Promise<void> {
-  for (const { path, directory } of targets) {
-    const stat = await lstat(path)
-    if (stat.isSymbolicLink() || (directory ? !stat.isDirectory() : !stat.isFile())) throw new RemoteTargetsFailure('delivery-failed', '临时凭据路径不是普通文件')
-  }
-  if (process.platform !== 'win32') {
-    for (const { path, directory } of targets) {
-      if (process.getuid !== undefined && (await lstat(path)).uid !== process.getuid()) throw new RemoteTargetsFailure('delivery-failed', '临时凭据归属不符')
-      const mode = directory ? 0o700 : 0o600
-      await chmod(path, mode)
-      if (((await lstat(path)).mode & 0o777) !== mode) throw new RemoteTargetsFailure('delivery-failed', '临时凭据权限不符')
-    }
-    return
-  }
-  const result = await execa('powershell.exe', ['-NoProfile', '-NonInteractive', '-EncodedCommand', Buffer.from(ACL_SCRIPT, 'utf16le').toString('base64')], {
-    input: JSON.stringify({ paths: targets.map(({ path, directory }) => ({ path, directory })) }),
-    reject: false,
-    timeout: 15000,
-    maxBuffer: 65536,
-    windowsHide: true,
-  })
-  if (result.exitCode !== 0 || result.stdout !== 'verified') throw new RemoteTargetsFailure('delivery-failed', '无法建立受限临时凭据权限')
-}
-
-/** 在独占临时目录内写入凭据，回调返回后删除；不保留崩溃恢复租约。 */
+/** 准备、消费和清理分别分类；清理失败不能覆盖远端已经完成的事实。 */
 export async function withCredentialFile<T>(secret: string, consume: (path: string) => Promise<T>): Promise<T> {
   let directory: string | undefined
+  let path!: string
   let buffer: Buffer | undefined
+  let failure: Error | undefined
+  let result: T | undefined
   try {
     directory = await mkdtemp(join(tmpdir(), 'locus-remote-'))
-    const path = join(directory, 'credential')
+    path = join(directory, 'credential')
     const file = await open(path, 'wx', 0o600)
     try {
-      await permissions([{ path: directory, directory: true }, { path, directory: false }])
+      await permissions([
+        { path: directory, directory: true },
+        { path, directory: false },
+      ])
       buffer = Buffer.from(secret, 'utf8')
       await file.writeFile(buffer)
       await file.sync()
@@ -88,16 +71,34 @@ export async function withCredentialFile<T>(secret: string, consume: (path: stri
       buffer?.fill(0)
       buffer = undefined
     }
-    return await consume(path)
   } catch (error) {
-    if (error instanceof RemoteTargetsFailure) throw error
-    throw new RemoteTargetsFailure('delivery-failed', '凭据交付失败')
+    failure =
+      error instanceof RemoteTargetsFailure ? error : new RemoteTargetsFailure('delivery-failed', '凭据交付失败')
   } finally {
     buffer?.fill(0)
-    if (directory !== undefined) {
-      try { await rm(directory, { recursive: true }) } catch { throw new RemoteTargetsFailure('io', '临时凭据清理失败') }
+  }
+
+  if (failure === undefined) {
+    try {
+      result = await consume(path)
+    } catch (error) {
+      failure = consumptionFailure(error)
     }
   }
+
+  if (directory !== undefined) {
+    try {
+      await rm(directory, { recursive: true })
+    } catch {
+      if (failure !== undefined) throw failedCleanup(failure)
+      throw new InvocationFailure('unknown-result', '远程操作已完成，但临时凭据清理失败；请勿自动重试', {
+        executionCompleted: true,
+        cleanupFailed: true,
+      })
+    }
+  }
+  if (failure !== undefined) throw failure
+  return result as T
 }
 
 /** 迁移读取只接受有界 UTF-8 普通文件；不跟随符号链接。 */
@@ -109,8 +110,10 @@ export async function readCredentialFile(path: string): Promise<string> {
     const file = await open(path, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0) | (constants.O_NONBLOCK ?? 0))
     try {
       const current = await file.stat()
-      if (!current.isFile() || current.dev !== before.dev || current.ino !== before.ino) throw new RemoteTargetsFailure('io', '凭据文件在读取期间变化')
-      if (current.size > MAX_CREDENTIAL_BYTES) throw new RemoteTargetsFailure('credential-too-large', '凭据文件超过 1 MiB')
+      if (!current.isFile() || current.dev !== before.dev || current.ino !== before.ino)
+        throw new RemoteTargetsFailure('io', '凭据文件在读取期间变化')
+      if (current.size > MAX_CREDENTIAL_BYTES)
+        throw new RemoteTargetsFailure('credential-too-large', '凭据文件超过 1 MiB')
       buffer = Buffer.alloc(Math.min(current.size + 1, MAX_CREDENTIAL_BYTES + 1))
       let length = 0
       while (length < buffer.length) {
@@ -118,7 +121,8 @@ export async function readCredentialFile(path: string): Promise<string> {
         if (bytesRead === 0) break
         length += bytesRead
       }
-      if (length > MAX_CREDENTIAL_BYTES || length > current.size) throw new RemoteTargetsFailure('credential-too-large', '凭据文件超过 1 MiB')
+      if (length > MAX_CREDENTIAL_BYTES || length > current.size)
+        throw new RemoteTargetsFailure('credential-too-large', '凭据文件超过 1 MiB')
       if (length === 0) throw new RemoteTargetsFailure('invalid-spec', '凭据文件为空')
       return new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(buffer.subarray(0, length))
     } finally {
@@ -132,12 +136,77 @@ export async function readCredentialFile(path: string): Promise<string> {
   }
 }
 
-/** 仅用于迁移预检：在受限临时副本上不带口令导出公钥，成功才允许切换。 */
+/** 在受限临时副本上不带口令导出公钥，成功才允许登记、更新或迁移。 */
 export async function assertUnencryptedPrivateKey(secret: string): Promise<void> {
-  await withCredentialFile(secret, async (path) => {
+  await withCredentialFile(secret, async path => {
     const result = await createCommandRunner().run('ssh-keygen', ['-y', '-P', '', '-f', path], { timeoutMs: 10_000 })
     if (result.exitCode !== 0) {
-      throw new RemoteTargetsFailure('encrypted-key-unsupported', '私钥带口令或无法解析；不会自动去除口令，需先确定口令交付方案')
+      throw new RemoteTargetsFailure(
+        'encrypted-key-unsupported',
+        '私钥带口令或无法解析；不会自动去除口令，需先确定口令交付方案',
+      )
     }
   })
+}
+
+/** 加固目录与文件；Windows 合并为一次 PowerShell 调用，避免每次交付承担两次解释器启动。 */
+async function permissions(targets: readonly AclTarget[]): Promise<void> {
+  for (const { path, directory } of targets) {
+    const stat = await lstat(path)
+    if (stat.isSymbolicLink() || (directory ? !stat.isDirectory() : !stat.isFile()))
+      throw new RemoteTargetsFailure('delivery-failed', '临时凭据路径不是普通文件')
+  }
+  if (process.platform !== 'win32') {
+    for (const { path, directory } of targets) {
+      if (process.getuid !== undefined && (await lstat(path)).uid !== process.getuid())
+        throw new RemoteTargetsFailure('delivery-failed', '临时凭据归属不符')
+      const mode = directory ? 0o700 : 0o600
+      await chmod(path, mode)
+      if (((await lstat(path)).mode & 0o777) !== mode)
+        throw new RemoteTargetsFailure('delivery-failed', '临时凭据权限不符')
+    }
+    return
+  }
+  const result = await execa(
+    'powershell.exe',
+    ['-NoProfile', '-NonInteractive', '-EncodedCommand', Buffer.from(ACL_SCRIPT, 'utf16le').toString('base64')],
+    {
+      input: JSON.stringify({ paths: targets.map(({ path, directory }) => ({ path, directory })) }),
+      reject: false,
+      timeout: 15000,
+      maxBuffer: 65536,
+      windowsHide: true,
+    },
+  )
+  if (result.exitCode !== 0 || result.stdout !== 'verified')
+    throw new RemoteTargetsFailure('delivery-failed', '无法建立受限临时凭据权限')
+}
+
+function consumptionFailure(error: unknown): Error {
+  if (error instanceof DomainFailure || error instanceof InvocationFailure || error instanceof SecurityFailure)
+    return error
+  return new RemoteTargetsFailure('io', '远程操作执行失败')
+}
+
+/** 双重失败不携带原消息、路径或异常对象，但保留调用方可判定的原分类。 */
+function failedCleanup(failure: Error): Error {
+  const message = '操作失败，且临时凭据清理失败'
+  const details = {
+    executionCompleted:
+      (failure instanceof InvocationFailure || failure instanceof RemoteTargetsFailure) &&
+      failure.details?.executionCompleted === true,
+    cleanupFailed: true,
+  }
+  if (failure instanceof InvocationFailure) return new InvocationFailure(failure.code, message, details)
+  if (failure instanceof RemoteTargetsFailure) return new RemoteTargetsFailure(failure.code, message, details)
+  if (failure instanceof SecurityFailure) {
+    const safe = new SecurityFailure(
+      failure.code,
+      failure.reason === undefined ? undefined : { reason: failure.reason },
+    )
+    safe.message = message
+    return safe
+  }
+  if (failure instanceof DomainFailure) return new DomainFailure(failure.code, message)
+  return new RemoteTargetsFailure('delivery-failed', message, details)
 }

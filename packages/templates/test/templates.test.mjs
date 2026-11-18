@@ -11,7 +11,10 @@ import {
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import test from 'node:test'
-import { operations, TemplateFailure } from '../lib/index.js'
+import { createLocusCore } from '@locus/core'
+import { createDispatcher, InvocationFailure } from '@locus/core/invocation'
+import { createMemoryCredentialProvider, createMemorySecurityStore } from '@locus/core/security'
+import { component, createTemplateService, operations, TemplateFailure } from '../lib/index.js'
 
 const list = operations.find((operation) => operation.id === 'template.templates.list')
 const create = operations.find((operation) => operation.id === 'template.templates.create')
@@ -49,6 +52,11 @@ function destinationAt(root, name) {
   return join(root, name)
 }
 
+function invocationFailure(code, domain) {
+  return (error) => error instanceof InvocationFailure &&
+    error.code === code && error.details?.domain === domain
+}
+
 test('list 列出内置模板，create 使用 pathParams.id 复制并写入实例记录', async (t) => {
   const f = fixture(t)
   const listed = await list.run(undefined, undefined, contextFor())
@@ -56,6 +64,7 @@ test('list 列出内置模板，create 使用 pathParams.id 复制并写入实�
   const minimal = listed.find((item) => item.id === 'minimal')
   assert.ok(minimal, '默认内置 minimal 模板应可列出')
   assert.equal(minimal.sourceKind, 'builtin')
+  assert.deepEqual(list.output.parse(listed), listed)
 
   const target = destinationAt(f.root, 'minimal-project')
   const result = await create.run(undefined, { destination: target }, contextFor('minimal'))
@@ -64,6 +73,7 @@ test('list 列出内置模板，create 使用 pathParams.id 复制并写入实�
   assert.equal(result.template.sourceKind, 'builtin')
   assert.equal(result.dryRun, false)
   assert.equal(result.metadataPath, '.template.json')
+  assert.deepEqual(create.output.parse(result), result)
   assert.match(result.digest, /^sha256:[0-9a-f]{64}$/)
   assert.ok(result.files.includes('README.md'))
   assert.ok(result.files.includes('.gitignore'))
@@ -121,7 +131,7 @@ test('本地模板复制排除元数据与依赖，digest 稳定且目标已存�
 
   await assert.rejects(
     create.run(undefined, { destination: target }, contextFor(source)),
-    (error) => error instanceof TemplateFailure && error.code === 'destination-exists',
+    invocationFailure('conflict', 'destination-exists'),
   )
 })
 
@@ -140,11 +150,11 @@ test('dry-run 不写目标，缺失 id、目标与父目录约束明确失败', 
 
   await assert.rejects(
     create.run(undefined, { destination: join(f.root, 'missing-parent', 'project') }, contextFor(source)),
-    (error) => error instanceof TemplateFailure && error.code === 'invalid-destination',
+    invocationFailure('invalid-argument', 'invalid-destination'),
   )
   await assert.rejects(
     create.run(undefined, { destination: 'relative-destination' }, contextFor(source)),
-    (error) => error instanceof TemplateFailure && error.code === 'invalid-destination',
+    invocationFailure('invalid-argument', 'invalid-destination'),
   )
   await assert.rejects(
     create.run(undefined, { destination: target }, contextFor()),
@@ -159,11 +169,11 @@ test('非法 manifest、缺失模板与符号链接失败', async (t) => {
   writeFileSync(join(invalid, 'template.json'), '{not json', 'utf8')
   await assert.rejects(
     create.run(undefined, { destination: join(f.root, 'invalid-out') }, contextFor(invalid)),
-    (error) => error instanceof TemplateFailure && error.code === 'invalid-template',
+    invocationFailure('invalid-argument', 'invalid-template'),
   )
   await assert.rejects(
     create.run(undefined, { destination: join(f.root, 'missing-out') }, contextFor(join(f.root, 'missing'))),
-    (error) => error instanceof TemplateFailure && error.code === 'not-found',
+    invocationFailure('not-found', 'not-found'),
   )
 
   const linked = join(f.root, 'linked')
@@ -177,6 +187,68 @@ test('非法 manifest、缺失模板与符号链接失败', async (t) => {
   }
   await assert.rejects(
     create.run(undefined, { destination: join(f.root, 'linked-out') }, contextFor(linked)),
-    (error) => error instanceof TemplateFailure && error.code === 'symlink',
+    invocationFailure('invalid-argument', 'symlink'),
   )
+})
+
+test('直接服务保留 TemplateFailure，真实 Dispatcher 将领域错误转换为稳定协议分类', async (t) => {
+  const root = mkdtempSync(join(tmpdir(), 'locus-template-dispatch-'))
+  let host
+  const core = createLocusCore({
+    dataDirectory: join(root, 'core'),
+    components: [{ component, operations }],
+    security: {
+      store: createMemorySecurityStore(),
+      provider: createMemoryCredentialProvider(),
+      receiveHost(value) { host = value },
+    },
+  })
+  const session = host.createSession('human')
+  const dispatcher = createDispatcher(core.router, host, session, core.events, core.dataDirectory)
+  t.after(async () => {
+    host.endSession(session)
+    await core.dispose()
+    rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
+  })
+  await host.initializeRoot('template-test-root', 'template-test-root')
+  const existing = join(root, 'existing')
+  mkdirSync(existing)
+  const service = createTemplateService()
+  await assert.rejects(
+    service.create('minimal', { destination: existing }),
+    (error) => error instanceof TemplateFailure && error.code === 'destination-exists',
+  )
+  await assert.rejects(
+    service.create('missing-template-for-dispatch-test', { destination: join(root, 'missing-source') }),
+    (error) => error instanceof TemplateFailure && error.code === 'not-found',
+  )
+  await assert.rejects(
+    service.create('minimal', { destination: 'relative' }),
+    (error) => error instanceof TemplateFailure && error.code === 'invalid-destination',
+  )
+
+  for (const [id, destination, code, domain] of [
+    ['minimal', existing, 'conflict', 'destination-exists'],
+    ['missing-template-for-dispatch-test', join(root, 'missing-output'), 'not-found', 'not-found'],
+    ['minimal', 'relative', 'invalid-argument', 'invalid-destination'],
+  ]) {
+    const result = await dispatcher.invoke({
+      method: 'POST',
+      uri: `template://templates/${id}/instances`,
+      contentType: 'application/json',
+      body: { destination },
+    })
+    assert.equal(result.ok, false)
+    assert.equal(result.error.code, code)
+    assert.equal(result.error.details.domain, domain)
+  }
+  const result = await dispatcher.invoke({
+    method: 'POST',
+    uri: 'template://templates/minimal/instances',
+    contentType: 'application/json',
+    body: { destination: join(root, 'created') },
+  })
+  assert.equal(result.ok, true)
+  assert.deepEqual(create.output.parse(result.data), result.data)
+  assert.equal(JSON.parse(JSON.stringify(result)).data.template.id, 'minimal')
 })

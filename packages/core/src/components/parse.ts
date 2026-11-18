@@ -1,30 +1,35 @@
-import { parse } from 'yaml'
-import { ComponentFailure, validateComponent } from './spec.ts'
-import type { ComponentSpec } from './spec.ts'
+import { createRequire } from 'node:module'
+import type * as Yaml from 'yaml'
+import { ComponentFailure } from './errors.ts'
+import type { ComponentSpec } from './types.ts'
+import { validateComponent } from './validation.ts'
 
-function parseYaml(text: string): unknown {
-  try {
-    return parse(text)
-  } catch (error) {
-    throw new ComponentFailure(
-      'invalid-spec',
-      `YAML 解析失败：${error instanceof Error ? error.message : String(error)}`,
-    )
-  }
-}
+let yaml: Pick<typeof Yaml, 'parse'> | undefined
 
 /**
  * 解析可序列化组件定义。字符串走 YAML；默认拒绝 operations/credentials，
- * 防止可编辑 YAML 形成第二份 operation 或凭据真源。
+ * 防止可编辑 YAML 形成第二份 operation 或凭据真源。YAML 解析器只在解析字符串时加载。
  */
-export function parseComponent(
-  input: unknown,
-  options: { readonly allowContract?: boolean } = {},
-): ComponentSpec {
+export function parseComponent(input: unknown, options: { readonly allowContract?: boolean } = {}): ComponentSpec {
   const value = typeof input === 'string' ? parseYaml(input) : input
   if (value === null || value === undefined) throw new ComponentFailure('invalid-spec', '组件定义不能为空')
   return validateComponent(value, {
     executable: false,
     allowContract: options.allowContract === true,
   }).spec
+}
+
+function parseYaml(text: string): unknown {
+  try {
+    if (yaml === undefined) {
+      const require = createRequire(import.meta.url)
+      yaml = require('yaml') as Pick<typeof Yaml, 'parse'>
+    }
+    return yaml.parse(text)
+  } catch (error) {
+    throw new ComponentFailure(
+      'invalid-spec',
+      `YAML 解析失败：${error instanceof Error ? error.message : String(error)}`,
+    )
+  }
 }

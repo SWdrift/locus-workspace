@@ -6,15 +6,11 @@ import { join } from 'node:path'
 import { PassThrough } from 'node:stream'
 import { fileURLToPath } from 'node:url'
 import test from 'node:test'
-import {
-  createLocusCore,
-  createMemoryCredentialProvider,
-  createMemorySecurityStore,
-  SecurityFailure,
-} from '@locus/core'
+import { createLocusCore } from '@locus/core'
+import { createMemoryCredentialProvider, createMemorySecurityStore, SecurityFailure } from '@locus/core/security'
 import { component as postgresComponent, operations as postgresOperations } from '@locus/postgres'
-import { createProgram } from '../lib/commands.js'
-import { createTerminalSecurityUI } from '../lib/security-host.js'
+import { createProgram } from '../lib/program.js'
+import { createTerminalSecurityUI } from '../lib/host/terminal.js'
 
 const ROOT_PASSWORD = 'Root-CLI隔离测试-2026'
 const NEW_PASSWORD = 'Root-CLI替换测试-2026'
@@ -183,6 +179,32 @@ test('security operation list/set/reset 改变授权等级', async (t) => {
   ))
   assert.equal(reset.effectiveAuthLevel, 'root')
   assert.equal(reset.source, 'operation')
+})
+
+test('shell 读取 Workspace 经过 Root 覆盖路由：非交互拒绝，交互授权后才输出含挂载的上下文', async (t) => {
+  const setup = await fixture(t)
+  success(await invoke(t, setup, ['--json', 'init'], scriptedUI([ROOT_PASSWORD, ROOT_PASSWORD])))
+  const workspace = success(await invoke(t, setup, ['--json', 'workspace', 'create', '受控 Shell'], scriptedUI()))
+  const mount = success(await invoke(t, setup, [
+    '--json', 'workspace', 'mount', workspace.id, setup.dataDirectory, '--name', 'data',
+  ], scriptedUI()))
+  success(await invoke(t, setup, [
+    '--json', 'security', 'operation', 'set', 'locus:locus.workspaces.get', 'root',
+  ], scriptedUI([ROOT_PASSWORD])))
+
+  const unavailable = scriptedUI([], true, false)
+  const denied = await invoke(t, setup, ['shell', workspace.id, '--print-env'], unavailable)
+  assert.ok(denied.error instanceof SecurityFailure)
+  assert.equal(denied.error.code, 'authentication-unavailable')
+  assert.equal(denied.stdout, '')
+  assert.deepEqual(unavailable.prompts, [])
+
+  const ui = scriptedUI([ROOT_PASSWORD])
+  const context = success(await invoke(t, setup, ['--pretty', 'shell', workspace.id, '--print-env'], ui))
+  assert.deepEqual(ui.prompts, ['Root 密码（授权 locus:locus.workspaces.get）：'])
+  assert.equal(context.environment.LOCUS_WORKSPACE_ID, workspace.id)
+  assert.equal(context.cwd, setup.dataDirectory)
+  assert.deepEqual(context.mounts.map((item) => item.id), [mount.id])
 })
 
 test('change-root-password 先收集新密码，再以旧 Root 认证；旧密码失效', async (t) => {

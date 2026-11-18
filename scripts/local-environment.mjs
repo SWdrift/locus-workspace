@@ -3,7 +3,7 @@
  *
  * 环境文件只读取 `KEY=VALUE` 行；`~` 由本脚本展开，因此 `.env.pro` 可以直接写
  * `LOCUS_HOME=~/.locus`。数据目录解析与 Core 保持一致，见
- * `packages/core/src/index.ts` 的 `resolveDataDirectory`。
+ * `packages/core/src/data-directory.ts` 的 `resolveDataDirectory`。
  */
 import { existsSync, readFileSync } from 'node:fs'
 import { homedir } from 'node:os'

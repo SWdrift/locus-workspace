@@ -4,15 +4,10 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import test from 'node:test'
 import { z } from 'zod'
-import {
-  createLocusCore,
-  createMemoryCredentialProvider,
-  createMemorySecurityStore,
-  defineComponent,
-  defineCredential,
-  defineOperation,
-  SecurityFailure,
-} from '../lib/index.js'
+import { createLocusCore } from '../lib/index.js'
+import { defineComponent } from '../lib/components/index.js'
+import { defineCredential, defineOperation, DomainFailure, InvocationFailure } from '../lib/invocation/index.js'
+import { createMemoryCredentialProvider, createMemorySecurityStore, createSqliteSecurityStore, SecurityFailure } from '../lib/security/index.js'
 
 const ROOT_PASSWORD = 'Root-安全运行时测试-2026'
 const SECRET = 'credential-secret-不得泄露'
@@ -84,7 +79,7 @@ function secureComponent() {
   })
 }
 
-async function fixture(t) {
+async function fixture(t, { sqlite = false, clock = Date.now } = {}) {
   const directory = mkdtempSync(join(tmpdir(), 'locus-security-'))
   let host
   const provider = createMemoryCredentialProvider()
@@ -92,8 +87,9 @@ async function fixture(t) {
     dataDirectory: directory,
     components: [secureComponent()],
     security: {
-      store: createMemorySecurityStore(),
+      store: sqlite ? createSqliteSecurityStore(directory) : createMemorySecurityStore(),
       provider,
+      clock,
       receiveHost(value) { host = value },
     },
   })
@@ -294,4 +290,102 @@ test('自造 Session 与未登记组件不能取得端口', async (t) => {
   const session = host.createSession('human')
   assert.throws(() => host.bindComponent(session, 'missing'), (error) => error.code === 'access-denied')
   host.endSession(session)
+})
+
+for (const sqlite of [false, true]) {
+  test(`${sqlite ? 'SQLite' : '内存'} Store 下超长资源 key 是输入错误，边界 key 可读写`, async (t) => {
+    const { host, port, session } = await fixture(t, { sqlite })
+    await host.initializeRoot(ROOT_PASSWORD, ROOT_PASSWORD)
+    const invalidKey = 'x'.repeat(2049)
+    const invalidResource = (error) => (
+      error instanceof SecurityFailure && error.code === 'access-denied' && error.reason === 'invalid-resource-key'
+    )
+    let consumed = false
+    await assert.rejects(
+      port.execute(request('secure.read'), (credential) => credential.read('database-auth', invalidKey, () => {
+        consumed = true
+      })),
+      invalidResource,
+    )
+    assert.equal(consumed, false)
+
+    const challenge = await port.execute(request('secure.write'), (credential) => (
+      credential.write('database-auth', invalidKey, { username: 'app', password: SECRET })
+    )).catch((error) => error.challenge)
+    await assert.rejects(host.resume(await authorize(host, challenge)), invalidResource)
+    const management = host.forSession(session)
+    assert.equal((await management.listCredentials()).length, 0)
+    assert.equal((await management.listBindings()).length, 0)
+    await assert.rejects(management.unbindCredential({
+      componentId: 'secure', slot: 'database-auth', resourceKey: invalidKey,
+    }), invalidResource)
+
+    const boundaryKey = 'x'.repeat(2048)
+    const validChallenge = await port.execute(request('secure.write'), (credential) => (
+      credential.write('database-auth', boundaryKey, { username: 'app', password: SECRET })
+    )).catch((error) => error.challenge)
+    const reference = await host.resume(await authorize(host, validChallenge))
+    assert.match(reference, /^credential:/)
+    assert.equal(await port.execute(request('secure.read'), (credential) => (
+      credential.read('database-auth', boundaryKey, (values) => values.password)
+    )), SECRET)
+  })
+}
+
+test('可信协议错误穿透；伪造同名错误不能泄漏回调秘密', async (t) => {
+  const { host, port } = await fixture(t)
+  await host.initializeRoot(ROOT_PASSWORD, ROOT_PASSWORD)
+  const failures = [
+    new DomainFailure('demo-domain', '可展示的领域错误'),
+    new InvocationFailure('not-found', '可展示的协议错误', { component: 'secure' }),
+  ]
+  for (const error of failures) {
+    await assert.rejects(port.execute(request('secure.user'), () => { throw error }), (value) => value === error)
+    const challenge = await port.execute(request('secure.admin'), () => { throw error }).catch((value) => value.challenge)
+    await assert.rejects(host.resume(await authorize(host, challenge)), (value) => value === error)
+  }
+
+  const writeChallenge = await port.execute(request('secure.write'), (credential) => (
+    credential.write('database-auth', 'callback', { username: 'app', password: SECRET })
+  )).catch((error) => error.challenge)
+  await host.resume(await authorize(host, writeChallenge))
+  for (const name of ['InvocationFailure', 'ComponentFailure', 'DomainFailure']) {
+    const forged = Object.assign(new Error(SECRET), { name, code: 'not-found', details: { leaked: SECRET } })
+    const sanitized = (error) => (
+      error instanceof SecurityFailure && error.code === 'operation-failed' &&
+      !String(error).includes(SECRET) && error.cause === undefined && error.details === undefined
+    )
+    await assert.rejects(port.execute(request('secure.user'), () => { throw forged }), sanitized)
+    await assert.rejects(port.execute(request('secure.read'), (credential) => (
+      credential.read('database-auth', 'callback', () => { throw forged })
+    )), sanitized)
+  }
+})
+
+test('提取后的 Root 认证仍拒绝并发挑战，锁定次数与过期时间保持不变', async (t) => {
+  let now = 1_000
+  const { host, port } = await fixture(t, { clock: () => now })
+  await host.initializeRoot(ROOT_PASSWORD, ROOT_PASSWORD)
+  const challenge = await port.execute(request('secure.admin'), () => 'done').catch((error) => error.challenge)
+  const otherChallenge = await port.execute(request('secure.admin', { task: 'other' }), () => 'other').catch((error) => error.challenge)
+  const firstAttempt = host.authenticate(challenge, ROOT_PASSWORD)
+  await assert.rejects(host.authenticate(challenge, ROOT_PASSWORD), (error) => error.code === 'authentication-unavailable')
+  await assert.rejects(host.authenticate(otherChallenge, ROOT_PASSWORD), (error) => error.code === 'authentication-unavailable')
+  const firstGrant = await firstAttempt
+  host.cancelChallenge(otherChallenge)
+  now += 60_000
+  await assert.rejects(host.resume(firstGrant), (error) => error.code === 'grant-expired')
+
+  const lockedChallenge = await port.execute(request('secure.admin'), () => 'done').catch((error) => error.challenge)
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    await assert.rejects(host.authenticate(lockedChallenge, 'wrong-password'), (error) => error.code === 'authentication-failed')
+  }
+  await assert.rejects(host.authenticate(lockedChallenge, ROOT_PASSWORD), (error) => error.code === 'authentication-rate-limited')
+  now += 60_000
+  const unlockedGrant = await host.authenticate(lockedChallenge, ROOT_PASSWORD)
+  assert.equal(await host.resume(unlockedGrant), 'done')
+
+  const expiredChallenge = await port.execute(request('secure.admin'), () => 'never').catch((error) => error.challenge)
+  now += 300_000
+  await assert.rejects(host.authenticate(expiredChallenge, ROOT_PASSWORD), (error) => error.code === 'challenge-expired')
 })

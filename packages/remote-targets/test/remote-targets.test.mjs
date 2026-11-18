@@ -11,6 +11,7 @@ import {
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import test from 'node:test'
+import { InvocationFailure } from '@locus/core/invocation'
 import {
   createCommandRunner,
   createRemoteTargetsService,
@@ -25,6 +26,7 @@ import {
   quoteCmd,
   quotePosix,
 } from '../lib/ssh.js'
+import { withCredentialFile } from '../lib/credentials.js'
 
 function fixture(t) {
   const root = mkdtempSync(join(tmpdir(), 'locus-remote-target-'))
@@ -615,4 +617,102 @@ test('凭据文件读取只接受有界普通 UTF-8 文件', async (t) => {
     return
   }
   await assert.rejects(() => readCredentialFile(linked), expectCode('io'))
+})
+
+test('删除目标同时清除探测观察，同 id 重加不继承旧探测且保留信任锚', async (t) => {
+  const root = fixture(t)
+  const service = createRemoteTargetsService({ root, runner: fakeRunner() })
+  try {
+    service.add('same-id', spec())
+    const trust = join(root, 'trust', 'same-id', 'known_hosts')
+    writeFileSync(trust, 'pinned-host-key\n', 'utf8')
+    await service.probe('same-id', keyMaterial(service, 'same-id'))
+    assert.equal(service.show('same-id').lastProbe.ok, true)
+    service.remove('same-id')
+    service.add('same-id', spec({ host: '192.0.2.20' }))
+    assert.equal(service.show('same-id').lastProbe, undefined)
+    assert.equal(readFileSync(trust, 'utf8'), 'pinned-host-key\n')
+  } finally {
+    service.dispose()
+  }
+  const reopened = createRemoteTargetsService({ root })
+  try {
+    assert.equal(reopened.show('same-id').lastProbe, undefined)
+  } finally {
+    reopened.dispose()
+  }
+})
+
+test('消费成功但清理失败返回 unknown-result，明确执行已完成且不重试', async () => {
+  let calls = 0
+  let deliveredPath
+  await assert.rejects(
+    withCredentialFile('cleanup-secret-sentinel', async (path) => {
+      calls += 1
+      deliveredPath = path
+      assert.equal(readFileSync(path, 'utf8'), 'cleanup-secret-sentinel')
+      // 先移除目录，令正式清理遭遇真实 ENOENT，而不是模拟被测清理行为。
+      rmSync(dirname(path), { recursive: true })
+      return { exitCode: 0 }
+    }),
+    (error) => error instanceof InvocationFailure &&
+      error.code === 'unknown-result' &&
+      error.details.executionCompleted === true &&
+      error.details.cleanupFailed === true &&
+      !error.message.includes('cleanup-secret-sentinel') &&
+      !error.message.includes(deliveredPath),
+  )
+  assert.equal(calls, 1)
+})
+
+test('消费与清理双失败保留原分类并脱敏，不伪装成凭据准备失败', async () => {
+  let calls = 0
+  let deliveredPath
+  await assert.rejects(
+    withCredentialFile('dual-secret-sentinel', async (path) => {
+      calls += 1
+      deliveredPath = path
+      rmSync(dirname(path), { recursive: true })
+      throw new InvocationFailure('conflict', `dual-secret-sentinel ${path}`, { unsafe: path })
+    }),
+    (error) => error instanceof InvocationFailure &&
+      error.code === 'conflict' &&
+      error.details.executionCompleted === false &&
+      error.details.cleanupFailed === true &&
+      !JSON.stringify(error).includes('dual-secret-sentinel') &&
+      !JSON.stringify(error).includes(deliveredPath) &&
+      !error.message.includes('dual-secret-sentinel') &&
+      !error.message.includes(deliveredPath),
+  )
+  assert.equal(calls, 1)
+
+  await assert.rejects(
+    withCredentialFile('domain-secret-sentinel', async (path) => {
+      rmSync(dirname(path), { recursive: true })
+      throw new RemoteTargetsFailure('capability-unsupported', `domain-secret-sentinel ${path}`)
+    }),
+    (error) => error instanceof RemoteTargetsFailure &&
+      error.code === 'capability-unsupported' &&
+      error.details.cleanupFailed === true &&
+      !error.message.includes('domain-secret-sentinel'),
+  )
+})
+
+test('消费失败且清理成功保留领域错误，未知消费者异常不归类为 delivery-failed', async () => {
+  const original = new RemoteTargetsFailure('capability-unsupported', '领域失败')
+  let deliveredPath
+  await assert.rejects(
+    withCredentialFile('secret', async (path) => {
+      deliveredPath = path
+      throw original
+    }),
+    (error) => error === original,
+  )
+  assert.equal(existsSync(deliveredPath), false)
+  await assert.rejects(
+    withCredentialFile('secret', async () => { throw new Error('unsafe-secret-and-path') }),
+    (error) => error instanceof RemoteTargetsFailure &&
+      error.code === 'io' &&
+      !error.message.includes('unsafe-secret-and-path'),
+  )
 })

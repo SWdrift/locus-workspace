@@ -1,3 +1,6 @@
+import { DomainFailure } from '../errors.ts'
+import { ComponentFailure } from '../components/errors.ts'
+import { InvocationFailure } from '../invocation/errors.ts'
 import type { SecurityChallenge } from './types.ts'
 
 export type SecurityFailureCode =
@@ -42,7 +45,7 @@ const ACCESS_DENIED_REASONS = [
   'invalid-challenge',
   'invalid-grant',
 ] as const
-export type AccessDeniedReason = typeof ACCESS_DENIED_REASONS[number]
+export type AccessDeniedReason = (typeof ACCESS_DENIED_REASONS)[number]
 const REASON_SET = new Set<string>(ACCESS_DENIED_REASONS)
 
 const MESSAGES: Record<SecurityFailureCode, string> = {
@@ -76,7 +79,10 @@ export class SecurityFailure extends Error {
   readonly reason: AccessDeniedReason | undefined
   readonly challenge: SecurityChallenge | undefined
 
-  constructor(code: SecurityFailureCode, options?: { readonly reason?: AccessDeniedReason; readonly challenge?: SecurityChallenge }) {
+  constructor(
+    code: SecurityFailureCode,
+    options?: { readonly reason?: AccessDeniedReason; readonly challenge?: SecurityChallenge },
+  ) {
     super(MESSAGES[code])
     this.name = 'SecurityFailure'
     this.code = code
@@ -89,22 +95,13 @@ export function deny(reason: AccessDeniedReason): never {
   throw new SecurityFailure('access-denied', { reason })
 }
 
-/** 可信组件显式抛出的领域错误；Core 原样透传，不混入安全错误分类。 */
-export class DomainFailure extends Error {
-  readonly code: string
-
-  constructor(code: string, message: string) {
-    super(message)
-    this.name = 'DomainFailure'
-    this.code = code
-  }
-}
-
 /** 只保留可判定的 Provider 分类，永不透传后端异常对象。 */
 export function providerFailure(error: unknown): SecurityFailure {
-  if (error instanceof SecurityFailure && (
-    error.code === 'credential-too-large' || error.code === 'provider-unavailable' || error.code === 'io'
-  )) return new SecurityFailure(error.code)
+  if (
+    error instanceof SecurityFailure &&
+    (error.code === 'credential-too-large' || error.code === 'provider-unavailable' || error.code === 'io')
+  )
+    return new SecurityFailure(error.code)
   return new SecurityFailure('provider-unavailable')
 }
 
@@ -113,15 +110,24 @@ export function domainOrOperationFailure(error: unknown): never {
   if (
     error instanceof SecurityFailure ||
     error instanceof DomainFailure ||
-    (error instanceof Error && (error.name === 'InvocationFailure' || error.name === 'ComponentFailure'))
-  ) throw error
+    error instanceof InvocationFailure ||
+    error instanceof ComponentFailure
+  )
+    throw error
   throw new SecurityFailure('operation-failed')
 }
 
 /** 回调错误只保留固定分类，不接受自造挑战、原始错误或额外属性。 */
 export function operationFailure(error: unknown): SecurityFailure {
-  if (error instanceof SecurityFailure && Object.hasOwn(MESSAGES, error.code) && error.code !== 'authentication-required') {
-    return new SecurityFailure(error.code, error.reason !== undefined && REASON_SET.has(error.reason) ? { reason: error.reason } : undefined)
+  if (
+    error instanceof SecurityFailure &&
+    Object.hasOwn(MESSAGES, error.code) &&
+    error.code !== 'authentication-required'
+  ) {
+    return new SecurityFailure(
+      error.code,
+      error.reason !== undefined && REASON_SET.has(error.reason) ? { reason: error.reason } : undefined,
+    )
   }
   return new SecurityFailure('operation-failed')
 }

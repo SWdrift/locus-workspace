@@ -3,12 +3,15 @@ import { chmodSync, mkdirSync, mkdtempSync, rmSync, statSync, writeFileSync } fr
 import { homedir, tmpdir } from 'node:os'
 import { basename, delimiter, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import type { LocusCore, Mount, Workspace } from '@locus/core'
+import type { Mount, Workspace } from '@locus/core/workspaces'
+import { jsonText, processOutput } from './output/output.ts'
+import type { OutputStreams } from './output/output.ts'
 
 export interface WorkspaceShellOptions {
   readonly shell?: string | undefined
   readonly printEnv?: boolean | undefined
   readonly command?: string | undefined
+  readonly pretty?: boolean | undefined
 }
 
 interface WorkspaceShellContext {
@@ -19,6 +22,57 @@ interface WorkspaceShellContext {
   readonly mounts: readonly Mount[]
   readonly missing: readonly string[]
   readonly cleanup: () => void
+}
+
+/** 只消费已经通过授权路由读取的 Workspace，不再访问 Core 服务。 */
+export function runWorkspaceShell(
+  workspace: Workspace,
+  options: WorkspaceShellOptions,
+  output: OutputStreams = processOutput,
+): number {
+  const context = createShellContext(workspace, options)
+  try {
+    if (options.printEnv === true) {
+      output.writeOut(
+        jsonText(
+          {
+            shell: context.shell,
+            args: context.args,
+            cwd: context.cwd,
+            environment: context.environment,
+            mounts: context.mounts,
+            missing: context.missing,
+          },
+          options.pretty === true,
+        ),
+      )
+      return 0
+    }
+
+    if (options.command === undefined) {
+      const lines = [
+        `Locus shell：${workspace.name} (${workspace.id})`,
+        ...(context.mounts.length
+          ? context.mounts.map(mount => `  挂载 ${mount.name}  ${mount.path}`)
+          : ['  没有挂载，使用用户主目录']),
+        ...(context.missing.length ? [`  缺失：${context.missing.join(', ')}`] : []),
+        'locus 已加入 PATH；exit 退出。',
+      ]
+      output.writeErr(`${lines.join('\n')}\n`)
+    }
+
+    const result = spawnSync(context.shell, [...context.args], {
+      cwd: context.cwd,
+      env: context.environment,
+      stdio: 'inherit',
+    })
+    if (result.error) {
+      throw new Error(`无法启动 shell ${context.shell}：${result.error.message}`)
+    }
+    return result.status ?? 1
+  } finally {
+    context.cleanup()
+  }
 }
 
 function quotePosix(value: string): string {
@@ -35,23 +89,19 @@ function writeLaunchers(directory: string, cli: string): void {
   const posix = join(directory, 'locus')
   writeFileSync(posix, `#!/bin/sh\nexec ${quotePosix(node)} ${quotePosix(cli)} "$@"\n`, 'utf8')
   if (process.platform !== 'win32') chmodSync(posix, 0o755)
-  writeFileSync(
-    join(directory, 'locus.cmd'),
-    `@echo off\r\n${quoteCmd(node)} ${quoteCmd(cli)} %*\r\n`,
-    'utf8',
-  )
+  writeFileSync(join(directory, 'locus.cmd'), `@echo off\r\n${quoteCmd(node)} ${quoteCmd(cli)} %*\r\n`, 'utf8')
 }
 
 function shellInvocation(
   requested: string | undefined,
   command: string | undefined,
 ): { shell: string; args: readonly string[] } {
-  const shell = requested ?? (
-    process.platform === 'win32'
-      ? process.env.SHELL ?? 'powershell.exe'
-      : process.env.SHELL ?? '/bin/sh'
-  )
-  const name = basename(shell).toLowerCase().replace(/\.exe$/, '')
+  const shell =
+    requested ??
+    (process.platform === 'win32' ? (process.env.SHELL ?? 'powershell.exe') : (process.env.SHELL ?? '/bin/sh'))
+  const name = basename(shell)
+    .toLowerCase()
+    .replace(/\.exe$/, '')
   const powershell = name === 'powershell' || name === 'pwsh'
   const cmd = name === 'cmd'
   if (command !== undefined) {
@@ -64,12 +114,8 @@ function shellInvocation(
   return { shell, args: ['-i'] }
 }
 
-function createShellContext(
-  locus: LocusCore,
-  workspace: Workspace,
-  options: WorkspaceShellOptions,
-): WorkspaceShellContext {
-  const mounts = locus.mounts.list(workspace.id)
+function createShellContext(workspace: Workspace, options: WorkspaceShellOptions): WorkspaceShellContext {
+  const mounts = workspace.mounts
   let primary: Mount | undefined
   const missing: string[] = []
   for (const mount of mounts) {
@@ -99,13 +145,11 @@ function createShellContext(
     environment.LOCUS_WORKSPACE_NAME = workspace.name
     environment.LOCUS_WORKSPACE_ROOT = cwd
     environment.LOCUS_MOUNTS = JSON.stringify(
-      mounts.map((mount) => ({ id: mount.id, name: mount.name, path: mount.path })),
+      mounts.map(mount => ({ id: mount.id, name: mount.name, path: mount.path })),
     )
 
-    const pathKey = Object.keys(environment).find((key) => key.toLowerCase() === 'path') ?? 'PATH'
-    environment[pathKey] = environment[pathKey]
-      ? `${binDirectory}${delimiter}${environment[pathKey]}`
-      : binDirectory
+    const pathKey = Object.keys(environment).find(key => key.toLowerCase() === 'path') ?? 'PATH'
+    environment[pathKey] = environment[pathKey] ? `${binDirectory}${delimiter}${environment[pathKey]}` : binDirectory
 
     const used = new Set<string>()
     for (const mount of mounts) {
@@ -132,51 +176,5 @@ function createShellContext(
   } catch (error) {
     rmSync(tempRoot, { recursive: true, force: true })
     throw error
-  }
-}
-
-/** 在 Workspace 上下文中启动用户 shell；返回值用于 CLI 退出码。 */
-export function runWorkspaceShell(
-  locus: LocusCore,
-  workspace: Workspace,
-  options: WorkspaceShellOptions,
-): number {
-  const context = createShellContext(locus, workspace, options)
-  try {
-    if (options.printEnv === true) {
-      process.stdout.write(`${JSON.stringify({
-        shell: context.shell,
-        args: context.args,
-        cwd: context.cwd,
-        environment: context.environment,
-        mounts: context.mounts,
-        missing: context.missing,
-      })}\n`)
-      return 0
-    }
-
-    if (options.command === undefined) {
-      const lines = [
-        `Locus shell：${workspace.name} (${workspace.id})`,
-        ...(context.mounts.length
-          ? context.mounts.map((mount) => `  挂载 ${mount.name}  ${mount.path}`)
-          : ['  没有挂载，使用用户主目录']),
-        ...(context.missing.length ? [`  缺失：${context.missing.join(', ')}`] : []),
-        'locus 已加入 PATH；exit 退出。',
-      ]
-      process.stderr.write(`${lines.join('\n')}\n`)
-    }
-
-    const result = spawnSync(context.shell, [...context.args], {
-      cwd: context.cwd,
-      env: context.environment,
-      stdio: 'inherit',
-    })
-    if (result.error) {
-      throw new Error(`无法启动 shell ${context.shell}：${result.error.message}`)
-    }
-    return result.status ?? 1
-  } finally {
-    context.cleanup()
   }
 }

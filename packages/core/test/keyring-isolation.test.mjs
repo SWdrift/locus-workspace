@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { createKeyringCredentialProvider, createMemoryCredentialProvider } from '../lib/index.js'
+import { createKeyringCredentialProvider, createMemoryCredentialProvider } from '../lib/security/index.js'
 
 // 仅证明原生入口被拒绝，不加载绑定，也不创建真实 OS 条目。
 test('自动化测试拒绝原生 get/set/delete，状态不把模块或后端标为可用', async () => {

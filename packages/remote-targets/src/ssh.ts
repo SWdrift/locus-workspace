@@ -1,10 +1,7 @@
 import { createCommandRunner } from './runner.ts'
 import { resolve, sep } from 'node:path'
-import {
-  RemoteTargetsFailure,
-  type CommandRunner,
-  type RemoteTarget,
-} from './types.ts'
+import { RemoteTargetsFailure } from './types.ts'
+import type { CommandRunner, RemoteTarget } from './types.ts'
 
 export interface SshInvocation {
   readonly command: string
@@ -33,7 +30,7 @@ export function quoteCmd(value: string): string {
 }
 
 export function joinRemoteCommand(command: readonly string[], shell: 'posix' | 'cmd'): string {
-  return command.map((value) => (shell === 'posix' ? quotePosix(value) : quoteCmd(value))).join(' ')
+  return command.map(value => (shell === 'posix' ? quotePosix(value) : quoteCmd(value))).join(' ')
 }
 
 /** 构造传输客户端调用；密钥走 OpenSSH，密码走 Plink 并强制主机指纹。 */
@@ -44,9 +41,7 @@ export function buildSshInvocation(
   credentialPath: string,
 ): SshInvocation {
   const { connectivity, identity } = target
-  const remoteCommand = command.length === 0
-    ? undefined
-    : joinRemoteCommand(command, connectivity.remoteShell)
+  const remoteCommand = command.length === 0 ? undefined : joinRemoteCommand(command, connectivity.remoteShell)
 
   if (identity.auth.method === 'password') {
     const fingerprint = connectivity.trust?.fingerprint
@@ -73,10 +68,7 @@ export function buildSshInvocation(
     return { command: connectivity.client ?? 'plink', args }
   }
 
-  const knownHosts = resolveUnderRoot(
-    root,
-    connectivity.trust?.knownHosts ?? `trust/${target.id}/known_hosts`,
-  )
+  const knownHosts = resolveUnderRoot(root, connectivity.trust?.knownHosts ?? `trust/${target.id}/known_hosts`)
   const strict = connectivity.trust?.knownHosts === undefined ? 'accept-new' : 'yes'
   const args = [
     '-p',

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { InvocationFailure } from '@locus/core'
+import { InvocationFailure } from '@locus/core/invocation'
 import pg from 'pg'
 import { component, operations } from '../lib/index.js'
 
@@ -178,6 +178,7 @@ test('pg.database.query 从凭据槽取连接目标，不接受 input 指定的�
 
   const result = await query.run(undefined, parsed, context)
   assert.deepEqual(result, { rows: [{ user: USERNAME, value: 1 }], rowCount: 1 })
+  assert.deepEqual(query.output.parse(result), result)
   assert.equal(context.reads.length, 1)
   assert.equal(context.reads[0].credential.id, 'database-auth')
   assert.equal(context.reads[0].key, 'local')
@@ -215,6 +216,26 @@ test('pg.database.query 在凭据缺少 port 时不传端口，并返回 rowCoun
     password: SECRET,
     connectionString: undefined,
   })
+  assert.equal(pool.ends, 1)
+})
+
+test('pg.database.query 将驱动原生字段转为可 JSON 消费的 DTO', async (t) => {
+  const instant = new Date('2026-01-02T03:04:05.000Z')
+  const pool = fakePool(t, () => ({
+    rows: [{ createdAt: instant, bytes: Buffer.from([1, 2]), nested: { value: true } }],
+    rowCount: 1,
+  }))
+  const result = await query.run(undefined, { sql: 'select native_values' }, fakeContext({ values: CREDENTIAL_VALUES }))
+  assert.deepEqual(result, {
+    rows: [{
+      createdAt: instant.toISOString(),
+      bytes: { type: 'Buffer', data: [1, 2] },
+      nested: { value: true },
+    }],
+    rowCount: 1,
+  })
+  assert.deepEqual(query.output.parse(result), result)
+  assert.deepEqual(JSON.parse(JSON.stringify(result)), result)
   assert.equal(pool.ends, 1)
 })
 

@@ -1,5 +1,6 @@
 import { z } from 'zod'
-import { defineOperation, type EventListener, type OperationContext } from '../lib/index.js'
+import { defineOperation, type OperationContext } from '../lib/invocation/index.js'
+import type { EventListener } from '../lib/events/index.js'
 
 const operation = defineOperation({
   id: 'example.list', method: 'GET', scheme: 'example', authority: 'items', path: '', auth: 'user',

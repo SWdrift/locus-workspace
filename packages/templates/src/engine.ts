@@ -2,14 +2,14 @@ import { createHash, randomUUID } from 'node:crypto'
 import { lstat, mkdir, readFile, readdir, rename, rm, stat, writeFile } from 'node:fs/promises'
 import { basename, dirname, isAbsolute, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import {
-  TemplateFailure,
-  type CreateTemplateOptions,
-  type CreateTemplateResult,
-  type TemplateInstanceRecord,
-  type TemplateService,
-  type TemplateSourceKind,
-  type TemplateSummary,
+import { TemplateFailure } from './types.ts'
+import type {
+  CreateTemplateOptions,
+  CreateTemplateResult,
+  TemplateInstanceRecord,
+  TemplateService,
+  TemplateSourceKind,
+  TemplateSummary,
 } from './types.ts'
 
 interface TemplateManifest {
@@ -31,11 +31,76 @@ const EXCLUDED_NAMES: Record<string, true> = {
   '.template.json': true,
 }
 
+export async function createTemplate(
+  template: string,
+  options: CreateTemplateOptions,
+  builtinDirectory: string,
+): Promise<CreateTemplateResult> {
+  const destination = await validateDestination(options.destination)
+  const { directory, summary } = await resolveTemplate(template, builtinDirectory)
+  const { entries, digest } = await collectSource(directory)
+  const parameters = { ...(options.parameters ?? {}) }
+  const files = entries.filter(entry => entry.kind === 'file').map(entry => entry.relative)
+  const directories = entries.filter(entry => entry.kind === 'directory').map(entry => entry.relative)
+
+  if (options.dryRun === true) {
+    return {
+      destination,
+      template: summary,
+      digest,
+      files,
+      directories,
+      metadataPath: '.template.json',
+      dryRun: true,
+    }
+  }
+
+  const temporary = join(dirname(destination), `.${basename(destination)}.locus-template-${randomUUID()}`)
+  await mkdir(temporary)
+  let moved = false
+  try {
+    for (const entry of entries) {
+      const target = join(temporary, ...entry.relative.split('/'))
+      if (entry.kind === 'directory') {
+        await mkdir(target)
+      } else {
+        await writeFile(target, entry.bytes)
+      }
+    }
+    const record = instanceRecord(summary, digest, parameters)
+    await writeFile(join(temporary, '.template.json'), `${JSON.stringify(record, null, 2)}\n`, 'utf8')
+    if (await pathExists(destination)) {
+      throw new TemplateFailure('destination-exists', `目标已存在：${destination}`)
+    }
+    await rename(temporary, destination)
+    moved = true
+  } finally {
+    if (!moved) {
+      await rm(temporary, { recursive: true, force: true }).catch(() => undefined)
+    }
+  }
+
+  return {
+    destination,
+    template: summary,
+    digest,
+    files,
+    directories,
+    metadataPath: '.template.json',
+    dryRun: false,
+  }
+}
+
+export function createTemplateService(options?: { readonly builtinDirectory?: string }): TemplateService {
+  const builtinDirectory = resolve(options?.builtinDirectory ?? fileURLToPath(new URL('../templates', import.meta.url)))
+  return {
+    list: () => listBuiltinTemplates(builtinDirectory),
+    create: (template, createOptions) => createTemplate(template, createOptions, builtinDirectory),
+  }
+}
+
 function isMissing(error: unknown): boolean {
-  return typeof error === 'object'
-    && error !== null
-    && 'code' in error
-    && error.code === 'ENOENT'
+  return typeof error === 'object' && error !== null && 'code' in error && error.code === 'ENOENT'
 }
 
 function failureMessage(error: unknown): string {
@@ -103,10 +168,7 @@ async function readManifest(directory: string): Promise<TemplateManifest> {
   }
 }
 
-async function summaryFromDirectory(
-  directory: string,
-  sourceKind: TemplateSourceKind,
-): Promise<TemplateSummary> {
+async function summaryFromDirectory(directory: string, sourceKind: TemplateSourceKind): Promise<TemplateSummary> {
   const manifest = await readManifest(directory)
   const fallback = basename(resolve(directory)) || 'template'
   const id = manifest.id ?? fallback
@@ -130,7 +192,7 @@ async function listBuiltinTemplates(builtinDirectory: string): Promise<readonly 
   }
   const summaries: TemplateSummary[] = []
   const seen = new Set<string>()
-  for (const entry of entries.sort((left, right) => left.name < right.name ? -1 : left.name > right.name ? 1 : 0)) {
+  for (const entry of entries.sort((left, right) => (left.name < right.name ? -1 : left.name > right.name ? 1 : 0))) {
     if (!entry.isDirectory()) continue
     const summary = await summaryFromDirectory(join(builtinDirectory, entry.name), 'builtin')
     if (seen.has(summary.id)) {
@@ -139,7 +201,7 @@ async function listBuiltinTemplates(builtinDirectory: string): Promise<readonly 
     seen.add(summary.id)
     summaries.push(summary)
   }
-  return summaries.sort((left, right) => left.id < right.id ? -1 : left.id > right.id ? 1 : 0)
+  return summaries.sort((left, right) => (left.id < right.id ? -1 : left.id > right.id ? 1 : 0))
 }
 
 async function resolveTemplate(
@@ -154,7 +216,7 @@ async function resolveTemplate(
     }
   }
   const bundledDirectory = join(builtinDirectory, template)
-  if (/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(template) && await isDirectory(bundledDirectory)) {
+  if (/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(template) && (await isDirectory(bundledDirectory))) {
     return {
       directory: bundledDirectory,
       summary: await summaryFromDirectory(bundledDirectory, 'builtin'),
@@ -172,7 +234,7 @@ async function collectSource(directory: string): Promise<{
 
   async function visit(relativeBase: string, absoluteDirectory: string): Promise<void> {
     const children = await readdir(absoluteDirectory, { withFileTypes: true })
-    children.sort((left, right) => left.name < right.name ? -1 : left.name > right.name ? 1 : 0)
+    children.sort((left, right) => (left.name < right.name ? -1 : left.name > right.name ? 1 : 0))
     for (const child of children) {
       if (EXCLUDED_NAMES[child.name] === true) continue
       if (relativeBase === '' && child.name === 'template.json') continue
@@ -235,86 +297,5 @@ function instanceRecord(
     sourceDigest: digest,
     createdAt: new Date().toISOString(),
     parameters,
-  }
-}
-
-export async function createTemplate(
-  template: string,
-  options: CreateTemplateOptions,
-  builtinDirectory: string,
-): Promise<CreateTemplateResult> {
-  const destination = await validateDestination(options.destination)
-  const { directory, summary } = await resolveTemplate(template, builtinDirectory)
-  const { entries, digest } = await collectSource(directory)
-  const parameters = { ...(options.parameters ?? {}) }
-  const files = entries.filter((entry) => entry.kind === 'file').map((entry) => entry.relative)
-  const directories = entries
-    .filter((entry) => entry.kind === 'directory')
-    .map((entry) => entry.relative)
-
-  if (options.dryRun === true) {
-    return {
-      destination,
-      template: summary,
-      digest,
-      files,
-      directories,
-      metadataPath: '.template.json',
-      dryRun: true,
-    }
-  }
-
-  const temporary = join(
-    dirname(destination),
-    `.${basename(destination)}.locus-template-${randomUUID()}`,
-  )
-  await mkdir(temporary)
-  let moved = false
-  try {
-    for (const entry of entries) {
-      const target = join(temporary, ...entry.relative.split('/'))
-      if (entry.kind === 'directory') {
-        await mkdir(target)
-      } else {
-        await writeFile(target, entry.bytes)
-      }
-    }
-    const record = instanceRecord(summary, digest, parameters)
-    await writeFile(
-      join(temporary, '.template.json'),
-      `${JSON.stringify(record, null, 2)}\n`,
-      'utf8',
-    )
-    if (await pathExists(destination)) {
-      throw new TemplateFailure('destination-exists', `目标已存在：${destination}`)
-    }
-    await rename(temporary, destination)
-    moved = true
-  } finally {
-    if (!moved) {
-      await rm(temporary, { recursive: true, force: true }).catch(() => undefined)
-    }
-  }
-
-  return {
-    destination,
-    template: summary,
-    digest,
-    files,
-    directories,
-    metadataPath: '.template.json',
-    dryRun: false,
-  }
-}
-
-export function createTemplateService(options?: {
-  readonly builtinDirectory?: string
-}): TemplateService {
-  const builtinDirectory = resolve(
-    options?.builtinDirectory ?? fileURLToPath(new URL('../templates', import.meta.url)),
-  )
-  return {
-    list: () => listBuiltinTemplates(builtinDirectory),
-    create: (template, createOptions) => createTemplate(template, createOptions, builtinDirectory),
   }
 }

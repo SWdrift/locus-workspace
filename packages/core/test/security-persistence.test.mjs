@@ -4,12 +4,9 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import test from 'node:test'
-import {
-  createCoreEventStore,
-  createSqliteSecurityStore,
-  CORE_SCHEMA_VERSION,
-  SecurityFailure,
-} from '../lib/index.js'
+import { createCoreEventStore } from '../lib/events/index.js'
+import { CORE_SCHEMA_VERSION } from '../lib/storage/index.js'
+import { createMemorySecurityStore, createSqliteSecurityStore, SecurityFailure } from '../lib/security/index.js'
 
 const PROFILE = 'production'
 const SECRET = 'SQLite-不得保存的资源秘密-2026'
@@ -235,4 +232,123 @@ test('事件表只持久化 CloudEvents 子集，best-effort 查询按 type 与 
   assert.deepEqual(reopened.list({ type: 'locus.rt.target.registered' })[0].data, { target: 'demo' })
   reopened.dispose()
   assert.ok(statSync(join(directory, 'core.sqlite')).size > 0)
+})
+
+for (const backend of ['memory', 'sqlite']) {
+  const openStore = (t) => {
+    const directory = backend === 'sqlite' ? mkdtempSync(join(tmpdir(), 'locus-security-parity-')) : undefined
+    const store = directory === undefined ? createMemorySecurityStore() : createSqliteSecurityStore(directory)
+    t.after(() => {
+      store.dispose()
+      if (directory !== undefined) rmSync(directory, { recursive: true, force: true })
+    })
+    return store
+  }
+
+  test(`${backend} Store 的资源 key 读写删校验一致，非法记录归存储损坏`, (t) => {
+    const store = openStore(t)
+    store.transaction((transaction) => {
+      transaction.setInstallation(INSTALLATION)
+      transaction.setRoot(ROOT)
+      transaction.setCredential(METADATA)
+    })
+    const corrupt = (error) => (
+      error instanceof SecurityFailure && error.code === 'security-unavailable' &&
+      error.reason === undefined && error.cause === undefined
+    )
+    for (const resourceKey of ['', ' leading', 'trailing ', 'nul\0key', 'control\nkey', '\u007f', 'x'.repeat(2049)]) {
+      for (const action of [
+        (transaction) => transaction.setBinding({ ...BINDING, resourceKey }),
+        (transaction) => transaction.getBinding(PROFILE, BINDING.componentId, BINDING.slot, resourceKey),
+        (transaction) => transaction.deleteBinding(PROFILE, BINDING.componentId, BINDING.slot, resourceKey),
+      ]) {
+        assert.throws(() => store.transaction(action), corrupt)
+      }
+    }
+    assert.deepEqual(store.transaction((transaction) => transaction.listBindings(PROFILE)), [])
+    const boundary = 'x'.repeat(2048)
+    store.transaction((transaction) => transaction.setBinding({ ...BINDING, resourceKey: boundary }))
+    assert.equal(store.transaction((transaction) => (
+      transaction.getBinding(PROFILE, BINDING.componentId, BINDING.slot, boundary)
+    )).reference, BINDING.reference)
+    store.transaction((transaction) => transaction.deleteBinding(PROFILE, BINDING.componentId, BINDING.slot, boundary))
+    assert.deepEqual(store.transaction((transaction) => transaction.listBindings(PROFILE)), [])
+  })
+
+  test(`${backend} Store 保持事务寿命、回滚、关联与释放行为一致`, (t) => {
+    const store = openStore(t)
+    store.transaction((transaction) => {
+      transaction.setInstallation(INSTALLATION)
+      transaction.setRoot(ROOT)
+      transaction.setCredential({ ...METADATA, reference: 'credential:zeta' })
+      transaction.setCredential(METADATA)
+      for (const resourceKey of ['z', '界', 'a', '😀']) transaction.setBinding({ ...BINDING, resourceKey })
+      transaction.setOperationLevel(LEVEL)
+    })
+    const snapshot = store.transaction((transaction) => ({
+      credentials: transaction.listCredentials(PROFILE),
+      bindings: transaction.listBindings(PROFILE),
+      levels: transaction.listOperationLevels(PROFILE),
+    }))
+    assert.deepEqual(store.transaction((transaction) => transaction.getRoot()), ROOT)
+    assert.deepEqual(store.transaction((transaction) => transaction.getCredential(PROFILE, METADATA.reference)), METADATA)
+    assert.deepEqual(snapshot.levels, [LEVEL])
+    assert.deepEqual(snapshot.credentials.map((value) => value.reference), ['credential:alpha', 'credential:zeta'])
+    assert.deepEqual(snapshot.bindings.map((value) => value.resourceKey), ['a', 'z', '界', '😀'])
+    assert.equal(Object.isFrozen(snapshot.credentials[0].fields), true)
+    assert.throws(() => store.transaction((transaction) => {
+      transaction.deleteCredential(PROFILE, METADATA.reference)
+      transaction.setOperationLevel({ ...LEVEL, level: 'root' })
+      throw new Error('不得泄露的事务错误')
+    }), (error) => error instanceof SecurityFailure && error.code === 'io' && !String(error).includes('不得泄露'))
+    assert.deepEqual(store.transaction((transaction) => ({
+      credentials: transaction.listCredentials(PROFILE),
+      bindings: transaction.listBindings(PROFILE),
+      levels: transaction.listOperationLevels(PROFILE),
+    })), snapshot)
+    assert.throws(() => store.transaction(() => store.transaction(() => undefined)), (error) => error.code === 'io')
+    assert.throws(() => store.transaction(() => Promise.resolve()), (error) => error.code === 'io')
+    const thenable = Object.assign(() => undefined, { then() {} })
+    assert.throws(() => store.transaction(() => thenable), (error) => error.code === 'io')
+    const captured = store.transaction((transaction) => transaction)
+    assert.throws(() => captured.getRoot(), (error) => error.code === 'io')
+    assert.throws(() => captured.setCredential(METADATA), (error) => error.code === 'io')
+    assert.throws(() => store.transaction((transaction) => transaction.setBinding({
+      ...BINDING, reference: 'credential:missing',
+    })), (error) => error.code === 'io')
+    store.transaction((transaction) => transaction.deleteCredential(PROFILE, METADATA.reference))
+    assert.equal(store.transaction((transaction) => transaction.listBindings(PROFILE)).length, 0)
+    store.dispose()
+    assert.throws(() => store.transaction((transaction) => transaction.getRoot()), (error) => error.code === 'security-disposed')
+  })
+}
+
+test('持久绑定中的超长资源 key 按损坏分类且不改写原行', (t) => {
+  const directory = fixture(t)
+  const store = createSqliteSecurityStore(directory)
+  store.transaction((transaction) => {
+    transaction.setInstallation(INSTALLATION)
+    transaction.setRoot(ROOT)
+    transaction.setCredential(METADATA)
+    transaction.setBinding(BINDING)
+  })
+  store.dispose()
+  const invalidKey = 'x'.repeat(2049)
+  const database = new DatabaseSync(join(directory, 'core.sqlite'))
+  database.prepare('UPDATE security_credential_bindings SET resource_key = ?').run(invalidKey)
+  database.close()
+  const reopened = createSqliteSecurityStore(directory)
+  try {
+    assert.throws(() => reopened.transaction((transaction) => transaction.listBindings(PROFILE)), (error) => (
+      error instanceof SecurityFailure && error.code === 'security-unavailable' && error.reason === undefined
+    ))
+  } finally {
+    reopened.dispose()
+  }
+  const inspection = new DatabaseSync(join(directory, 'core.sqlite'))
+  try {
+    assert.equal(inspection.prepare('SELECT resource_key FROM security_credential_bindings').get().resource_key, invalidKey)
+  } finally {
+    inspection.close()
+  }
 })

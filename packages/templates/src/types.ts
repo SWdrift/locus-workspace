@@ -1,12 +1,8 @@
-export type TemplateSourceKind = 'builtin' | 'local'
+import type { z } from 'zod'
+import type { createTemplateResultSchema, templateSummarySchema } from './schemas.ts'
 
-export interface TemplateSummary {
-  readonly id: string
-  readonly name: string
-  readonly sourceKind: TemplateSourceKind
-  readonly version?: string
-  readonly description?: string
-}
+export type TemplateSummary = z.infer<typeof templateSummarySchema>
+export type TemplateSourceKind = TemplateSummary['sourceKind']
 
 export interface CreateTemplateOptions {
   /** 目标必须是绝对路径，且当前不存在。 */
@@ -15,15 +11,7 @@ export interface CreateTemplateOptions {
   readonly parameters?: Readonly<Record<string, string>>
 }
 
-export interface CreateTemplateResult {
-  readonly destination: string
-  readonly template: TemplateSummary
-  readonly digest: string
-  readonly files: readonly string[]
-  readonly directories: readonly string[]
-  readonly metadataPath: '.template.json'
-  readonly dryRun: boolean
-}
+export type CreateTemplateResult = z.infer<typeof createTemplateResultSchema>
 
 export interface TemplateInstanceRecord {
   readonly schema: 'locus.template-instance/v1'

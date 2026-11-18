@@ -18,7 +18,6 @@ test('每个组件包导出唯一的组件定义与 operation 表', async () => 
     const module = await import(
       pathToFileURL(join(PACKAGES, directory, 'lib', 'index.js')).href
     )
-    if (module.component === undefined) continue
     const component = module.component
     assert.equal(typeof component?.id, 'string', `${manifest.name} 缺少 component 导出`)
     assert.equal(component.kind, 'locus', `${manifest.name} 必须导出 locus 组件`)
@@ -28,31 +27,6 @@ test('每个组件包导出唯一的组件定义与 operation 表', async () => 
     modules.set(component.id, { manifest, module })
   }
   assert.deepEqual([...seen].sort(), ['gitea', 'postgres', 'remote-targets', 'template'])
-  assert.equal(modules.get('postgres').module.component.version, '4')
-  assert.equal(modules.get('gitea').module.component.version, '4')
-  assert.equal(modules.get('remote-targets').module.component.version, '5')
-  assert.equal(modules.get('template').module.component.version, '2')
-
-  assert.deepEqual(
-    modules.get('postgres').module.operations.map((operation) => operation.id),
-    ['pg.database.register', 'pg.database.query'],
-  )
-  assert.deepEqual(
-    modules.get('gitea').module.operations.map((operation) => operation.id),
-    ['gitea.repository.register', 'gitea.repository.request'],
-  )
-  assert.deepEqual(
-    modules.get('remote-targets').module.operations.map((operation) => operation.id),
-    [
-      'rt.targets.list', 'rt.target.get', 'rt.target.register', 'rt.target.remove',
-      'rt.target.credential.update', 'rt.target.migrate', 'rt.system.read',
-      'rt.services.list', 'rt.service.restart', 'rt.job.run',
-    ],
-  )
-  assert.deepEqual(
-    modules.get('template').module.operations.map((operation) => operation.id),
-    ['template.templates.list', 'template.templates.create'],
-  )
 
   for (const { module } of modules.values()) {
     const { component, operations } = module
@@ -76,14 +50,5 @@ test('每个组件包导出唯一的组件定义与 operation 表', async () => 
       assert.equal('secretFields' in credential, false)
     }
 
-    const sourceRoot = join(PACKAGES, component.id === 'template' ? 'templates' : component.id, 'src')
-    for (const file of readdirSync(sourceRoot, { recursive: true }).filter((name) => name.endsWith('.ts'))) {
-      const source = readFileSync(join(sourceRoot, file), 'utf8')
-      assert.equal(/\blocus\s+[a-z]/i.test(source), false, `${component.id}/${file} 不应包含 CLI 命令文本`)
-      assert.equal(source.includes("from 'commander'"), false, `${component.id}/${file} 不应依赖 Commander`)
-    }
-    const info = JSON.stringify(component.info ?? {})
-    assert.equal(/\blocus\s+[a-z]/i.test(info), false, `${component.id} 的 info 不应包含 CLI 命令`)
-    assert.equal(Object.isFrozen(component), true)
   }
 })

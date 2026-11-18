@@ -1,6 +1,12 @@
 import assert from 'node:assert/strict'
+import { mkdtempSync, rmSync } from 'node:fs'
+import { createServer } from 'node:http'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import test from 'node:test'
-import { SecurityFailure } from '@locus/core'
+import { createLocusCore } from '@locus/core'
+import { createDispatcher } from '@locus/core/invocation'
+import { createMemoryCredentialProvider, createMemorySecurityStore, SecurityFailure } from '@locus/core/security'
 import { component, operations } from '../lib/index.js'
 
 const TOKEN = 'gitea-sentinel-token'
@@ -139,7 +145,8 @@ test('gitea.repository.request 只向绑定 origin 交付 Authorization，重定
   )
 
   assert.equal(result.kind, 'response')
-  assert.equal(await result.response.text(), 'ok')
+  assert.equal(result.response.body, 'ok')
+  assert.deepEqual(request.output.parse(result), result)
   assert.equal(calls.length, 1)
   const [{ url, init }] = calls
   assert.equal(url.href, `${ORIGIN}/api/v1/version`)
@@ -221,7 +228,7 @@ test('gitea.repository.request 把 401/403 与网络失败分开', async (t) => 
   const serverError = await request.run(undefined, { path: '/api' }, fakeContext())
   assert.equal(serverError.kind, 'response')
   assert.equal(serverError.response.status, 500)
-  await serverError.response.body?.cancel()
+  assert.equal(serverError.response.body, 'ok')
 })
 
 test('gitea.repository.request 在凭据字段缺失时交付失败', async (t) => {
@@ -232,4 +239,162 @@ test('gitea.repository.request 在凭据字段缺失时交付失败', async (t) 
       (error) => error instanceof SecurityFailure && error.code === 'delivery-failed',
     )
   }
+})
+
+test('真实 HTTP 与 Dispatcher 返回可 JSON 消费的响应，并隔离认证、重定向与网络失败', async (t) => {
+  const directory = mkdtempSync(join(tmpdir(), 'locus-gitea-http-'))
+  const received = []
+  const redirected = []
+  const other = createServer((incoming, outgoing) => {
+    redirected.push(incoming.url)
+    outgoing.end('不应跟随重定向')
+  })
+  const listen = (server) => new Promise((resolve, reject) => {
+    server.once('error', reject)
+    server.listen(0, '127.0.0.1', resolve)
+  })
+  const close = async (server) => {
+    server.closeAllConnections()
+    await new Promise((resolve) => server.close(resolve))
+  }
+  const server = createServer(async (incoming, outgoing) => {
+    let body = ''
+    for await (const chunk of incoming) body += chunk
+    received.push({
+      path: incoming.url,
+      method: incoming.method,
+      authorization: incoming.headers.authorization,
+      accept: incoming.headers.accept,
+      body,
+    })
+    if (incoming.url === '/network-failure') {
+      incoming.socket.destroy()
+      return
+    }
+    if (incoming.url === '/redirect') {
+      outgoing.writeHead(302, { location: `http://127.0.0.1:${other.address().port}/secret` })
+      outgoing.end('moved')
+      return
+    }
+    if (incoming.url === '/unauthorized' || incoming.url === '/forbidden') {
+      outgoing.writeHead(incoming.url === '/unauthorized' ? 401 : 403)
+      outgoing.end('拒绝正文不应成为响应数据')
+      return
+    }
+    if (incoming.url === '/echo-authorization') {
+      outgoing.writeHead(200, { 'content-type': 'application/json', etag: TOKEN })
+      outgoing.end(JSON.stringify({ authorization: incoming.headers.authorization }))
+      return
+    }
+    outgoing.writeHead(200, {
+      'content-type': 'application/json',
+      etag: '"version-1"',
+      authorization: 'Bearer unsafe-response-header',
+      'set-cookie': 'unsafe-cookie',
+    })
+    outgoing.end(JSON.stringify({ version: '1.0', payload: body }))
+  })
+  let core
+  let host
+  let session
+  t.after(async () => {
+    if (session !== undefined) host.endSession(session)
+    await core?.dispose()
+    await close(server)
+    await close(other)
+    rmSync(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
+  })
+  await listen(other)
+  await listen(server)
+  core = createLocusCore({
+    dataDirectory: directory,
+    components: [{ component, operations }],
+    security: {
+      store: createMemorySecurityStore(),
+      provider: createMemoryCredentialProvider(),
+      receiveHost(value) { host = value },
+    },
+  })
+  const password = 'gitea-http-test-root'
+  await host.initializeRoot(password, password)
+  session = host.createSession('human')
+  const dispatcher = createDispatcher(core.router, host, session, core.events, core.dataDirectory)
+  const origin = `http://127.0.0.1:${server.address().port}`
+  const pending = await dispatcher.invoke({
+    method: 'PUT',
+    uri: 'gitea://repositories/local',
+    contentType: 'application/json',
+    body: { origin },
+  }, { token: TOKEN })
+  assert.equal(pending.ok, false)
+  const challenge = pending.error.details.challenge
+  assert.ok(challenge)
+  const registered = await host.resume(await host.authenticate(challenge, password))
+  assert.equal(registered.ok, true)
+
+  const invoke = (body) => dispatcher.invoke({
+    method: 'POST',
+    uri: 'gitea://repositories/local/requests',
+    contentType: 'application/json',
+    body,
+  })
+  const result = await invoke({
+    path: '/api/v1/version',
+    method: 'POST',
+    headers: { accept: 'application/json' },
+    body: 'payload',
+  })
+  assert.equal(result.ok, true)
+  assert.equal(result.data.kind, 'response')
+  assert.equal(result.data.response.status, 200)
+  assert.deepEqual(request.output.parse(result.data), result.data)
+  const json = JSON.parse(JSON.stringify(result))
+  assert.deepEqual(JSON.parse(json.data.response.body), { version: '1.0', payload: 'payload' })
+  assert.equal(json.data.response.headers['content-type'], 'application/json')
+  assert.equal(json.data.response.headers.etag, '"version-1"')
+  assert.equal('authorization' in json.data.response.headers, false)
+  assert.equal('set-cookie' in json.data.response.headers, false)
+  assert.equal(JSON.stringify(result).includes(TOKEN), false)
+  assert.equal(JSON.stringify(result).includes('unsafe-response-header'), false)
+  assert.deepEqual(received[0], {
+    path: '/api/v1/version',
+    method: 'POST',
+    authorization: `Bearer ${TOKEN}`,
+    accept: 'application/json',
+    body: 'payload',
+  })
+  const echoed = await invoke({ path: '/echo-authorization' })
+  assert.equal(echoed.ok, true)
+  assert.equal(JSON.stringify(echoed).includes(TOKEN), false)
+  assert.equal(echoed.data.response.headers.etag, '[已脱敏]')
+  assert.deepEqual(JSON.parse(echoed.data.response.body), { authorization: 'Bearer [已脱敏]' })
+
+  const moved = await invoke({ path: '/redirect' })
+  assert.equal(moved.ok, true)
+  assert.equal(moved.data.response.status, 302)
+  assert.equal(moved.data.response.body, 'moved')
+  assert.equal(moved.data.response.headers.location, `http://127.0.0.1:${other.address().port}/secret`)
+  assert.deepEqual(redirected, [])
+  for (const [path, status] of [['/unauthorized', 401], ['/forbidden', 403]]) {
+    const denied = await invoke({ path })
+    assert.equal(denied.ok, true)
+    assert.deepEqual(denied.data, { kind: 'authentication-failed', status })
+  }
+  const network = await invoke({ path: '/network-failure' })
+  assert.equal(network.ok, true)
+  assert.deepEqual(network.data, { kind: 'network-failed' })
+
+  const before = received.length
+  for (const body of [
+    { path: `http://127.0.0.1:${other.address().port}/external` },
+    { path: '/api', headers: { Authorization: 'Bearer injected-secret' } },
+  ]) {
+    const denied = await invoke(body)
+    assert.equal(denied.ok, false)
+    assert.equal(denied.error.code, 'forbidden')
+    assert.equal(JSON.stringify(denied).includes(TOKEN), false)
+    assert.equal(JSON.stringify(denied).includes('injected-secret'), false)
+  }
+  assert.equal(received.length, before)
+  assert.deepEqual(redirected, [])
 })

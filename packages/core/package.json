@@ -8,6 +8,30 @@
     ".": {
       "types": "./lib/index.d.ts",
       "default": "./lib/index.js"
+    },
+    "./invocation": {
+      "types": "./lib/invocation/index.d.ts",
+      "default": "./lib/invocation/index.js"
+    },
+    "./components": {
+      "types": "./lib/components/index.d.ts",
+      "default": "./lib/components/index.js"
+    },
+    "./security": {
+      "types": "./lib/security/index.d.ts",
+      "default": "./lib/security/index.js"
+    },
+    "./workspaces": {
+      "types": "./lib/workspaces/index.d.ts",
+      "default": "./lib/workspaces/index.js"
+    },
+    "./events": {
+      "types": "./lib/events/index.d.ts",
+      "default": "./lib/events/index.js"
+    },
+    "./storage": {
+      "types": "./lib/storage/index.d.ts",
+      "default": "./lib/storage/index.js"
     }
   },
   "files": [

@@ -1,17 +1,17 @@
 import { createHash } from 'node:crypto'
 import { isAbsolute } from 'node:path'
 import { parse as parseYaml, stringify as stringifyYaml } from 'yaml'
-import {
-  RemoteTargetsFailure,
-  type Capability,
-  type RemoteAccess,
-  type RemoteConnectivity,
-  type RemoteIdentity,
-  type RemoteResource,
-  type RemoteTarget,
-  type RemoteTrust,
-  type RemoteShell,
-  type TargetVia,
+import { RemoteTargetsFailure } from './types.ts'
+import type {
+  Capability,
+  RemoteAccess,
+  RemoteConnectivity,
+  RemoteIdentity,
+  RemoteResource,
+  RemoteTarget,
+  RemoteTrust,
+  RemoteShell,
+  TargetVia,
 } from './types.ts'
 
 type JsonObject = Record<string, unknown>
@@ -19,6 +19,80 @@ type JsonObject = Record<string, unknown>
 const ID_PATTERN = /^[a-z0-9][a-z0-9._-]*$/
 const CAPABILITIES: readonly Capability[] = ['exec', 'shell']
 const DOCUMENT_VERSION = 1
+
+export function normalizeTargetFromSpec(value: unknown, id: string): RemoteTarget {
+  validateId(id)
+  const object = asObject(value, 'spec')
+  only(object, ['id', 'resource', 'identity', 'access', 'connectivity'], 'spec')
+
+  const declaredId = optionalText(object, 'id', 'spec')
+  if (declaredId !== undefined && declaredId !== id) {
+    failure(`spec.id 与命令参数不一致：${declaredId} != ${id}`)
+  }
+
+  const resource = normalizeResource(object.resource, 'spec.resource')
+  const identity = normalizeIdentity(object.identity, 'spec.identity', id)
+  const access = normalizeAccess(object.access, 'spec.access')
+  const connectivity = normalizeConnectivity(object.connectivity, 'spec.connectivity', resource)
+
+  return { id, resource, identity, access, connectivity }
+}
+
+export function parseDocument(text: string): readonly RemoteTarget[] {
+  const raw = parseText(text)
+
+  const object = asObject(raw, '配置')
+  only(object, ['version', 'targets'], '配置')
+  if (object.version !== DOCUMENT_VERSION) {
+    failure(`配置版本必须是 ${DOCUMENT_VERSION}`)
+  }
+  if (!Array.isArray(object.targets)) failure('配置.targets 必须是数组')
+
+  const targets = object.targets.map((item, index) => normalizeStoredTarget(item, `targets[${index}]`))
+  const ids = new Set<string>()
+  for (const target of targets) {
+    if (ids.has(target.id)) failure(`目标 id 重复：${target.id}`)
+    ids.add(target.id)
+  }
+  return targets
+}
+
+export function parseAddSpecText(text: string, id: string): RemoteTarget {
+  return normalizeTargetFromSpec(parseText(text), id)
+}
+
+/** 目标安全配置摘要；凭据由 Core 按 component + slot + resourceKey 绑定，不纳入此摘要。 */
+export function targetBinding(target: RemoteTarget): string {
+  const view = {
+    resource: { kind: target.resource.kind },
+    identity: { login: target.identity.login },
+    access: { capabilities: [...target.access.capabilities].sort() },
+    connectivity: {
+      transport: target.connectivity.transport,
+      host: target.connectivity.host,
+      port: target.connectivity.port,
+      remoteShell: target.connectivity.remoteShell,
+      ...(target.connectivity.client === undefined ? {} : { client: target.connectivity.client }),
+      ...(target.connectivity.trust === undefined
+        ? {}
+        : {
+            trust: {
+              ...(target.connectivity.trust.fingerprint === undefined
+                ? {}
+                : { fingerprint: target.connectivity.trust.fingerprint }),
+              ...(target.connectivity.trust.knownHosts === undefined
+                ? {}
+                : { knownHosts: target.connectivity.trust.knownHosts }),
+            },
+          }),
+    },
+  }
+  return createHash('sha256').update(JSON.stringify(view)).digest('hex')
+}
+
+export function serializeDocument(targets: readonly RemoteTarget[]): string {
+  return stringifyYaml({ version: DOCUMENT_VERSION, targets }, { lineWidth: 0 })
+}
 
 function failure(message: string): never {
   throw new RemoteTargetsFailure('invalid-spec', message)
@@ -106,7 +180,10 @@ function normalizeIdentity(value: unknown, path: string, id: string): RemoteIden
   const credentialPath = optionalText(auth, 'path', `${path}.auth`)
   const credentialRoot = optionalText(auth, 'root', `${path}.auth`)
 
-  if (method === 'private-key' || (method === 'password' && credentialPath === undefined && credentialRoot === undefined)) {
+  if (
+    method === 'private-key' ||
+    (method === 'password' && credentialPath === undefined && credentialRoot === undefined)
+  ) {
     if (credentialPath !== undefined || credentialRoot !== undefined) {
       failure(`${path}.auth 新认证方式不能提供旧 path/root`)
     }
@@ -116,14 +193,9 @@ function normalizeIdentity(value: unknown, path: string, id: string): RemoteIden
   if (method !== 'key' && method !== 'password') {
     failure(`${path}.auth.method 只能是 private-key、password 或旧 key：${method}`)
   }
-  const legacyPath = credentialPath
-    ?? `credentials/${id}/${method === 'key' ? 'id_ed25519' : 'password'}`
+  const legacyPath = credentialPath ?? `credentials/${id}/${method === 'key' ? 'id_ed25519' : 'password'}`
   validateRelativePath(legacyPath, `${path}.auth.path`)
-  if (
-    credentialRoot !== undefined
-    && !isAbsolute(credentialRoot)
-    && !/^[A-Za-z]:[\\/]/.test(credentialRoot)
-  ) {
+  if (credentialRoot !== undefined && !isAbsolute(credentialRoot) && !/^[A-Za-z]:[\\/]/.test(credentialRoot)) {
     failure(`${path}.auth.root 必须是绝对路径：${credentialRoot}`)
   }
   return {
@@ -169,11 +241,7 @@ function normalizeTrust(value: unknown, path: string): RemoteTrust | undefined {
   }
 }
 
-function normalizeConnectivity(
-  value: unknown,
-  path: string,
-  resource: RemoteResource,
-): RemoteConnectivity {
+function normalizeConnectivity(value: unknown, path: string, resource: RemoteResource): RemoteConnectivity {
   const object = asObject(value, path)
   only(object, ['transport', 'via', 'host', 'port', 'remoteShell', 'client', 'trust'], path)
 
@@ -209,24 +277,6 @@ function normalizeConnectivity(
   }
 }
 
-export function normalizeTargetFromSpec(value: unknown, id: string): RemoteTarget {
-  validateId(id)
-  const object = asObject(value, 'spec')
-  only(object, ['id', 'resource', 'identity', 'access', 'connectivity'], 'spec')
-
-  const declaredId = optionalText(object, 'id', 'spec')
-  if (declaredId !== undefined && declaredId !== id) {
-    failure(`spec.id 与命令参数不一致：${declaredId} != ${id}`)
-  }
-
-  const resource = normalizeResource(object.resource, 'spec.resource')
-  const identity = normalizeIdentity(object.identity, 'spec.identity', id)
-  const access = normalizeAccess(object.access, 'spec.access')
-  const connectivity = normalizeConnectivity(object.connectivity, 'spec.connectivity', resource)
-
-  return { id, resource, identity, access, connectivity }
-}
-
 function normalizeStoredTarget(value: unknown, path: string): RemoteTarget {
   const object = asObject(value, path)
   only(object, ['id', 'resource', 'identity', 'access', 'connectivity'], path)
@@ -239,54 +289,4 @@ function normalizeStoredTarget(value: unknown, path: string): RemoteTarget {
   const connectivity = normalizeConnectivity(object.connectivity, `${path}.connectivity`, resource)
 
   return { id, resource, identity, access, connectivity }
-}
-
-export function parseDocument(text: string): readonly RemoteTarget[] {
-  const raw = parseText(text)
-
-  const object = asObject(raw, '配置')
-  only(object, ['version', 'targets'], '配置')
-  if (object.version !== DOCUMENT_VERSION) {
-    failure(`配置版本必须是 ${DOCUMENT_VERSION}`)
-  }
-  if (!Array.isArray(object.targets)) failure('配置.targets 必须是数组')
-
-  const targets = object.targets.map((item, index) => normalizeStoredTarget(item, `targets[${index}]`))
-  const ids = new Set<string>()
-  for (const target of targets) {
-    if (ids.has(target.id)) failure(`目标 id 重复：${target.id}`)
-    ids.add(target.id)
-  }
-  return targets
-}
-
-export function parseAddSpecText(text: string, id: string): RemoteTarget {
-  return normalizeTargetFromSpec(parseText(text), id)
-}
-
-/** 目标安全配置摘要；凭据由 Core 按 component + slot + resourceKey 绑定，不纳入此摘要。 */
-export function targetBinding(target: RemoteTarget): string {
-  const view = {
-    resource: { kind: target.resource.kind },
-    identity: { login: target.identity.login },
-    access: { capabilities: [...target.access.capabilities].sort() },
-    connectivity: {
-      transport: target.connectivity.transport,
-      host: target.connectivity.host,
-      port: target.connectivity.port,
-      remoteShell: target.connectivity.remoteShell,
-      ...(target.connectivity.client === undefined ? {} : { client: target.connectivity.client }),
-      ...(target.connectivity.trust === undefined ? {} : {
-        trust: {
-          ...(target.connectivity.trust.fingerprint === undefined ? {} : { fingerprint: target.connectivity.trust.fingerprint }),
-          ...(target.connectivity.trust.knownHosts === undefined ? {} : { knownHosts: target.connectivity.trust.knownHosts }),
-        },
-      }),
-    },
-  }
-  return createHash('sha256').update(JSON.stringify(view)).digest('hex')
-}
-
-export function serializeDocument(targets: readonly RemoteTarget[]): string {
-  return stringifyYaml({ version: DOCUMENT_VERSION, targets }, { lineWidth: 0 })
 }

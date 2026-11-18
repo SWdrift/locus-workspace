@@ -1,81 +1,51 @@
-import { DomainFailure } from '@locus/core'
-import type { CredentialValues } from '@locus/core'
+import { DomainFailure } from '@locus/core/invocation'
+import type { CredentialValues } from '@locus/core/security'
+import type { z } from 'zod'
+import type {
+  credentialUpdateResultSchema,
+  execResultSchema,
+  migrationSourceSchema,
+  probeResultSchema,
+  remoteAccessSchema,
+  remoteAuthSchema,
+  remoteConnectivitySchema,
+  remoteIdentitySchema,
+  remoteJobResultSchema,
+  remoteResourceSchema,
+  remoteServiceSchema,
+  remoteTargetSchema,
+  remoteTargetViewSchema,
+  remoteTrustSchema,
+} from './schemas.ts'
 
 /** 远程目标子系统：声明式登记 SSH 目标，并通过受控入口执行只读或普通命令。 */
-export type TargetProtocol = 'ssh'
-export type TargetVia = 'direct' | 'frp'
-export type RemoteShell = 'posix' | 'cmd'
-export type AuthMethod = 'key' | 'private-key' | 'password'
-export type Capability = 'exec' | 'shell'
+export type TargetProtocol = RemoteConnectivity['transport']
+export type TargetVia = RemoteConnectivity['via']
+export type RemoteShell = RemoteConnectivity['remoteShell']
+export type AuthMethod = RemoteAuth['method']
+export type Capability = RemoteAccess['capabilities'][number]
 
 /** 被访问对象的身份；不包含地址与凭据。 */
-export interface RemoteResource {
-  readonly kind: string
-  readonly label?: string
-}
+export type RemoteResource = z.infer<typeof remoteResourceSchema>
 
 /** 认证方式；秘密由 Core 按 component + slot + resourceKey 绑定交付。 */
-export interface RemoteAuth {
-  readonly method: AuthMethod
-  /** 旧格式相对目标根目录的凭据文件路径；仅供迁移读取。 */
-  readonly path?: string
-  /** 旧格式凭据根的绝对路径；仅供迁移读取。 */
-  readonly root?: string
-}
-
-export interface RemoteIdentity {
-  readonly login: string
-  readonly auth: RemoteAuth
-}
+export type RemoteAuth = z.infer<typeof remoteAuthSchema>
+export type RemoteIdentity = z.infer<typeof remoteIdentitySchema>
 
 /** 允许对目标执行的能力集合。 */
-export interface RemoteAccess {
-  readonly capabilities: readonly Capability[]
-}
+export type RemoteAccess = z.infer<typeof remoteAccessSchema>
 
 /** 主机信任锚；指纹用于 Plink，known_hosts 用于 OpenSSH。 */
-export interface RemoteTrust {
-  readonly fingerprint?: string
-  readonly knownHosts?: string
-}
+export type RemoteTrust = z.infer<typeof remoteTrustSchema>
 
 /** 到达资源的路径；同一资源可有多条路径。 */
-export interface RemoteConnectivity {
-  readonly transport: TargetProtocol
-  readonly via: TargetVia
-  readonly host: string
-  readonly port: number
-  readonly remoteShell: RemoteShell
-  /** 客户端可执行文件；缺省使用 PATH 中的 ssh/plink。 */
-  readonly client?: string
-  readonly trust?: RemoteTrust
-}
-
-export interface RemoteTarget {
-  readonly id: string
-  readonly resource: RemoteResource
-  readonly identity: RemoteIdentity
-  readonly access: RemoteAccess
-  readonly connectivity: RemoteConnectivity
-}
-
-export interface ProbeResult {
-  readonly targetId: string
-  readonly ok: boolean
-  readonly detail: string
-  readonly checkedAt: string
-}
-
-export interface RemoteTargetView extends RemoteTarget {
-  readonly lastProbe?: ProbeResult
-}
-
-export interface ExecResult {
-  readonly targetId: string
-  readonly exitCode: number
-  readonly stdout: string
-  readonly stderr: string
-}
+export type RemoteConnectivity = z.infer<typeof remoteConnectivitySchema>
+export type RemoteTarget = z.infer<typeof remoteTargetSchema>
+export type ProbeResult = z.infer<typeof probeResultSchema>
+export type RemoteTargetView = z.infer<typeof remoteTargetViewSchema>
+export type ExecResult = z.infer<typeof execResultSchema>
+export type RemoteJobResult = z.infer<typeof remoteJobResultSchema>
+export type RemoteCredentialUpdateResult = z.infer<typeof credentialUpdateResultSchema>
 
 /** operation handler 从 Core 取得的目标凭据材料；不写入目标配置。 */
 export interface RemoteCredentialMaterial {
@@ -118,10 +88,7 @@ export interface ComponentGate {
 export type RemoteCredentialSlot = 'ssh-private-key' | 'ssh-password'
 
 /** 旧文件认证的迁移读取结果；调用方负责导入 Core。 */
-export interface CredentialMigration {
-  readonly method: 'key' | 'password'
-  readonly path: string
-}
+export type RemoteTargetMigrationSource = z.infer<typeof migrationSourceSchema>
 
 export interface RemoteTargetsService {
   list(): readonly RemoteTarget[]
@@ -129,7 +96,7 @@ export interface RemoteTargetsService {
   add(id: string, spec: unknown, options?: AddOptions): RemoteTarget
   addFromText(id: string, text: string, options?: AddOptions): RemoteTarget
   remove(reference: string): void
-  credentialMigration(reference: string): CredentialMigration
+  credentialMigration(reference: string): RemoteTargetMigrationSource
   useCredential(reference: string): RemoteTarget
   probe(reference: string, material: RemoteCredentialMaterial): Promise<ProbeResult>
   exec(reference: string, command: readonly string[], material: RemoteCredentialMaterial): Promise<ExecResult>
@@ -140,10 +107,7 @@ export interface RemoteTargetsService {
   dispose(): void
 }
 
-export interface RemoteService {
-  readonly name: string
-  readonly status: string
-}
+export type RemoteService = z.infer<typeof remoteServiceSchema>
 
 export type RemoteTargetsFailureCode =
   | 'invalid-spec'
@@ -164,8 +128,13 @@ export type RemoteTargetsFailureCode =
   | 'io'
 
 export class RemoteTargetsFailure extends DomainFailure {
-  constructor(code: RemoteTargetsFailureCode, message: string) {
+  override readonly code: RemoteTargetsFailureCode
+  readonly details: Readonly<Record<string, boolean>> | undefined
+
+  constructor(code: RemoteTargetsFailureCode, message: string, details?: Readonly<Record<string, boolean>>) {
     super(code, message)
     this.name = 'RemoteTargetsFailure'
+    this.code = code
+    this.details = details
   }
 }

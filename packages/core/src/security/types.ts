@@ -1,11 +1,12 @@
-import type { ComponentSpec } from '../components/spec.ts'
+import type { ComponentSpec } from '../components/types.ts'
 
 export type SecurityLevel = 'user' | 'root'
 export type SecuritySource = 'human' | 'agent' | 'component'
 export type SecurityGrantScope = 'operation' | 'session'
 export type CredentialRef = `credential:${string}`
 export type CredentialValues = Readonly<Record<string, string>>
-export type SecurityParameters = null | boolean | number | string | readonly SecurityParameters[] | { readonly [key: string]: SecurityParameters }
+export type SecurityParameters =
+  null | boolean | number | string | readonly SecurityParameters[] | { readonly [key: string]: SecurityParameters }
 
 /** 授权键是组件与 operation；资源 key 只参与凭据绑定，不参与等级判定。 */
 export interface SecurityRequest {
@@ -75,6 +76,21 @@ export interface CredentialStatus {
   readonly present: boolean
 }
 
+/** 凭据管理输出只包含公开元数据与绑定，不包含 Provider 的秘密字段。 */
+export interface CredentialList {
+  readonly credentials: readonly CredentialMetadata[]
+  readonly bindings: readonly CredentialBinding[]
+}
+
+export interface ComponentCredentials extends CredentialList {
+  readonly component: string
+}
+
+export interface CredentialBindingView {
+  readonly binding: CredentialBinding
+  readonly credential: CredentialMetadata
+}
+
 /** 当前 Profile 精确 Keyring service 下未被元数据登记的孤立账户。 */
 export interface CredentialCleanupResult {
   readonly service: string
@@ -111,11 +127,7 @@ export interface SecurityGrant {
 
 /** 组件 handler 的唯一凭据入口；Core 在授权后注入。 */
 export interface OperationCredentialPort {
-  read<T>(
-    slot: string,
-    resourceKey: string,
-    consume: (values: CredentialValues) => T | Promise<T>,
-  ): Promise<T>
+  read<T>(slot: string, resourceKey: string, consume: (values: CredentialValues) => T | Promise<T>): Promise<T>
 
   /** 只在实际获准 root 时可用。 */
   write(slot: string, resourceKey: string, values: CredentialValues): Promise<CredentialRef>
@@ -123,10 +135,7 @@ export interface OperationCredentialPort {
 
 /** 只交付给绑定了可信定义与会话的组件，不提供认证或原始凭据导出入口。 */
 export interface ComponentSecurity {
-  execute<T>(
-    request: SecurityRequest,
-    run: (credential: OperationCredentialPort) => T | Promise<T>,
-  ): Promise<T>
+  execute<T>(request: SecurityRequest, run: (credential: OperationCredentialPort) => T | Promise<T>): Promise<T>
 }
 
 /** 只含可展示字段；秘密字段不在元数据中。 */
@@ -178,11 +187,7 @@ export interface SecurityHost {
   management(): HostSecurity
   initializeRoot(password: string, confirmation: string): Promise<void>
   resetRoot(password: string, confirmation: string): Promise<void>
-  authenticate(
-    challenge: SecurityChallenge,
-    password: string,
-    scope?: SecurityGrantScope,
-  ): Promise<SecurityGrant>
+  authenticate(challenge: SecurityChallenge, password: string, scope?: SecurityGrantScope): Promise<SecurityGrant>
   cancelChallenge(challenge: SecurityChallenge): void
   resume<T = unknown>(grant: SecurityGrant): Promise<T>
   /** Host 退出时撤销全部会话、待处理挑战与授权。 */
@@ -248,12 +253,7 @@ export interface SecurityStoreTransaction {
   listCredentials(profile: string): readonly CredentialMetadata[]
   setCredential(metadata: CredentialMetadata): void
   deleteCredential(profile: string, reference: CredentialRef): void
-  getBinding(
-    profile: string,
-    componentId: string,
-    slot: string,
-    resourceKey: string,
-  ): CredentialBinding | undefined
+  getBinding(profile: string, componentId: string, slot: string, resourceKey: string): CredentialBinding | undefined
   listBindings(profile: string): readonly CredentialBinding[]
   setBinding(binding: CredentialBinding): void
   deleteBinding(profile: string, componentId: string, slot: string, resourceKey: string): void

@@ -1,15 +1,30 @@
 import assert from 'node:assert/strict'
+import { createPrivateKey, generateKeyPairSync } from 'node:crypto'
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import test from 'node:test'
-import { createMemoryCredentialProvider } from '@locus/core'
+import { createLocusCore } from '@locus/core'
+import { createDispatcher, InvocationFailure } from '@locus/core/invocation'
+import { createMemoryCredentialProvider, createMemorySecurityStore } from '@locus/core/security'
 import {
+  component,
   createRemoteTargetsService,
   operations,
-  RemoteTargetsFailure,
   targetBinding,
 } from '../lib/index.js'
+
+const { privateKey: PRIVATE_KEY } = generateKeyPairSync('rsa', {
+  modulusLength: 2048,
+  privateKeyEncoding: { type: 'pkcs1', format: 'pem' },
+  publicKeyEncoding: { type: 'spki', format: 'pem' },
+})
+const ENCRYPTED_PRIVATE_KEY = createPrivateKey(PRIVATE_KEY).export({
+  type: 'pkcs1',
+  format: 'pem',
+  cipher: 'aes-256-cbc',
+  passphrase: 'encrypted-private-key-test-passphrase',
+})
 
 function operation(id) {
   const found = operations.find((item) => item.id === id)
@@ -24,6 +39,8 @@ const remove = operation('rt.target.remove')
 const updateCredential = operation('rt.target.credential.update')
 const migrate = operation('rt.target.migrate')
 const job = operation('rt.job.run')
+const preview = operation('rt.target.preview')
+const migrationSource = operation('rt.target.migration-source')
 
 function privateKeySpec(connectivity = {}) {
   return {
@@ -106,7 +123,7 @@ test('register 写目标与凭据材料，秘密只在 provider，list/get/remov
 
   const created = await register.run(undefined, {
     spec: JSON.stringify(privateKeySpec()),
-    privateKey: 'private-key-material',
+    privateKey: PRIVATE_KEY,
   }, f.context({ id: 'target-a' }))
   assert.equal(created.id, 'target-a')
   assert.deepEqual(created.identity.auth, { method: 'private-key' })
@@ -116,11 +133,11 @@ test('register 写目标与凭据材料，秘密只在 provider，list/get/remov
   const config = readFileSync(join(f.targetsRoot, 'targets.yaml'), 'utf8')
   assert.match(config, /id: target-a/)
   assert.match(config, /method: private-key/)
-  assert.equal(config.includes('private-key-material'), false)
+  assert.equal(config.includes(PRIVATE_KEY), false)
   assert.equal(config.includes('credential:'), false)
 
   const stored = JSON.parse(await f.provider.get({ service: PROVIDER_SERVICE, account: 'ssh-private-key:target-a' }))
-  assert.deepEqual(stored, { privateKey: 'private-key-material' })
+  assert.deepEqual(stored, { privateKey: PRIVATE_KEY })
   const metadata = f.credentials.metadata.get('ssh-private-key:target-a')
   assert.deepEqual(Object.keys(metadata), ['targetBinding'])
   assert.equal(metadata.targetBinding, targetBinding(created))
@@ -132,13 +149,20 @@ test('register 写目标与凭据材料，秘密只在 provider，list/get/remov
   assert.equal(shown.id, 'target-a')
   await assert.rejects(
     async () => get.run(undefined, undefined, f.context({ id: 'missing' })),
-    (error) => error.code === 'target-not-found',
+    (error) => error instanceof InvocationFailure && error.code === 'not-found' && error.details.domain === 'target-not-found',
   )
 
+  const trustFile = join(f.targetsRoot, 'trust', 'target-a', 'known_hosts')
+  writeFileSync(trustFile, 'existing-trust-anchor\n', 'utf8')
   const removed = await remove.run(undefined, undefined, f.context({ id: 'target-a' }))
   assert.deepEqual(removed, { target: 'target-a', removed: true })
   assert.equal(f.events.at(-1).type, 'locus.rt.target.removed')
   assert.equal((await list.run(undefined, undefined, f.context())).length, 0)
+  assert.equal(readFileSync(trustFile, 'utf8'), 'existing-trust-anchor\n')
+  assert.deepEqual(
+    JSON.parse(await f.provider.get({ service: PROVIDER_SERVICE, account: 'ssh-private-key:target-a' })),
+    { privateKey: PRIVATE_KEY },
+  )
 })
 
 test('register 缺少秘密或使用旧契约字段时拒绝且不落盘', async (t) => {
@@ -154,9 +178,9 @@ test('register 缺少秘密或使用旧契约字段时拒绝且不落盘', async
         ...privateKeySpec(),
         identity: { login: 'root', auth: { method: 'private-key', credential: 'credential:key' } },
       }),
-      privateKey: 'private-key-material',
+      privateKey: PRIVATE_KEY,
     }, f.context({ id: 'target-a' })),
-    (error) => error.code === 'invalid-spec',
+    (error) => error.code === 'invalid-argument' && error.details.domain === 'invalid-spec',
   )
   assert.equal(existsSync(join(f.targetsRoot, 'targets.yaml')), false)
   assert.equal(f.events.length, 0)
@@ -223,7 +247,7 @@ targets:
 
   await assert.rejects(
     migrate.run(undefined, { method: 'password', password: 'again' }, f.context({ id: 'legacy' })),
-    (error) => error.code === 'already-migrated',
+    (error) => error.code === 'conflict' && error.details.domain === 'already-migrated',
   )
 })
 
@@ -231,7 +255,7 @@ test('目标配置变化后 job handler 在使用旧绑定时拒绝，且不启�
   const f = fixture(t, { components: { openssh: { id: 'openssh', kind: 'external', state: 'healthy' } } })
   await register.run(undefined, {
     spec: JSON.stringify(privateKeySpec()),
-    privateKey: 'private-key-material',
+    privateKey: PRIVATE_KEY,
   }, f.context({ id: 'target-a' }))
 
   const configFile = join(f.targetsRoot, 'targets.yaml')
@@ -239,7 +263,7 @@ test('目标配置变化后 job handler 在使用旧绑定时拒绝，且不启�
 
   await assert.rejects(
     job.run(undefined, { command: ['whoami'] }, f.context({ id: 'target-a' })),
-    (error) => error instanceof RemoteTargetsFailure && error.code === 'target-config-mismatch',
+    (error) => error instanceof InvocationFailure && error.code === 'conflict' && error.details.domain === 'target-config-mismatch',
   )
 })
 
@@ -277,4 +301,152 @@ test('凭据缺失时 job/system/services/restart handler 在启动传输前失�
     )
   }
   assert.equal(events.length, 0)
+})
+
+test('preview 规范化目标但不写定义、凭据或观察状态', async (t) => {
+  const f = fixture(t)
+  const context = f.context({ id: 'preview-only' })
+  context.credential.read = async () => { throw new Error('预览不应读取凭据') }
+  context.credential.write = async () => { throw new Error('预览不应写入凭据') }
+  const result = await preview.run(undefined, { spec: JSON.stringify(privateKeySpec()) }, context)
+  assert.equal(result.id, 'preview-only')
+  assert.equal(result.connectivity.transport, 'ssh')
+  assert.equal(result.connectivity.remoteShell, 'posix')
+  assert.deepEqual(preview.output.parse(result), result)
+  assert.equal(existsSync(f.targetsRoot), false)
+  assert.equal(f.events.length, 0)
+})
+
+test('migration-source 只返回旧认证方式与本机路径，不读取秘密', async (t) => {
+  const f = fixture(t)
+  mkdirSync(f.targetsRoot)
+  writeFileSync(join(f.targetsRoot, 'targets.yaml'), `version: 1
+targets:
+  - id: legacy
+    resource:
+      kind: server
+    identity:
+      login: root
+      auth:
+        method: key
+        path: credentials/legacy/key
+    connectivity:
+      host: 127.0.0.1
+`, 'utf8')
+  const result = await migrationSource.run(undefined, undefined, f.context({ id: 'legacy' }))
+  assert.deepEqual(result, { method: 'key', path: join(f.targetsRoot, 'credentials', 'legacy', 'key') })
+  assert.deepEqual(migrationSource.output.parse(result), result)
+  assert.equal(f.events.length, 0)
+  assert.equal(existsSync(result.path), false)
+})
+
+for (const [name, op] of [
+  ['register', register],
+  ['update-credential', updateCredential],
+  ['migrate', migrate],
+]) {
+  test(`${name} 直接调用也不能绕过私钥预检，失败不写凭据或改目标`, async (t) => {
+    const f = fixture(t)
+    const id = name === 'migrate' ? 'legacy' : 'current'
+    if (name === 'update-credential') {
+      const service = createRemoteTargetsService({ root: f.targetsRoot })
+      try { service.add(id, privateKeySpec()) } finally { service.dispose() }
+    } else if (name === 'migrate') {
+      mkdirSync(f.targetsRoot)
+      writeFileSync(join(f.targetsRoot, 'targets.yaml'), `version: 1
+targets:
+  - id: legacy
+    resource:
+      kind: server
+    identity:
+      login: root
+      auth:
+        method: key
+        path: credentials/legacy/key
+    connectivity:
+      host: 127.0.0.1
+`, 'utf8')
+    }
+    const file = join(f.targetsRoot, 'targets.yaml')
+    const before = existsSync(file) ? readFileSync(file, 'utf8') : undefined
+    for (const privateKey of ['invalid-private-key-sentinel', ENCRYPTED_PRIVATE_KEY]) {
+      const input = name === 'register'
+        ? { spec: JSON.stringify(privateKeySpec()), privateKey }
+        : { method: 'private-key', privateKey }
+      await assert.rejects(
+        op.run(undefined, input, f.context({ id })),
+        (error) => error instanceof InvocationFailure &&
+          error.code === 'invalid-argument' &&
+          error.details.domain === 'encrypted-key-unsupported' &&
+          !error.message.includes(privateKey),
+      )
+    }
+    assert.equal(existsSync(file) ? readFileSync(file, 'utf8') : undefined, before)
+    assert.equal(await f.provider.get({ service: PROVIDER_SERVICE, account: `ssh-private-key:${id}` }), undefined)
+    assert.equal(f.credentials.metadata.size, 0)
+    assert.equal(f.events.length, 0)
+  })
+}
+
+test('真实 Dispatcher 保留包内错误映射并拒绝外部 Body 凭据输入绕过', async (t) => {
+  const root = mkdtempSync(join(tmpdir(), 'locus-rt-dispatch-'))
+  let host
+  const core = createLocusCore({
+    dataDirectory: root,
+    components: [{ component, operations }],
+    security: {
+      store: createMemorySecurityStore(),
+      provider: createMemoryCredentialProvider(),
+      receiveHost(value) { host = value },
+    },
+  })
+  const session = host.createSession('human')
+  const dispatcher = createDispatcher(core.router, host, session, core.events, core.dataDirectory)
+  t.after(async () => {
+    host.endSession(session)
+    await core.dispose()
+    rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
+  })
+  const rootPassword = 'remote-targets-test-root'
+  await host.initializeRoot(rootPassword, rootPassword)
+
+  const previewResult = await dispatcher.invoke({
+    method: 'POST',
+    uri: 'rt://targets/new/actions/preview',
+    contentType: 'application/json',
+    body: { spec: JSON.stringify(privateKeySpec()) },
+  })
+  assert.equal(previewResult.ok, true)
+  assert.equal(previewResult.data.id, 'new')
+  assert.equal(existsSync(join(root, 'remote-targets')), false)
+
+  const missing = await dispatcher.invoke({ method: 'GET', uri: 'rt://targets/missing' })
+  assert.equal(missing.ok, false)
+  assert.equal(missing.error.code, 'not-found')
+  assert.equal(missing.error.details.domain, 'target-not-found')
+
+  const bypass = await dispatcher.invoke({
+    method: 'PUT',
+    uri: 'rt://targets/new',
+    contentType: 'application/json',
+    body: { spec: JSON.stringify(privateKeySpec()), privateKey: PRIVATE_KEY },
+  })
+  assert.equal(bypass.ok, false)
+  assert.equal(bypass.error.code, 'invalid-body')
+  assert.equal(JSON.stringify(bypass).includes(PRIVATE_KEY), false)
+
+  const invalid = await dispatcher.invoke({
+    method: 'PUT',
+    uri: 'rt://targets/new',
+    contentType: 'application/json',
+    body: { spec: JSON.stringify(privateKeySpec()) },
+  }, { privateKey: 'not-a-private-key' })
+  assert.equal(invalid.ok, false)
+  const challenge = invalid.error.details.challenge
+  assert.ok(challenge)
+  const rejected = await host.resume(await host.authenticate(challenge, rootPassword))
+  assert.equal(rejected.ok, false)
+  assert.equal(rejected.error.code, 'invalid-argument')
+  assert.equal(rejected.error.details.domain, 'encrypted-key-unsupported')
+  assert.equal(existsSync(join(root, 'remote-targets', 'targets.yaml')), false)
 })

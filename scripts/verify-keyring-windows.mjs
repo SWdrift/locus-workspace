@@ -84,12 +84,11 @@ exit $code
 `
 try {
   mkdirSync(join(root, 'test'))
-  mkdirSync(join(root, 'lib', 'security'), { recursive: true })
   mkdirSync(join(root, 'node_modules', '@napi-rs'), { recursive: true })
   writeFileSync(join(root, 'package.json'), '{"type":"module"}')
   cpSync(process.execPath, join(root, 'node.exe'))
   cpSync(join(repo, 'packages/core/test/manual-keyring.mjs'), join(root, 'test', 'manual-keyring.mjs'))
-  for (const file of ['keyring-provider.js', 'errors.js']) cpSync(join(repo, 'packages/core/lib/security', file), join(root, 'lib/security', file))
+  cpSync(join(repo, 'packages/core/lib'), join(root, 'lib'), { recursive: true })
   cpSync(dirname(nativeEntry), join(root, 'node_modules/@napi-rs/keyring'), { recursive: true })
   cpSync(dirname(platformBinary), join(root, 'node_modules/@napi-rs/keyring-win32-x64-msvc'), { recursive: true })
   const input = JSON.stringify({ name, password, root, node: join(root, 'node.exe'), checker: join(root, 'test/manual-keyring.mjs'), stdout: join(root, 'stdout.json'), stderr: join(root, 'stderr.txt'), service: `locus:${randomUUID()}:development` })

@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { createHash, generateKeyPairSync, randomUUID } from 'node:crypto'
 import { spawnSync } from 'node:child_process'
 import { readFileSync } from 'node:fs'
-import { createKeyringCredentialProvider } from '../lib/security/keyring-provider.js'
+import { createKeyringCredentialProvider } from '../lib/security/providers/keyring.js'
 
 // 由显式隔离账户启动器复制到专用目录；自动化测试不会收集本文件。
 const digest = (value) => createHash('sha256').update(value).digest('hex')
