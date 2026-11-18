@@ -4,7 +4,22 @@
 
 独立 TypeScript 领域内核，负责 Workspace 长期身份、成员/关联、本机目录挂载、组件机制与统一安全平面。Core 不依赖 DSH/Cordis、HTTP、CLI 或具体业务消费者；挂载只保存绝对路径与名称，不检查目录是否存在；组件定义与观察不代替主体授权。
 
-公开面由 `src/index.ts` 导出，包括 `createLocusCore()`、组件与 Workspace 服务、`defineOperation()`／`defineCredential()`、`createApiRouter()`、`createDispatcher()`、事件总线、安全类型、`SecurityFailure` 与可注入 Store／Provider 工厂。类型跟随所属领域，不建立平行 contracts 包。Compose 的 domain operation 由各普通包（`@locus/postgres`、`@locus/gitea`、`@locus/remote-targets`）提供，Core 不依赖它们。
+`@locus/core` 根入口只导出运行时创建 API、Core 句柄类型与产品版本。协议、组件、安全、Workspace、事件和存储分别通过 `/invocation`、`/components`、`/security`、`/workspaces`、`/events`、`/storage` 公开子路径消费；入口显式导出，包内直接依赖实现文件。类型跟随所属领域，不建立平行 contracts 包。Compose 的 domain operation 由各普通包（`@locus/postgres`、`@locus/gitea`、`@locus/remote-targets`）提供，Core 不依赖它们。
+
+## 源码导航
+
+| 修改意图 | 实现入口 | 行为验证 |
+| --- | --- | --- |
+| 装配与数据目录 | [create-core.ts](src/create-core.ts)、[data-directory.ts](src/data-directory.ts) | [Core](test/core.test.mjs) |
+| URI、路由与执行信封 | [invocation](src/invocation/index.ts) | [调用协议](test/invocation.test.mjs) |
+| Workspace、挂载与关系 | [领域服务](src/workspaces/service.ts)、[operation](src/workspaces/operations.ts)、[SQLite](src/workspaces/sqlite-store.ts) | [Core](test/core.test.mjs) |
+| 组件声明与校验 | [definition](src/components/definition.ts)、[validation](src/components/validation.ts) | [组件](test/components.test.mjs) |
+| 组件生命周期 | [service](src/components/service.ts)、[operation](src/components/operations.ts)、[runner](src/components/runner.ts) | [组件](test/components.test.mjs)、[执行器](test/runner.test.mjs) |
+| 身份、授权与凭据 | [协调运行时](src/security/runtime.ts)、[授权](src/security/authorization.ts)、[凭据用例](src/security/credentials.ts)、[Root 认证](src/security/root-auth.ts) | [安全](test/security.test.mjs) |
+| Store 与 Provider | [SQLite Store](src/security/stores/sqlite.ts)、[Keyring Provider](src/security/providers/keyring.ts) | [持久化](test/security-persistence.test.mjs)、[Keyring 隔离](test/keyring-isolation.test.mjs) |
+| 事件与数据库结构 | [事件总线](src/events/bus.ts)、[事件存储](src/events/sqlite-store.ts)、[数据库](src/storage/database.ts) | [调用协议](test/invocation.test.mjs)、[持久化](test/security-persistence.test.mjs) |
+
+Core 自有 operation 由[组合表](src/operations.ts)汇总；路由和处理函数仍在所属领域维护。`index.ts` 只作为公开入口，不承担领域实现。
 
 ## 使用
 
@@ -23,14 +38,16 @@ try {
 }
 ```
 
-`info.version` 与 `LOCUS_VERSION` 来自构建时生成的 `src/version.generated.ts`，内容取自根 `package.json` 的 `version`，因此等于打包时的版本；仓库级规则见[版本管理](../../docs/versioning.md)。读取版本、数据目录或服务不创建数据库；首次 Workspace 操作才打开数据。释放后捕获的服务句柄也不可再调用。
+未显式传入 `dataDirectory` 时，`security.profile: 'development'` 在生产解析目录下追加 `profiles/development/`；显式绝对路径完整决定位置，不追加 Profile 子目录。这一规则由 Core 统一实现，CLI 不另行计算。
+
+`info.version` 与 `LOCUS_VERSION` 来自构建时生成的 `src/version.generated.ts`，内容取自根 `package.json` 的 `version`，因此等于打包时的版本；仓库级规则见[版本管理](../../docs/versioning.md)。读取版本、数据目录或服务不创建数据库；首次 Workspace 操作才打开数据。释放后捕获的服务句柄也不可再调用，包括事件总线与事件存储。
 
 ## 统一调用
 
-[Invocation](src/invocation.ts) 提供 URI 解析、`ApiRouter`、`defineOperation()`、`defineCredential()`、Dispatcher、结果信封与事件总线；[resources.ts](src/resources.ts) 注册 Core 自有的 `locus://` operation。`createLocusCore()` 把 Core operation 与组合根注入的组件 operation 一起装配，`locus://operations` 返回当前运行期路由表。URI 规则、operation 契约、授权、凭证与错误码的完整协议见[统一资源调用](../../docs/subsystems/invocation.md)，本 README 只记录模块用法。
+[Invocation](src/invocation/index.ts) 提供 URI 解析、`ApiRouter`、`defineOperation()`、`defineCredential()`、Dispatcher 与结果信封；[Events](src/events/index.ts) 提供事件总线。`createLocusCore()` 把各领域自有的 `locus://` operation 与组合根注入的组件 operation 一起装配，`locus://operations` 返回当前运行期路由表。URI 规则、operation 契约、授权、凭证与错误码的完整协议见[统一资源调用](../../docs/subsystems/invocation.md)，本 README 只记录模块用法。
 
 ```ts
-import { defineOperation } from '@locus/core'
+import { defineOperation } from '@locus/core/invocation'
 
 const ping = defineOperation({
   id: 'demo.ping.get',
@@ -52,7 +69,8 @@ const ping = defineOperation({
 `defineComponent()` 是可信包定义的唯一入口：接收对象，返回 `{ component, operations }`，不写文件、不注册全局状态。可编辑 YAML 由 `parseComponent()` 解析，只接受描述性元数据；`operations`/`credentials` 不进入 YAML。包在代码中定义组件；没有包的软件通过 `component add` 登记 YAML。
 
 ```ts
-import { createLocusCore, defineComponent } from '@locus/core'
+import { createLocusCore } from '@locus/core'
+import { defineComponent } from '@locus/core/components'
 
 const demo = defineComponent({
   id: 'demo',
@@ -117,11 +135,13 @@ Root 级 operation 抛出带不透明 Challenge 的 `SecurityFailure`；只有 H
 
 `locus.workspace` 引用可表达 Workspace 间的嵌套或关联，目标必须存在；不递归展开，不传播成员、权限或删除。其他命名空间保持不透明，不检查外部对象当前是否存在。
 
+直接服务以 `WorkspaceFailure.code` 区分 `invalid-argument`、`not-found`、`conflict` 与 `disposed`；数据库故障不归为输入错误。operation 不根据错误文案猜测分类。
+
 ## 持久化与恢复
 
 Core 唯一拥有 `dataDirectory/core.sqlite`，格式版本为 SQLite `user_version=8`，包含 Workspace、关系、挂载、组件状态，以及安装、Root 验证、Profile、凭据公开字段与 owner、operation 等级覆盖、`component + slot + resourceKey` 绑定与事件记录。资源秘密不进入数据库；Root 派生验证材料仍敏感。数据库使用 DELETE journal、FULL synchronous、外键与事务；写入成功返回前提交，读用例采用一致快照。多个连接重新读取已提交数据，不用进程内旧对象覆盖；写锁等待 1000ms 后明确失败，调用者不能把失败当成确认成功。
 
-建库 DDL 按主题分片在 `src/schema/*.ts`（Workspace、组件、安全、事件）并以字符串常量导出；只在初始化新空库时执行，已有库不读 DDL。
+建库 DDL 按主题分片在 `src/storage/schema/`（Workspace、组件、安全、事件）并以字符串常量导出；只在初始化新空库时执行，已有库不读 DDL。
 
 未知版本、已有表结构但无版本或损坏库明确失败，不覆盖为空库。0 字节库视为初始化中断留下的空库，可安全建立当前结构；已有任何表结构则拒绝接管。开发阶段不维护旧 schema 逐版本迁移：版本与当前 `user_version=8` 不一致时要求备份后重建数据目录，版本与表结构冲突时拒绝，已有数据保留。仍应升级前备份，没有自动备份实现。清除实验数据只能由用户在备份后、停止所有写者时移走选定数据目录，不自动清理或删除用户成果。
 

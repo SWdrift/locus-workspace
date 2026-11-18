@@ -112,6 +112,12 @@ Core 使用 Node、yaml、组件 runner 的 execa，并懒加载 Keyring；Postg
 - Web 当前没有服务器、路由或前端依赖。首个实现应复用 Core 的公开面，并在浏览器需要 DTO 时再抽取同构契约，不提前建立空框架。
 - 领域观察与长期关系分离。外部事实由所属能力按需读取，只有用户显式确认后才写入 Workspace 关系。
 
+## 源码组织
+
+包内按领域聚合，领域内部区分公开契约、operation、服务与外部适配器，不建立横向的 contracts/runtime/shared 包。Core 根入口只负责运行时创建，领域能力通过显式公开子路径消费；包内依赖具体实现文件，不经公开 barrel。各包自己维护领域错误到协议错误的转换，operation 返回可序列化 DTO，原生客户端对象留在适配器内。
+
+修改场景到源码与测试的导航由模块 README 维护：[Core](../packages/core/README.md#源码导航)、[CLI](../apps/cli/README.md#源码导航)、[Remote Targets](../packages/remote-targets/README.md#源码导航)、[Templates](../packages/templates/README.md#源码导航)、[Gitea](../packages/gitea/README.md#源码导航)、[临时 PostgreSQL 消费者](../packages/postgres/README.md#源码导航)。不维护手抄符号总表或完整文件树。取舍见[源码所有权与导航边界](../.agents/notes/implemented/architecture/2026-11-18-source-ownership-and-navigation.md)。
+
 ## 数据与恢复
 
 Core 独占 core.sqlite（当前 schema v8），保存 Workspace、组件状态、operation 等级覆盖、凭据公开字段与 owner、凭据引用元数据、`component + slot + resourceKey` 绑定与事件记录；资源秘密在 OS Keyring，Root 派生验证材料单独持久化。组件定义、Remote Targets 的 targets.yaml/state.sqlite 仍各有归属。开发阶段数据库不承诺旧 schema 兼容，结构变更按当前 schema 重建；停写备份由 [Core](../packages/core/README.md#持久化与恢复)维护，秘密和备份后果由[安全子系统](subsystems/core/security.md#持久化错误与备份)维护。

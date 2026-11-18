@@ -6,6 +6,10 @@
 
 `@locus/postgres` 用一份 `defineComponent` 声明 `pg.database.register` / `pg.database.query` operation、`database-auth` 字段槽与 handler，并导出 `component` 与 `operations`。Root 在 `register` 时固定 host/port/database、用户名与密码；`query` 只使用 Core 绑定字段中的目标，调用者不能替换 host、port 或 database。它把合并后的字段放入驱动参数，不构造包含密码的连接 URL，不实现数据库服务器或迁移工具。身份、权限、凭据绑定与 Provider 归 [Core Security](../../docs/subsystems/core/security.md)。
 
+## 源码导航
+
+源码入口：[组件声明](src/component.ts)、[operation](src/operations.ts)、[查询与驱动释放](src/query.ts)、[DTO](src/types.ts)及[schema](src/schemas.ts)。行为验证在[包测试](test/postgres.test.mjs)；该包仍是临时消费者，不建立长期连接池平台。
+
 ## 使用
 
 ```ts

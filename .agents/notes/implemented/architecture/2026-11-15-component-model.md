@@ -70,7 +70,7 @@ CLI 提供 `component add/list/show/upgrade/remove/probe/deploy`；`locus <id>` 
 
 ## 测试
 
-- `packages/core/test/components.test.mjs`：对象/YAML 等价、未知字段、保留 id、物化、版本不一致、`upgrade` 保留 `config`、损坏隔离、动态登记与删除、argv/tcp/http 探针、状态跨进程、`requires` 派生、部署状态、释放边界、v2 迁移。
+- `packages/core/test/components.test.mjs`：对象/YAML 解析、未知字段、Core 保留 id、物化、版本不一致、`upgrade` 保留 `config`、损坏隔离、动态登记与删除、argv/tcp/http 探针、状态跨进程、`requires` 派生、部署状态与释放边界。
 - `packages/core/test/runner.test.mjs`：无 BOM 的 UTF-16LE 解码、命令缺失返回 `ENOENT`、Windows `.cmd` 执行。
 - `packages/remote-targets/test/remote-targets.test.mjs`：传输组件未登记/未就绪时在凭据检查前失败。
 - `apps/cli/test/cli.test.mjs`：组件物化、`component add`、`locus <id>`、手动升级、单条与批量探针、部署、包组件删除拒绝、未知命令不创建目录。

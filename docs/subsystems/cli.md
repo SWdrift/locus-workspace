@@ -14,7 +14,7 @@ CLI 是 Locus 的统一入口：把命令解析成领域调用，把结果投影
 | `.agents/skills/locus` | Agent 的调用参考与只读脚本；经 CLI 的 JSON 契约工作 |
 | `docs/commands.md` | 命令语法与成功判据 |
 
-CLI 不拥有领域规则，不直接写 `core.sqlite`，不保存隐式当前 Workspace，也不在命令之间保留状态。每次进程创建一个 Core，命令结束 `dispose()`；`version` 与 `--help` 不创建数据目录。模块用法见 [CLI README](../../apps/cli/README.md)，语法见[实用命令](../commands.md)，组件职责见[项目架构](../architecture.md#组件与依赖)。URL、operation、凭证交付与授权判定的通用规则归[统一资源调用](invocation.md)。
+CLI 不拥有领域规则，不直接写 `core.sqlite`，不保存隐式当前 Workspace，也不在命令之间保留状态。每次进程创建一个 Core，命令结束 `dispose()`；`version` 与 `--help` 不创建数据目录。组合根维护一份包组件 id／别名／loader 清单，命令、Host、输出和 shell 按职责组织，源码定位见 [CLI 导航](../../apps/cli/README.md#源码导航)。语法见[实用命令](../commands.md)，组件职责见[项目架构](../architecture.md#组件与依赖)。URL、operation、凭证交付与授权判定的通用规则归[统一资源调用](invocation.md)。
 
 ## 设计原则
 
@@ -48,6 +48,8 @@ CLI 不拥有领域规则，不直接写 `core.sqlite`，不保存隐式当前 W
 `locus <id>` 只对未知顶层命令解析为 `component show <id>`，不进入 `--help`；包组件与已登记动态组件都可用。`component` 的命令语法与成功判据见[实用命令](../commands.md#组件操作)。CLI 组合根按顶层命令的包域加载并注册包定义：`component`、`security` 与未知组件入口使用全集，`pg`、`remote-targets`、`template` 只注册各自包；URL 动词与 `events` 使用默认全集。组件命令只调用已注册的 operation，不直接访问 Keyring。组件包不包含 CLI 命令、参数、提示或退出码，`component.info` 也不列 CLI 用法。
 
 `shell` 留在顶层是因为它服务于 Workspace 上下文，是既有入口；新的远端 shell 必须挂在自己的领域前缀下，避免与它语义冲突。参数、成功判据与失败码由[实用命令](../commands.md)维护，本节只描述命令树结构。
+
+本地 shell 的 Workspace 读取仍经 Dispatcher，遵守该 operation 的 Root 覆盖；启动器只消费已返回的 Workspace 与挂载，不再直读领域服务。远程目标 preview 和 migration-source 也经 operation 查询，CLI 只收集文件／TTY 输入，不解释 spec 或执行私钥合法性校验。
 
 ## 调用生命周期
 

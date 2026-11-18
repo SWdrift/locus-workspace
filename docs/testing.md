@@ -10,8 +10,8 @@
 | 全量进程内 | `pnpm test:all` | 经 `tests/run.mjs` 运行 `packages/*/test/`、`apps/*/test/` 与 `tests/*.test.mjs`；不含 e2e |
 | 单文件 | `pnpm test:file <文件>` | 直接运行一个 `node --test` 文件，可附加 `--test-name-pattern <模式>` 过滤用例 |
 | CLI 端到端 | `pnpm e2e` | 经 `tests/run.mjs` 运行 `tests/e2e/*.mjs`，使用真实构建产物与独立进程；受[高耗时操作节流](#高耗时操作节流)约束 |
-| 快速门禁 | `pnpm verify` | 构建、快速层与文档检查 |
-| 完整门禁 | `pnpm verify:full` | 构建、全量进程内、文档检查与 e2e |
+| 快速门禁 | `pnpm verify` | 构建、依赖边界、格式检查、快速层与文档检查 |
+| 完整门禁 | `pnpm verify:full` | 构建、依赖边界、格式检查、全量进程内、文档检查与 e2e |
 | 文档检查 | `pnpm docs:check` | Markdown 结构、本地链接与 Agent Notes 生命周期；修改检查器时再运行 `pnpm docs:test` |
 
 日常迭代使用 `pnpm verify`。修改跨包契约、持久化或命令行为时运行 `pnpm test:all`；修改构建入口、退出码、跨进程恢复或 pnpm 包装时运行 `pnpm e2e`；完整验收使用 `pnpm verify:full`。分层减少运行次数，不删除断言或缩小覆盖范围。
@@ -35,7 +35,7 @@ e2e 只保留进程内测试无法覆盖的组合：真实 `apps/cli/lib/index.j
 - 记录为 UTC 单行：`<UTC> suite=e2e start …`、`<UTC> suite=e2e passed duration=<秒>`；文件被 Git 忽略，仅对当前工作副本生效。
 - 历史 `temp/e2e-runs.log` 的 `start` 记录仍计入 e2e 冷却；新记录统一写 `temp/test-runs.log`。
 - 该检查只覆盖系统性入口。`pnpm test`、`pnpm test:file`、包内 `pnpm --dir <包> test` 与 `pnpm docs:test` 不经过入口，也不受冷却限制。
-- `pnpm verify:full` 按 `build → test:all → docs:check → e2e` 执行；e2e 被拒绝时命令以退出码 3 结束，已完成的步骤不回滚。
+- `pnpm verify:full` 按 `build → lint → format:check → test:all → docs:check → e2e` 执行；e2e 被拒绝时命令以退出码 3 结束，已完成的步骤不回滚。
 - e2e 依赖 pnpm 注入的 `npm_execpath`；冷却检查通过后，直接运行 `node tests/run.mjs e2e` 会以退出码 2 拒绝。
 - 未发现测试文件时入口以退出码 1 失败，不把空集合当成通过。
 

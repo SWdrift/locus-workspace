@@ -25,7 +25,7 @@
 - `<dataDirectory>/remote-targets/trust/<id>/`：仅保存 `known_hosts` 等公开材料；`add` 创建目录但不创建秘密文件。
 - 资源秘密保存在 OS Keyring；SQLite 只保存 CredentialRef 元数据与组件／能力／资源绑定。
 
-目标根目录由 CLI 从 Core 的 `dataDirectory` 派生，不在模块内推断默认位置。写入使用临时文件 + rename；读取时校验字段、id 唯一性、CredentialRef 格式与路径是否逃逸凭据根。
+目标根目录由 operation 从 Core 注入的 `dataDirectory` 派生，CLI 不自行创建领域服务。写入使用临时文件 + rename；读取时校验字段、id 唯一性与旧凭据路径边界。
 
 ## 流程
 
@@ -49,6 +49,8 @@
 - 秘密值不进入配置、SQLite、输出或命令行参数；SSH 只接收受限临时文件路径。
 - Core 在凭据公开字段保存目标安全配置摘要 `targetBinding`；host/port/login、能力、客户端、remoteShell 与 trust 锚变化后，访问在启动客户端前以 `target-config-mismatch` 失败，需 Root 重新确认。
 - 临时凭据目录在正常或异常返回后清理，probe 超时同样清理；exec/shell 未接取消信号，强杀可能残留同用户临时文件；不维护 lease、PID 追踪或崩溃恢复平台。
+- 私钥合法性在包内写入边界保证，登记、更新与迁移均不能依赖 CLI 的提前校验。
+- 删除目标同时清理探测观察，保留 Core 凭据与信任锚；复用同 id 不继承旧探测。
 
 ## 失败边界
 
@@ -63,6 +65,7 @@
 | 传输组件未就绪 | `component-unavailable`，连接前失败，退出码 2 |
 | 远端退出码非零 | `exec` 原样透传；`probe` 记为失败并以 1 退出 |
 | 主机指纹不符 | SSH/Plink 自身拒绝，stderr 保留诊断 |
+| 执行完成但临时凭据清理失败 | `unknown-result` 与完成／清理标记；不能按“未执行”自动重试 |
 
 ## 未实现
 

@@ -8,6 +8,15 @@
 
 组件定义只声明 `template://` operation 与 `info.text`，不包含 `probe`、`deploy` 或 `requires`；它不改变复制行为。
 
+## 源码导航
+
+| 修改意图 | 实现入口 |
+| --- | --- |
+| 组件声明与调用契约 | [component.ts](src/component.ts)、[operations.ts](src/operations.ts)、[schemas.ts](src/schemas.ts) |
+| 模板解析、复制与实例记录 | [engine.ts](src/engine.ts) |
+| 结果类型与领域错误 | [types.ts](src/types.ts) |
+| 行为验证 | [templates.test.mjs](test/templates.test.mjs) |
+
 ## 模板源
 
 模板源可以是内置模板 ID，也可以是本地目录：
@@ -74,15 +83,17 @@ CLI 用法见[命令手册](../../docs/commands.md#模板操作)。
 
 ## 失败
 
-| code | 含义 |
-| --- | --- |
-| `invalid-template` | `template.json` 非法、内置模板 ID 重复 |
-| `invalid-destination` | 目标非绝对路径、父目录不存在 |
-| `not-found` | 模板源不存在 |
-| `destination-exists` | 目标已存在 |
-| `symlink` | 模板含符号链接 |
-| `unsupported-entry` | 模板含设备、FIFO 等特殊文件 |
-| `io` | 文件系统读取或写入失败 |
+| 领域 code | 含义 | operation 协议 code |
+| --- | --- | --- |
+| `invalid-template` | `template.json` 非法、内置模板 ID 重复 | `invalid-argument` |
+| `invalid-destination` | 目标非绝对路径、父目录不存在 | `invalid-argument` |
+| `not-found` | 模板源不存在 | `not-found` |
+| `destination-exists` | 目标已存在 | `conflict` |
+| `symlink` | 模板含符号链接 | `invalid-argument` |
+| `unsupported-entry` | 模板含设备、FIFO 等特殊文件 | `invalid-argument` |
+| `io` | 文件系统读取或写入失败 | `internal` |
+
+直接服务保留 `TemplateFailure`；operation 在本包内转换为 `InvocationFailure`，原领域 code 位于 `details.domain`。Core 不维护模板专属映射。
 
 ## 限制与演进
 

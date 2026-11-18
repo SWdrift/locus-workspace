@@ -12,8 +12,10 @@
 | `pnpm test:all` | 全量进程内测试，经 `tests/run.mjs` 收集并记录，退出 0 |
 | `pnpm e2e` | 真实 CLI 端到端测试，经 `tests/run.mjs` 执行；2 小时冷却未解除时退出 3 |
 | `pnpm test:file <文件>` | 直接运行单个测试文件；可附加 `--test-name-pattern <模式>` |
-| `pnpm verify` | 快速门禁：`build` + `test` + `docs:check` |
-| `pnpm verify:full` | 完整门禁：`build` + `test:all` + `docs:check` + `e2e` |
+| `pnpm lint` | 检查产品源码的公开入口与依赖边界 |
+| `pnpm format` / `pnpm format:check` | 按根 Prettier 配置写入／检查产品源码格式 |
+| `pnpm verify` | 快速门禁：`build` + `lint` + `format:check` + `test` + `docs:check` |
+| `pnpm verify:full` | 完整门禁：`build` + `lint` + `format:check` + `test:all` + `docs:check` + `e2e` |
 | `pnpm locus <参数>` | 运行构建后的独立 CLI，等价于 `node apps/cli/lib/index.js` |
 | `pnpm locus:register` | 安装本机 Skill 与 `locus` 启动器；默认读取 `.env.pro`，退出 0 |
 | `pnpm locus:unregister` | 删除本机注册的 Skill 与启动器，保留数据目录；退出 0 |
@@ -141,7 +143,7 @@
 | `remote-targets list` | 列出目标；空集合不是错误 |
 | `remote-targets show <target>` | 显示身份、认证方式、能力、连接与最近探测；不输出凭据值 |
 | `remote-targets migrate <target> --method private-key\|password [--file <path>] --yes` | 显式导入旧凭据文件到 Core、回读验证、绑定目标资源后改写配置；原文件保留；带口令私钥明确阻塞 |
-| `remote-targets remove <target> --yes` | 只移除定义，不删除外部目标或 Core 绑定；复用 id 前重新登记正确引用或由 Root 删除旧凭据 |
+| `remote-targets remove <target> --yes` | 移除定义与最近探测，不删除外部目标、Core 绑定或信任锚；复用 id 前重新登记正确引用或由 Root 删除旧凭据 |
 | `remote-targets probe <target>` | 执行 `hostname` 并记录结果；成功退出 0，失败退出 1 |
 | `remote-targets services <target>` | 列举 `cmd` 目标的 Windows 服务；非 `cmd` 目标失败 |
 | `remote-targets restart <target> <service>` | 重启 `cmd` 目标服务并记录结果 |

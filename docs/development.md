@@ -50,15 +50,19 @@ pro（生产）环境的配置放在同结构的 `.env.pro`：生产数据目录
 ## 修改与验证
 
 - 类型与构建：`pnpm build`。
+- 源码依赖边界：`pnpm lint`；Core 不依赖业务包，跨包只使用公开 exports，公开入口显式导出。
+- 代码外观：`pnpm format` 写入产品源码格式，`pnpm format:check` 只检查；两者使用根 Prettier 配置，生成文件由生成器负责。
 - 行为测试：`pnpm test`，包含 Core 与 Remote Targets 的真实 SQLite 用例及真实 CLI 子进程用例；运行前需要构建。
 - 全量进程内：`pnpm test:all`，经 `tests/run.mjs` 收集模块测试与跨模块测试并写入记录。
 - 单文件：`pnpm test:file <文件>`。
 - CLI 端到端：`pnpm e2e`，运行真实构建产物与 `pnpm locus` 包装；受 2 小时冷却限制，未解除时退出 3。`pnpm e2e --force` 可跳过冷却并记录强制运行。
-- 门禁：`pnpm verify`，依次执行构建、测试与文档检查。
-- 完整门禁：`pnpm verify:full`，依次执行构建、全量测试、文档检查与 e2e。
+- 门禁：`pnpm verify`，依次执行构建、依赖边界、格式检查、测试与文档检查。
+- 完整门禁：`pnpm verify:full`，依次执行构建、依赖边界、格式检查、全量测试、文档检查与 e2e。
 - 文档：修改 Markdown 后执行 `pnpm docs:check`；修改检查器时再执行 `pnpm docs:test`。
 
 Web 当前只有占位，不参与构建与测试。新增 app 时再补构建与验证入口，不为占位建立空服务。
+
+源码按领域定位，主要入口置于私有辅助函数之前；operation 的路由与契约逐字段展开，类型使用显式 `import type`。模块 README 的源码导航提供修改入口和对应测试，跨包跳转依赖已有 declaration map，不另建符号索引。
 
 ## Skill 与脚本
 

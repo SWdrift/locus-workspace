@@ -60,14 +60,14 @@ operation 的 `id` 是稳定授权键；Root 覆盖键为 `${component.id}:${ope
 - `secret: false` 字段进入凭据公开元数据（SQLite）；`secret: true` 字段作为一个 JSON 值与凭据元数据一起进入 Keyring。
 - 写入时校验必填、未知字段与字段名；读取时合并公开/秘密字段，字段与当前声明不一致以 `credential-fields-mismatch` 失败。
 - 字段变化显式重写，不做静默转换；秘密字段合并后超过 Keyring 单条容量即失败。
-- 绑定键为 `component + slot + resourceKey`。`component` 是命名空间，组件只能访问自己的 namespace；`slot` 是 `defineCredential.id`；`resourceKey` 由 handler 显式提供，通常取自一个或多个 URL 参数。
+- 绑定键为 `component + slot + resourceKey`。`component` 是命名空间，组件只能访问自己的 namespace；`slot` 是 `defineCredential.id`；`resourceKey` 由 handler 显式提供，通常取自一个或多个 URL 参数，长度最多 2048（按 JavaScript `string.length` 计）。输入边界与 Store 复用同一规则，非法输入不伪装成持久化损坏。
 - 凭据引用由 `context.credential.write` 生成，形如 `credential:<id>`，由绑定内部持有；URL `locus://credentials/<component>/<slot>/<resourceKey>` 只返回元数据与绑定，永不返回秘密。
 - `CredentialMetadata` 持久化 `owner` 组件 id；第一版一个引用只对应一个 owner 组件。其他组件已绑定的引用不能覆盖；同一组件内多个 operation 可以共享 slot 与 resourceKey。
 - 没有执行前凭据预检。读取在 `context.credential.read` 的回调前判定，缺失绑定或字段不匹配直接失败，不触发 Root 提权。
 - 写入只在本次 operation 实际获准 Root 时可用，与声明等级无关：声明为 root 但被覆盖为 user 时拒绝；声明为 user 被覆盖为 root 并获批准后可写。
 - 凭据缺失、未绑定或字段不匹配不触发 Root 提权；Root 不足才返回 Challenge。
 
-登记由 operation handler 通过 `context.credential.write` 完成。Core 在一个逻辑操作内写 Provider、公开字段元数据与绑定；Provider 写后回读验证，数据库提交失败时按前值补偿。配置文件更新属于组件边界，CLI 以显式补偿处理失败，不宣称跨存储 2PC。
+登记由 operation handler 通过 `context.credential.write` 完成。Core 在一个逻辑操作内写 Provider、公开字段元数据与绑定；Provider 写后回读验证，数据库提交失败时按前值补偿。配置文件更新属于领域包的 operation 边界，CLI 不自行编排存储补偿，不宣称跨存储 2PC。
 
 删除凭据会级联删除绑定；对应管理入口只允许 Root 使用。普通业务命令不提供 get-secret。
 
@@ -115,7 +115,7 @@ Core SQLite 当前 `user_version=8`，包含 Workspace、关系、挂载、组�
 
 数据库备份包含敏感离线验证材料，但不包含 Keyring 秘密；恢复引用和绑定不等于恢复秘密。Session／Challenge／Grant 不持久化，重启不能恢复授权。丢失 Keyring 或换机须重新录入资源凭据。事件记录是 best-effort，不作为完整审计或重放依据。
 
-`SecurityFailure` 保留 Core 的固定 code／reason，不携带原始 Provider／消费者异常或 cause。领域组件可以抛出 `DomainFailure` 或 `InvocationFailure` 保留自己的错误码；Dispatcher 映射为稳定协议码，通用异常仍收为 `internal`，避免错误消息泄漏秘密。CLI 只负责把已知类型渲染为命令结果与退出码。未初始化、拒绝、需要认证、错误密码、取消、非交互、锁定、Challenge／Grant 过期或撤销、已消费、凭据缺失、字段不匹配、Provider 不可用、超限、交付失败和安全存储 IO 分别可判；Provider 原生 IO 合并为不可用。CLI 安全错误在 JSON stdout 返回 code／reason，诊断写 stderr、退出 2；Gitea 交付返回认证失败／网络失败的独立结果。
+`SecurityFailure` 保留 Core 的固定 code／reason，不携带原始 Provider／消费者异常或 cause。领域服务可用 `DomainFailure` 表达自身分类，能力包的 operation 必须将其转换为 `InvocationFailure`；Dispatcher 不解释消费者专属 code，未知异常只返回固定 `internal` 信息。CLI 只负责把已知类型渲染为命令结果与退出码。未初始化、拒绝、需要认证、错误密码、取消、非交互、锁定、Challenge／Grant 过期或撤销、已消费、凭据缺失、字段不匹配、Provider 不可用、超限、交付失败和安全存储 IO 分别可判；Provider 原生 IO 合并为不可用。CLI 安全错误在 JSON stdout 返回 code／reason，诊断写 stderr、退出 2；Gitea 交付返回认证失败／网络失败的独立结果。
 
 ## 平台证据与安全边界
 

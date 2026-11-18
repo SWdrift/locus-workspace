@@ -23,7 +23,7 @@
 
 | 字段 | 必填 | 说明 |
 | --- | --- | --- |
-| `id` | 是 | 小写字母开头，只含小写字母、数字与短横线；同时作为顶层命令名与文件名；`version`、`workspace`、`component`、`shell`、`help`、`rt`、`pg` 保留 |
+| `id` | 是 | 小写字母开头，只含小写字母、数字与短横线；用于文件名与显式引用；登记边界保留 Core 自有的 `locus`；与 CLI 命令同名时使用 `component show <id>`，不抢占命令 |
 | `version` | 是 | 非空字符串，只做相等比较，不解释语义 |
 | `name`、`summary` | 是 | 展示用名称与一句话说明 |
 | `kind` | 是 | `locus` 或 `external` |

@@ -6,6 +6,18 @@
 
 CLI 不依赖 DSH、Cordis 或插件装配。每次调用创建自己的 Core，命令完成后 `dispose()`；安全 Profile 只选择本地隔离数据与凭据命名空间，不是插件运行时。
 
+## 源码导航
+
+| 修改意图 | 实现入口 | 行为验证 |
+| --- | --- | --- |
+| 环境、全局选项与包组件装配 | [composition.ts](src/composition.ts)、[global-options.ts](src/global-options.ts) | [CLI](test/cli.test.mjs) |
+| 命令树与领域命令 | [program.ts](src/program.ts)、[commands](src/commands/) | [CLI](test/cli.test.mjs)、[安全 Host](test/security.test.mjs) |
+| 认证挑战恢复与 TTY | [调用 Host](src/host/api.ts)、[终端输入](src/host/terminal.ts) | [安全 Host](test/security.test.mjs) |
+| 文本、JSON、失败和退出码 | [统一输出](src/output/output.ts)、[格式化](src/output/format.ts)、[错误](src/output/errors.ts) | [CLI](test/cli.test.mjs)、[安全 Host](test/security.test.mjs) |
+| Workspace shell | [命令](src/commands/shell.ts)、[启动与注入](src/shell.ts) | [CLI](test/cli.test.mjs)、[授权](test/security.test.mjs) |
+
+组件 id、命令别名与加载入口只在组合根的静态清单维护；命令模块接收所需调用端口，不反向依赖组合根。
+
 ## 构建与运行
 
 ```sh
@@ -69,6 +81,8 @@ CLI 组合根只通过 Core 的 receiveHost 回调取得可信管理端口；组
 ## 组件
 
 `locus component ...` 提供组件的发现、登记、升级与状态操作；`locus <id>` 对未知顶层命令解析为 `component show <id>`，不进入 `--help` 列表。
+
+与内置命令同名的组件仍可通过 `component show <id>` 访问，但不抢占内置命令。Core 只保留自身领域 id `locus`，不维护 CLI 命令名单。
 
 | 命令 | 用途 |
 | --- | --- |

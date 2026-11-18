@@ -33,7 +33,7 @@ defineComponent(...)
 - `capabilities` / `credentials` 是可信代码契约，不物化为可编辑 YAML。组件 YAML 只保存描述性元数据。
 
 ```ts
-// packages/postgres/src/index.ts
+// 早期 capability 示意；当前 operation 入口见 PostgreSQL 包 README。
 export const postgres = defineComponent({
   id: 'postgres',
   version: '1',

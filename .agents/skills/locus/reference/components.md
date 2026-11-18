@@ -22,7 +22,7 @@ locus component add ./my-component/          # 文件夹形态：component.yaml 
 locus component add - < my-component.yaml
 ```
 
-只接受 `kind: external`。文件写入 `<dataDirectory>/components/<id>.yaml`，文件夹整体复制为 `<id>/`。重复 id、与包组件同 id，或使用 `version`、`workspace`、`component`、`shell`、`help`、`rt` 等保留 id 会被拒绝。
+只接受 `kind: external`。文件写入 `<dataDirectory>/components/<id>.yaml`，文件夹整体复制为 `<id>/`。重复 id、与包组件同 id，或使用 Core 自有的 `locus` 会被拒绝；与内置命令同名的组件使用 `component show <id>`，不会抢占内置命令。
 
 批量登记可以直接把多个 YAML 复制到 `<dataDirectory>/components/`，不必逐条执行 `add`；损坏文件只进入 `list` 的 `problems`。
 

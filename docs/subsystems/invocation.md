@@ -18,7 +18,7 @@ Core 只认识 `locus://` 自有资源，不内置其他 Scheme。`rt://` 属于
 - query 保留重复值；规范 `href` 由解码后的路径段重新编码一次生成。
 - 空路径与仅 `/` 归一为无路径；静态段区分大小写。
 
-`ApiRouter` 在注册期拒绝重复 operation id，以及同 `scheme + authority + method` 下仅参数名不同的歧义路由。静态段优先于参数段；路径匹配但方法不支持时返回 `unsupported-method`。`build(operationId, params)` 与 `resolve()` 共用同一规范表示。
+`ApiRouter` 在注册期拒绝重复 operation id，以及同 `scheme + authority + method` 下仅参数名不同的歧义路由；`auth: none` 只允许 Core namespace 的初始化 operation。静态段优先于参数段；路径匹配但方法不支持时返回 `unsupported-method`。`build(operationId, params)` 与 `resolve()` 共用同一规范表示。
 
 示例：
 
@@ -40,6 +40,7 @@ gitea://repositories/<id>/requests
 - `input` 与 `query` 在调用前解析；`output` 只约束返回类型，并在契约测试中解析，不在副作用完成后改判业务结果。
 - `fields` 是与 schema 分离的输入元数据：`secret` 用于提示与脱敏，`tty` 表示只能由可信 Host 收集。外部 Body 出现 tty 字段直接拒绝；Host 收集的字段合并后交给 handler。
 - `context` 提供 `namespace`、`operationId`、`requestId`、`dataDirectory`、规范 `url`、只读组件状态窄视图、`credential` 端口与 `emit()` 领域事件入口。
+- operation 输出是可序列化 DTO；响应流、连接和原生客户端对象由所属适配器消费并释放。组件描述性元数据深度冻结，handler 声明只冻结外壳，不递归冻结 schema 等外部对象的内部缓存。
 
 Schema 使用 `{ parse(value): T }` 窄接口；pnpm workspace catalog 统一登记 zod。Core 不检查 Zod 内部结构。
 
@@ -90,11 +91,15 @@ Grant 沿用原操作捕获、参数不可替换、单次或并发单次消费�
 
 Dispatcher 只输出规范化 URI 与 requestId；不输出输入 Body、秘密或 Provider 原始异常。批量 GET 按输入顺序返回逐项结果，单项业务失败不丢弃其他结果；非 GET 批量在 CLI 层拒绝，Dispatcher 对非 GET 项返回 `unsupported-method`。
 
+能力包在自己的 operation 边界将领域失败转换为 `InvocationFailure`，可在 `details.domain` 保留领域 code；Core 不维护消费者专属码表，也不从错误文案猜测分类。未知 handler 异常只返回固定内部故障信息。结果信封与执行事件在被捕获的执行闭包内产生，Grant 恢复后的失败也遵守相同契约。
+
 ## 事件
 
 事件是 CloudEvents 1.0 子集：`specversion: "1.0"` 与 `id/type/source/subject/time/data`。请求事件为 `locus.request.succeeded` 与 `locus.request.failed`；领域事件由 handler 通过 `context.emit()` 发出，现有远程目标事件包括目标登记、移除、凭据更新、迁移、job 完成与服务重启完成。
 
 监听是进程内同步投递，不支持 async 监听器；逐项隔离监听器异常。持久化写入 `events` 表，查询通过 `locus://events`；记录是 best-effort，缺失记录不能证明操作未发生，不作为完整审计，不提供重放或跨进程订阅。
+
+释放是终态：捕获的总线或 Store 句柄在 dispose 后明确拒绝调用，不重新打开数据库；总线释放订阅与内存，持久化连接由其所属组合根单独释放。
 
 ## CLI 调用面
 
