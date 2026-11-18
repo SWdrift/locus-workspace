@@ -3,5 +3,7 @@
   "arrowParens": "avoid",
   "proseWrap": "never",
   "htmlWhitespaceSensitivity": "strict",
-  "endOfLine": "auto"
+  "endOfLine": "lf",
+  "singleQuote": true,
+  "semi": false
 }

@@ -13,8 +13,11 @@
     "test:all": "node tests/run.mjs all",
     "e2e": "node tests/run.mjs e2e",
     "test:file": "node --test",
-    "verify": "pnpm build && pnpm test && pnpm docs:check",
-    "verify:full": "pnpm build && pnpm test:all && pnpm docs:check && pnpm e2e",
+    "format": "prettier --write \"apps/*/src/**/*.ts\" \"packages/*/src/**/*.ts\" \"eslint.config.mjs\"",
+    "format:check": "prettier --check \"apps/*/src/**/*.ts\" \"packages/*/src/**/*.ts\" \"eslint.config.mjs\"",
+    "lint": "eslint \"apps/*/src/**/*.ts\" \"packages/*/src/**/*.ts\"",
+    "verify": "pnpm build && pnpm lint && pnpm format:check && pnpm test && pnpm docs:check",
+    "verify:full": "pnpm build && pnpm lint && pnpm format:check && pnpm test:all && pnpm docs:check && pnpm e2e",
     "locus": "node apps/cli/lib/index.js",
     "locus:register": "node scripts/local.mjs register",
     "locus:unregister": "node scripts/local.mjs unregister",
@@ -25,6 +28,9 @@
   },
   "devDependencies": {
     "@types/node": "^24.19.2",
+    "@typescript-eslint/parser": "^8.73.0",
+    "eslint": "^10.15.0",
+    "prettier": "^3.10.1",
     "typescript": "^5.9.3"
   }
 }
