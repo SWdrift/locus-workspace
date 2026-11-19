@@ -3,6 +3,7 @@ import { ComponentFailure } from '@locus/core/components'
 import { DomainFailure } from '@locus/core/invocation'
 import type { InvocationErrorCode, InvocationResult } from '@locus/core/invocation'
 import { SecurityFailure } from '@locus/core/security'
+import { i18n } from '../i18n.ts'
 import { jsonText, processOutput, resolveOutputOptions } from './output.ts'
 import type { OutputFlags, OutputOptions, OutputStreams } from './output.ts'
 
@@ -25,7 +26,7 @@ function commandMessage(text: string): string {
 
 /** 用法拒绝与调用失败共用行格式，并保持先于 Commander usage 输出的位置。 */
 export function usageErrorText(text: string): string {
-  return `Locus 用法失败 [${USAGE_ERROR_CODE}]：${commandMessage(text)}\n`
+  return `${i18n.t('diagnostic.usage', { code: USAGE_ERROR_CODE, text: commandMessage(text) })}\n`
 }
 
 /** 命名命令抛出可分类失败；URL 动词保留完整调用信封。 */
@@ -64,18 +65,26 @@ export function reportError(error: unknown, flags: OutputFlags, streams: OutputS
       message: error.message,
       ...(reason === undefined ? {} : { details: { reason } }),
     })
-    const label =
+    const category =
       error instanceof SecurityFailure
-        ? '安全操作失败'
+        ? i18n.t('diagnostic.category.security')
         : error instanceof DomainFailure
-          ? '组件 operation 失败'
-          : '组件操作失败'
-    streams.writeErr(`Locus ${label} [${error.code}]：${error.message}${reason === undefined ? '' : `（${reason}）`}\n`)
+          ? i18n.t('diagnostic.category.domain')
+          : i18n.t('diagnostic.category.component')
+    const suffix = reason === undefined ? '' : i18n.t('diagnostic.reason', { reason })
+    streams.writeErr(
+      `${i18n.t('diagnostic.category-line', {
+        category,
+        code: error.code,
+        message: error.message,
+        suffix,
+      })}\n`,
+    )
     return 2
   }
   const message = error instanceof Error ? error.message : String(error)
   writeFailureJson(streams, output, { code: UNEXPECTED_ERROR_CODE, message })
-  streams.writeErr(`Locus 操作失败 [${UNEXPECTED_ERROR_CODE}]：${message}\n`)
+  streams.writeErr(`${i18n.t('diagnostic.unexpected', { code: UNEXPECTED_ERROR_CODE, message })}\n`)
   return 2
 }
 
@@ -109,5 +118,9 @@ export function invocationErrorText(error: {
 }): string {
   const stack = error.details?.stack
   const frames = Array.isArray(stack) ? stack.filter((line): line is string => typeof line === 'string') : []
-  return `Locus 调用失败 [${error.code}]：${error.message}\n${frames.map(line => `${line}\n`).join('')}`
+  return i18n.t('diagnostic.invocation', {
+    code: error.code,
+    message: error.message,
+    frames: frames.map(line => `${line}\n`).join(''),
+  })
 }

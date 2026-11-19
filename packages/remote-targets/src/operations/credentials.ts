@@ -2,6 +2,7 @@ import { defineCredential, defineOperation, InvocationFailure } from '@locus/cor
 import type { CredentialDefinition, OperationContext } from '@locus/core/invocation'
 import { targetBinding } from '../config.ts'
 import { assertUnencryptedPrivateKey } from '../credentials.ts'
+import { i18n } from '../i18n.ts'
 import { credentialUpdateInputSchema, credentialUpdateResultSchema, remoteTargetSchema } from '../schemas.ts'
 import type { RemoteCredentialMaterial, RemoteCredentialSlot, RemoteTarget } from '../types.ts'
 import { RemoteTargetsFailure } from '../types.ts'
@@ -30,21 +31,23 @@ export const credentialFields = Object.freeze({
     tty: true,
     file: true,
     required: false,
-    description:
-      '按认证方式提供 privateKey/password 之一：认证方式为 private-key 时必须提供未加密 SSH 私钥文本；仅接受可信输入。',
+    description: i18n.t('field.private-key'),
   }),
   password: Object.freeze({
     secret: true,
     tty: true,
     file: true,
     required: false,
-    description: '按认证方式提供 privateKey/password 之一：认证方式为 password 时必须提供 SSH 密码；仅接受可信输入。',
+    description: i18n.t('field.password'),
   }),
 })
 
 export function slotOf(target: RemoteTarget): RemoteCredentialSlot {
   if (target.identity.auth.method === 'key' || target.identity.auth.path !== undefined) {
-    throw new RemoteTargetsFailure('migration-required', `目标 ${target.id} 仍使用旧文件认证；需要显式迁移`)
+    throw new RemoteTargetsFailure(
+      'migration-required',
+      i18n.t('operation.credential.use-legacy', { target: target.id }),
+    )
   }
   return target.identity.auth.method === 'password' ? 'ssh-password' : 'ssh-private-key'
 }
@@ -55,7 +58,7 @@ export function secretOf(
 ): string {
   const secret = slot === 'ssh-password' ? input.password : input.privateKey
   if (secret === undefined || secret.length === 0) {
-    throw new InvocationFailure('invalid-argument', `缺少 ${slot} 输入；秘密只能经可信 Host 收集`)
+    throw new InvocationFailure('invalid-argument', i18n.t('operation.credential.secret-missing', { slot }))
   }
   return secret
 }
@@ -87,8 +90,7 @@ function credentialOf(slot: RemoteCredentialSlot): CredentialDefinition {
 
 export const updateCredential = defineOperation({
   id: 'rt.target.credential.update',
-  summary:
-    '更新路径 id 指定目标的绑定凭据（支持完整 ID、唯一 ID 前缀或唯一标签）；JSON Body 必填 method（private-key 或 password，必须与目标一致），对应秘密由可信输入提供，无 query；返回 target、method 与 updated:true。',
+  summary: i18n.t('operation.credential.update'),
   method: 'POST',
   scheme: 'rt',
   authority: 'targets',
@@ -101,7 +103,7 @@ export const updateCredential = defineOperation({
     withService(context, async service => {
       const target = service.show(context.url.pathParams.id ?? '')
       if (target.identity.auth.method !== input.method) {
-        throw new InvocationFailure('invalid-argument', '目标认证方式与 method 不一致')
+        throw new InvocationFailure('invalid-argument', i18n.t('operation.credential.method-mismatch'))
       }
       const slot = slotOf(target)
       await writeCredential(context, target, slot, secretOf(input, slot))
@@ -112,8 +114,7 @@ export const updateCredential = defineOperation({
 
 export const migrate = defineOperation({
   id: 'rt.target.migrate',
-  summary:
-    '将路径 id 指定目标的旧文件认证迁移为 Core 凭据绑定（支持完整 ID、唯一 ID 前缀或唯一标签）；JSON Body 必填 method（旧 key 对应 private-key，旧 password 对应 password），对应秘密由可信输入提供，无 query；返回迁移后的目标配置，不删除旧凭据文件。',
+  summary: i18n.t('operation.credential.migrate'),
   method: 'POST',
   scheme: 'rt',
   authority: 'targets',
@@ -127,7 +128,7 @@ export const migrate = defineOperation({
       const legacy = service.credentialMigration(context.url.pathParams.id ?? '')
       const slot: RemoteCredentialSlot = input.method === 'password' ? 'ssh-password' : 'ssh-private-key'
       if ((legacy.method === 'key') !== (slot === 'ssh-private-key')) {
-        throw new InvocationFailure('invalid-argument', '迁移 method 必须与旧认证方式一致')
+        throw new InvocationFailure('invalid-argument', i18n.t('operation.credential.migrate-method'))
       }
       const target = service.show(context.url.pathParams.id ?? '')
       await writeCredential(context, target, slot, secretOf(input, slot))

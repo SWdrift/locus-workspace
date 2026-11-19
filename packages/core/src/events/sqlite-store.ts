@@ -2,6 +2,7 @@ import { existsSync } from 'node:fs'
 import { join } from 'node:path'
 import type { DatabaseSync } from 'node:sqlite'
 import { openCoreDatabase } from '../storage/database.ts'
+import { i18n } from '../i18n/core.ts'
 import { InvocationFailure } from '../invocation/errors.ts'
 import type { EventFilter, EventStore, LocusEvent } from './types.ts'
 
@@ -24,7 +25,7 @@ export function createCoreEventStore(dataDirectory: string): EventStore {
   let disposed = false
 
   function assertActive(): void {
-    if (disposed) throw new InvocationFailure('unavailable', '事件存储已释放')
+    if (disposed) throw new InvocationFailure('unavailable', i18n.t('event.store-disposed'))
   }
 
   function connection(): DatabaseSync {

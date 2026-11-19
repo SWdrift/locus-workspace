@@ -1,6 +1,7 @@
 import { mkdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
+import { i18n } from '../i18n/core.ts'
 import { COMPONENT_SCHEMA } from './schema/component.ts'
 import { EVENTS_SCHEMA } from './schema/events.ts'
 import { SECURITY_SCHEMA } from './schema/security.ts'
@@ -109,24 +110,27 @@ export function openCoreDatabase(dataDirectory: string): DatabaseSync {
     const version = database.prepare('PRAGMA user_version').get()?.user_version
     if (version === 0) {
       if (database.prepare('SELECT name FROM sqlite_schema').all().length !== 0) {
-        throw new Error('仅初始化新空库，拒绝修改已有数据库结构')
+        throw new Error(i18n.t('storage.init-empty-only'))
       }
       database.exec('PRAGMA journal_mode = DELETE')
       database.exec('PRAGMA synchronous = FULL')
       transaction(database, true, () => {
         const current = database!.prepare('PRAGMA user_version').get()?.user_version
         if (current !== 0 || database!.prepare('SELECT name FROM sqlite_schema').all().length !== 0) {
-          throw new Error(`拒绝初始化非空或未知版本数据库：${String(current)}`)
+          throw new Error(i18n.t('storage.init-version-refused', { version: String(current) }))
         }
         database!.exec(`${SCHEMA}PRAGMA user_version = ${CORE_SCHEMA_VERSION};`)
       })
     } else if (version !== CORE_SCHEMA_VERSION) {
       throw new Error(
-        `数据库结构版本 ${String(version)} 与当前 ${CORE_SCHEMA_VERSION} 不兼容；开发阶段不迁移旧结构，请备份后重建数据目录`,
+        i18n.t('storage.version-mismatch', {
+          version: String(version),
+          current: CORE_SCHEMA_VERSION,
+        }),
       )
     }
     if (database.prepare('PRAGMA journal_mode = DELETE').get()?.journal_mode !== 'delete') {
-      throw new Error('数据库无法采用 journal_mode=DELETE')
+      throw new Error(i18n.t('storage.journal-mode'))
     }
     database.exec('PRAGMA synchronous = FULL')
     requireCurrentTables(database)
@@ -134,7 +138,7 @@ export function openCoreDatabase(dataDirectory: string): DatabaseSync {
   } catch (error) {
     database?.close()
     const detail = error instanceof Error ? error.message : String(error)
-    throw new Error(`无法打开 Core 数据库 ${filename}：${detail}`, { cause: error })
+    throw new Error(i18n.t('storage.open-failed', { file: filename, detail }), { cause: error })
   }
 }
 
@@ -149,7 +153,7 @@ function transaction<T>(database: DatabaseSync, write: boolean, action: () => T)
     try {
       database.exec('ROLLBACK')
     } catch (rollbackError) {
-      throw new AggregateError([error, rollbackError], '数据库事务失败，且无法回滚')
+      throw new AggregateError([error, rollbackError], i18n.t('storage.transaction-failed'))
     }
     throw error
   }
@@ -158,10 +162,14 @@ function transaction<T>(database: DatabaseSync, write: boolean, action: () => T)
 function checkIntegrity(database: DatabaseSync): void {
   const rows = database.prepare('PRAGMA integrity_check').all()
   if (rows.length !== 1 || rows[0]?.integrity_check !== 'ok') {
-    throw new Error(`数据库完整性检查失败：${rows.map(row => row.integrity_check).join('; ')}`)
+    throw new Error(
+      i18n.t('storage.integrity-failed', {
+        detail: rows.map(row => row.integrity_check).join('; '),
+      }),
+    )
   }
   if (database.prepare('PRAGMA foreign_key_check').all().length !== 0) {
-    throw new Error('数据库外键完整性检查失败')
+    throw new Error(i18n.t('storage.foreign-key-failed'))
   }
 }
 
@@ -176,7 +184,7 @@ function requireTable(
   integerColumns: Readonly<Record<string, true>> = {},
 ): void {
   if (!tableExists(database, name)) {
-    throw new Error(`数据库缺少 ${name} 表，拒绝在不完整结构上继续`)
+    throw new Error(i18n.t('storage.table-missing', { table: name }))
   }
   const columns = database.prepare(`PRAGMA table_info(${name})`).all()
   if (
@@ -187,7 +195,7 @@ function requireTable(
         column.type !== (integerColumns[String(column.name)] === true ? 'INTEGER' : 'TEXT'),
     )
   ) {
-    throw new Error(`数据库 ${name} 表结构冲突，拒绝使用未知结构`)
+    throw new Error(i18n.t('storage.table-conflict', { table: name }))
   }
 }
 

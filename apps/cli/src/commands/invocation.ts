@@ -13,6 +13,7 @@ import type {
 import { SecurityFailure } from '@locus/core/security'
 import { readTrustedFieldFile } from '../host/input-file.ts'
 import type { CliSecurityUI } from '../host/terminal.ts'
+import { i18n } from '../i18n.ts'
 import { exitCodeFor, invocationErrorText } from '../output/errors.ts'
 import { emitJson, outputOptions, writeErr, writeOut } from '../output/output.ts'
 import type { WithCliApi } from './shared.ts'
@@ -46,11 +47,11 @@ export function registerInvocationCommands(program: Command, context: Invocation
   addInvocationOptions(program)
   const invokeUris: InvokeUris = async (method, uris, command) => {
     if (method !== 'GET' && uris.length > 1) {
-      command.error('只有 GET 支持多个 URI', { exitCode: 1 })
+      command.error(i18n.t('usage.get-multiple'), { exitCode: 1 })
     }
     const { body, contentType } = readBodyOptions(command)
     if (method === 'GET' && body !== undefined) {
-      command.error('GET 不接受 Body', { exitCode: 1 })
+      command.error(i18n.t('usage.get-body'), { exitCode: 1 })
     }
     const requests: readonly InvocationRequest[] = uris.map(uri => ({
       method,
@@ -85,7 +86,7 @@ export function registerInvocationCommands(program: Command, context: Invocation
   }
   for (const method of LOCUS_METHODS) {
     const verb = addInvocationOptions(
-      program.command(`${method.toLowerCase()} <uri...>`).description(`按 URL 直接调用 operation（${method}）`),
+      program.command(`${method.toLowerCase()} <uri...>`).description(i18n.t('command.method.description', { method })),
     )
     verb.action((uris: string[]) => invokeUris(method, uris, verb))
   }
@@ -94,11 +95,11 @@ export function registerInvocationCommands(program: Command, context: Invocation
 
 function addInvocationOptions(command: Command): Command {
   return command
-    .option('-d, --data <json>', 'JSON Body')
-    .option('-f, --file <path>', '从文件或 - 读取 Body')
-    .option('--content-type <type>', 'Body 媒体类型')
-    .option('--field-file <field=path>', '从 UTF-8 普通文件读取声明允许 file 的 tty 字段；可重复', collectValues)
-    .option('--prompt <field>', '显式采集一个可选 tty 字段；可重复', collectValues)
+    .option('-d, --data <json>', i18n.t('option.data'))
+    .option('-f, --file <path>', i18n.t('option.file'))
+    .option('--content-type <type>', i18n.t('option.content-type'))
+    .option('--field-file <field=path>', i18n.t('option.field-file'), collectValues)
+    .option('--prompt <field>', i18n.t('option.prompt'), collectValues)
 }
 
 function collectValues(value: string, previous: string[] = []): string[] {
@@ -117,7 +118,7 @@ async function collectTrustedInputs(
   const files = parseFieldFiles(command, options.fieldFile ?? [])
   const prompts = parsePromptFields(command, options.prompt ?? [])
   for (const name of prompts) {
-    if (files.has(name)) command.error(`字段不能同时使用 --prompt 与 --field-file：${name}`, { exitCode: 1 })
+    if (files.has(name)) command.error(i18n.t('usage.field-source-conflict', { name }), { exitCode: 1 })
   }
   const fieldsByUri: readonly (InputFields | undefined)[] = uris.map(uri => {
     try {
@@ -129,15 +130,15 @@ async function collectTrustedInputs(
   for (const fields of fieldsByUri) {
     for (const name of files.keys()) {
       if (fields?.[name]?.tty !== true || fields[name]!.file !== true) {
-        command.error(`--field-file 只接受声明 tty: true 且 file: true 的字段：${name}`, { exitCode: 1 })
+        command.error(i18n.t('usage.field-file-trait', { name }), { exitCode: 1 })
       }
       if (hasBodyField(body, name)) {
-        command.error(`--field-file 不能与 Body 同时提供字段：${name}`, { exitCode: 1 })
+        command.error(i18n.t('usage.field-file-body', { name }), { exitCode: 1 })
       }
     }
     for (const name of prompts) {
       if (fields?.[name]?.tty !== true) {
-        command.error(`--prompt 只接受已声明的 tty 字段：${name}`, { exitCode: 1 })
+        command.error(i18n.t('usage.prompt-trait', { name }), { exitCode: 1 })
       }
     }
   }
@@ -146,7 +147,7 @@ async function collectTrustedInputs(
     try {
       fileValues[name] = readTrustedFieldFile(path)
     } catch (error) {
-      command.error(error instanceof Error ? error.message : '无法读取可信字段文件', { exitCode: 1 })
+      command.error(error instanceof Error ? error.message : i18n.t('usage.field-file-read'), { exitCode: 1 })
     }
   }
   const inputs: (TrustedInput | undefined)[] = []
@@ -158,7 +159,7 @@ async function collectTrustedInputs(
       if (field.required === false && !prompts.has(name)) continue
       if (!context.ui.interactive) throw new SecurityFailure('authentication-unavailable')
       const label = field.description === undefined ? name : `${name}（${field.description}）`
-      collected[name] = await context.ui.readSecret(`${label}（隐藏输入）：`)
+      collected[name] = await context.ui.readSecret(i18n.t('prompt.secret', { label }))
     }
     inputs.push(Object.keys(collected).length === 0 ? undefined : collected)
   }
@@ -170,10 +171,10 @@ function parseFieldFiles(command: Command, values: readonly string[]): ReadonlyM
   for (const value of values) {
     const separator = value.indexOf('=')
     if (separator <= 0 || separator === value.length - 1) {
-      command.error('--field-file 必须为 field=path', { exitCode: 1 })
+      command.error(i18n.t('usage.field-file-format'), { exitCode: 1 })
     }
     const name = value.slice(0, separator)
-    if (files.has(name)) command.error(`--field-file 字段重复：${name}`, { exitCode: 1 })
+    if (files.has(name)) command.error(i18n.t('usage.field-file-duplicate', { name }), { exitCode: 1 })
     files.set(name, value.slice(separator + 1))
   }
   return files
@@ -182,7 +183,7 @@ function parseFieldFiles(command: Command, values: readonly string[]): ReadonlyM
 function parsePromptFields(command: Command, values: readonly string[]): ReadonlySet<string> {
   const prompts = new Set<string>()
   for (const name of values) {
-    if (name.length === 0 || prompts.has(name)) command.error(`--prompt 字段为空或重复：${name}`, { exitCode: 1 })
+    if (name.length === 0 || prompts.has(name)) command.error(i18n.t('usage.prompt-invalid', { name }), { exitCode: 1 })
     prompts.add(name)
   }
   return prompts
@@ -195,7 +196,7 @@ function hasBodyField(body: unknown, name: string): boolean {
 function readBodyOptions(command: Command): InvocationBody {
   const options = command.optsWithGlobals<InvocationOptions>()
   if (options.data !== undefined && options.file !== undefined) {
-    command.error('--data 与 --file 不能同时使用', { exitCode: 1 })
+    command.error(i18n.t('usage.data-file-conflict'), { exitCode: 1 })
   }
   const raw =
     options.data ??
@@ -207,11 +208,11 @@ function readBodyOptions(command: Command): InvocationBody {
   if (raw === undefined) return { body: undefined, contentType: options.contentType }
   const type = (options.contentType ?? 'application/json').split(';', 1)[0]!.trim().toLowerCase()
   if (type !== 'application/json' && !type.endsWith('+json')) {
-    command.error('只接受 application/json 或 +json', { exitCode: 1 })
+    command.error(i18n.t('usage.media-type'), { exitCode: 1 })
   }
   try {
     return { body: JSON.parse(raw), contentType: options.contentType ?? 'application/json' }
   } catch {
-    command.error('Body 不是合法 JSON', { exitCode: 1 })
+    command.error(i18n.t('usage.body-json'), { exitCode: 1 })
   }
 }

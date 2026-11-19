@@ -4,6 +4,7 @@ import { homedir, tmpdir } from 'node:os'
 import { basename, delimiter, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import type { Mount, Workspace } from '@locus/core/workspaces'
+import { i18n } from './i18n.ts'
 import { jsonText, processOutput } from './output/output.ts'
 import type { OutputStreams } from './output/output.ts'
 
@@ -51,12 +52,12 @@ export function runWorkspaceShell(
 
     if (options.command === undefined) {
       const lines = [
-        `Locus shell：${workspace.name} (${workspace.id})`,
+        i18n.t('shell.banner', { name: workspace.name, id: workspace.id }),
         ...(context.mounts.length
-          ? context.mounts.map(mount => `  挂载 ${mount.name}  ${mount.path}`)
-          : ['  没有挂载，使用用户主目录']),
-        ...(context.missing.length ? [`  缺失：${context.missing.join(', ')}`] : []),
-        'locus 已加入 PATH；exit 退出。',
+          ? context.mounts.map(mount => `  ${i18n.t('shell.mount', { name: mount.name, path: mount.path })}`)
+          : [`  ${i18n.t('shell.no-mounts')}`]),
+        ...(context.missing.length ? [`  ${i18n.t('shell.missing', { paths: context.missing.join(', ') })}`] : []),
+        i18n.t('shell.ready'),
       ]
       output.writeErr(`${lines.join('\n')}\n`)
     }
@@ -67,7 +68,7 @@ export function runWorkspaceShell(
       stdio: 'inherit',
     })
     if (result.error) {
-      throw new Error(`无法启动 shell ${context.shell}：${result.error.message}`)
+      throw new Error(i18n.t('shell.spawn-failed', { shell: context.shell, detail: result.error.message }))
     }
     return result.status ?? 1
   } finally {

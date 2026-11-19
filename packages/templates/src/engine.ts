@@ -2,6 +2,7 @@ import { createHash, randomUUID } from 'node:crypto'
 import { lstat, mkdir, readFile, readdir, rename, rm, stat, writeFile } from 'node:fs/promises'
 import { basename, dirname, isAbsolute, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { i18n } from './i18n.ts'
 import { TemplateFailure } from './types.ts'
 import type {
   CreateTemplateOptions,
@@ -70,7 +71,7 @@ export async function createTemplate(
     const record = instanceRecord(summary, digest, parameters)
     await writeFile(join(temporary, '.template.json'), `${JSON.stringify(record, null, 2)}\n`, 'utf8')
     if (await pathExists(destination)) {
-      throw new TemplateFailure('destination-exists', `目标已存在：${destination}`)
+      throw new TemplateFailure('destination-exists', i18n.t('engine.destination-exists', { destination }))
     }
     await rename(temporary, destination)
     moved = true
@@ -110,7 +111,7 @@ function failureMessage(error: unknown): string {
 function optionalText(value: unknown, field: string): string | undefined {
   if (value === undefined) return undefined
   if (typeof value !== 'string' || value.trim().length === 0) {
-    throw new TemplateFailure('invalid-template', `${field} 必须是非空字符串`)
+    throw new TemplateFailure('invalid-template', i18n.t('engine.non-empty-string', { field }))
   }
   return value.trim()
 }
@@ -120,7 +121,7 @@ async function isDirectory(path: string): Promise<boolean> {
     return (await stat(path)).isDirectory()
   } catch (error) {
     if (isMissing(error)) return false
-    throw new TemplateFailure('io', `无法读取路径 ${path}：${failureMessage(error)}`)
+    throw new TemplateFailure('io', i18n.t('engine.read-path-failed', { path, detail: failureMessage(error) }))
   }
 }
 
@@ -130,7 +131,7 @@ async function pathExists(path: string): Promise<boolean> {
     return true
   } catch (error) {
     if (isMissing(error)) return false
-    throw new TemplateFailure('io', `无法读取路径 ${path}：${failureMessage(error)}`)
+    throw new TemplateFailure('io', i18n.t('engine.read-path-failed', { path, detail: failureMessage(error) }))
   }
 }
 
@@ -141,21 +142,27 @@ async function readManifest(directory: string): Promise<TemplateManifest> {
     text = await readFile(filename, 'utf8')
   } catch (error) {
     if (isMissing(error)) return {}
-    throw new TemplateFailure('io', `无法读取 ${filename}：${failureMessage(error)}`)
+    throw new TemplateFailure(
+      'io',
+      i18n.t('engine.read-file-failed', { file: filename, detail: failureMessage(error) }),
+    )
   }
   let value: unknown
   try {
     value = JSON.parse(text)
   } catch (error) {
-    throw new TemplateFailure('invalid-template', `${filename} 不是有效 JSON：${failureMessage(error)}`)
+    throw new TemplateFailure(
+      'invalid-template',
+      i18n.t('engine.invalid-json', { file: filename, detail: failureMessage(error) }),
+    )
   }
   if (typeof value !== 'object' || value === null || Array.isArray(value)) {
-    throw new TemplateFailure('invalid-template', `${filename} 必须是 JSON 对象`)
+    throw new TemplateFailure('invalid-template', i18n.t('engine.json-object-required', { file: filename }))
   }
   const record = value as Record<string, unknown>
   const id = optionalText(record.id, 'template.json id')
   if (id !== undefined && !/^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/.test(id)) {
-    throw new TemplateFailure('invalid-template', 'template.json id 只允许字母、数字、点、下划线和短横线，最长 64 字符')
+    throw new TemplateFailure('invalid-template', i18n.t('engine.id-invalid'))
   }
   const name = optionalText(record.name, 'template.json name')
   const version = optionalText(record.version, 'template.json version')
@@ -188,7 +195,13 @@ async function listBuiltinTemplates(builtinDirectory: string): Promise<readonly 
     entries = await readdir(builtinDirectory, { withFileTypes: true })
   } catch (error) {
     if (isMissing(error)) return []
-    throw new TemplateFailure('io', `无法读取内置模板目录 ${builtinDirectory}：${failureMessage(error)}`)
+    throw new TemplateFailure(
+      'io',
+      i18n.t('engine.read-builtin-dir-failed', {
+        directory: builtinDirectory,
+        detail: failureMessage(error),
+      }),
+    )
   }
   const summaries: TemplateSummary[] = []
   const seen = new Set<string>()
@@ -196,7 +209,7 @@ async function listBuiltinTemplates(builtinDirectory: string): Promise<readonly 
     if (!entry.isDirectory()) continue
     const summary = await summaryFromDirectory(join(builtinDirectory, entry.name), 'builtin')
     if (seen.has(summary.id)) {
-      throw new TemplateFailure('invalid-template', `内置模板 ID 重复：${summary.id}`)
+      throw new TemplateFailure('invalid-template', i18n.t('engine.duplicate-builtin-id', { id: summary.id }))
     }
     seen.add(summary.id)
     summaries.push(summary)
@@ -222,7 +235,7 @@ async function resolveTemplate(
       summary: await summaryFromDirectory(bundledDirectory, 'builtin'),
     }
   }
-  throw new TemplateFailure('not-found', `找不到模板：${template}`)
+  throw new TemplateFailure('not-found', i18n.t('engine.template-not-found', { template }))
 }
 
 async function collectSource(directory: string): Promise<{
@@ -242,7 +255,7 @@ async function collectSource(directory: string): Promise<{
       const absolutePath = join(absoluteDirectory, child.name)
       const info = await lstat(absolutePath)
       if (info.isSymbolicLink()) {
-        throw new TemplateFailure('symlink', `模板包含符号链接：${relativePath}`)
+        throw new TemplateFailure('symlink', i18n.t('engine.symlink', { path: relativePath }))
       }
       if (info.isDirectory()) {
         hash.update(`dir\0${relativePath}\0`)
@@ -257,7 +270,7 @@ async function collectSource(directory: string): Promise<{
         entries.push({ kind: 'file', relative: relativePath, absolute: absolutePath, bytes })
         continue
       }
-      throw new TemplateFailure('unsupported-entry', `模板包含不支持的文件类型：${relativePath}`)
+      throw new TemplateFailure('unsupported-entry', i18n.t('engine.unsupported-entry', { path: relativePath }))
     }
   }
 
@@ -265,21 +278,21 @@ async function collectSource(directory: string): Promise<{
     await visit('', directory)
   } catch (error) {
     if (error instanceof TemplateFailure) throw error
-    throw new TemplateFailure('io', `无法读取模板 ${directory}：${failureMessage(error)}`)
+    throw new TemplateFailure('io', i18n.t('engine.read-template-failed', { directory, detail: failureMessage(error) }))
   }
   return { entries, digest: `sha256:${hash.digest('hex')}` }
 }
 
 async function validateDestination(destination: string): Promise<string> {
   if (!isAbsolute(destination)) {
-    throw new TemplateFailure('invalid-destination', '目标必须是绝对路径')
+    throw new TemplateFailure('invalid-destination', i18n.t('engine.destination-absolute'))
   }
   const resolved = resolve(destination)
   if (!(await isDirectory(dirname(resolved)))) {
-    throw new TemplateFailure('invalid-destination', `目标父目录不存在：${dirname(resolved)}`)
+    throw new TemplateFailure('invalid-destination', i18n.t('engine.parent-missing', { directory: dirname(resolved) }))
   }
   if (await pathExists(resolved)) {
-    throw new TemplateFailure('destination-exists', `目标已存在：${resolved}`)
+    throw new TemplateFailure('destination-exists', i18n.t('engine.destination-exists', { destination: resolved }))
   }
   return resolved
 }

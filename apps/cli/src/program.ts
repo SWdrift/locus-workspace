@@ -11,6 +11,7 @@ import type { CallOperation, WithCliApi } from './commands/shared.ts'
 import { createCliApi } from './host/api.ts'
 import { createTerminalSecurityUI } from './host/terminal.ts'
 import type { CliSecurityUI } from './host/terminal.ts'
+import { i18n } from './i18n.ts'
 import { unwrap, usageErrorText } from './output/errors.ts'
 import { emit } from './output/output.ts'
 
@@ -30,7 +31,7 @@ export function createProgram(locus: LocusCore, options: CreateProgramOptions = 
       .name('locus')
       .exitOverride()
       .configureOutput({ outputError: (text, write) => write(usageErrorText(text)) })
-      .description('Locus 本地工作空间：资源 URL 与 operation。')
+      .description(i18n.t('command.description'))
       .usage('[options] [get|post|put|patch|delete] <uri...> | [command]')
       .addHelpCommand(false)
       .showHelpAfterError(),
@@ -62,13 +63,13 @@ export function createProgram(locus: LocusCore, options: CreateProgramOptions = 
     }
     for (const uri of uris) {
       if (!/^[a-z][a-z0-9+.-]*:\/\//i.test(uri)) {
-        program.error(`未知命令：${uri}`, { exitCode: 1 })
+        program.error(i18n.t('usage.unknown-command', { uri }), { exitCode: 1 })
       }
     }
     await invokeUris('GET', uris, program)
   })
 
-  const version = program.command('version').description('读取 Locus 产品版本')
+  const version = program.command('version').description(i18n.t('command.version.description'))
   version.action(() => {
     emit(version, locus.info, locus.info.version)
   })
@@ -92,7 +93,7 @@ function createApiScope(
     },
   }
   return async action => {
-    if (options.host === undefined) throw new Error('缺少可信 Security Host')
+    if (options.host === undefined) throw new Error(i18n.t('error.host-missing'))
     const api = createCliApi({
       host: options.host,
       router: locus.router,

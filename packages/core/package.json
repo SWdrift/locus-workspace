@@ -29,6 +29,10 @@
       "types": "./lib/events/index.d.ts",
       "default": "./lib/events/index.js"
     },
+    "./i18n": {
+      "types": "./lib/i18n/index.d.ts",
+      "default": "./lib/i18n/index.js"
+    },
     "./storage": {
       "types": "./lib/storage/index.d.ts",
       "default": "./lib/storage/index.js"

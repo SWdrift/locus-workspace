@@ -2,6 +2,7 @@ import { defineOperation, InvocationFailure } from '@locus/core/invocation'
 import type { InvocationErrorCode } from '@locus/core/invocation'
 import { z } from 'zod'
 import { createTemplateService } from './engine.ts'
+import { i18n } from './i18n.ts'
 import { createTemplateResultSchema, templateSummarySchema } from './schemas.ts'
 import { TemplateFailure } from './types.ts'
 import type { TemplateFailureCode } from './types.ts'
@@ -32,8 +33,7 @@ async function atOperationBoundary<T>(consume: () => Promise<T>): Promise<T> {
 
 export const listTemplates = defineOperation({
   id: 'template.templates.list',
-  summary:
-    '列出可用内置模板的摘要数组（id、name、sourceKind 及可选 version/description）；无路径参数、query 或 JSON Body。',
+  summary: i18n.t('operation.templates.list'),
   method: 'GET',
   scheme: 'template',
   authority: 'templates',
@@ -46,8 +46,7 @@ export const listTemplates = defineOperation({
 
 export const createTemplateInstance = defineOperation({
   id: 'template.templates.create',
-  summary:
-    '从路径 id 指定的内置模板或本机模板目录创建实例；JSON Body 必填 destination（目标绝对路径），可选 dryRun:true 只预检不写入，无 query；返回模板摘要、目标路径、摘要 digest、文件/目录清单与实例记录路径 .template.json。',
+  summary: i18n.t('operation.templates.create'),
   method: 'POST',
   scheme: 'template',
   authority: 'templates',
@@ -61,7 +60,7 @@ export const createTemplateInstance = defineOperation({
   run: (_query, input, context) =>
     atOperationBoundary(async () => {
       const id = context.url.pathParams.id
-      if (id === undefined) throw new InvocationFailure('invalid-argument', '缺少路径参数 id')
+      if (id === undefined) throw new InvocationFailure('invalid-argument', i18n.t('operation.missing-id'))
       return createTemplateService().create(id, {
         destination: input.destination,
         ...(input.dryRun === true ? { dryRun: true } : {}),

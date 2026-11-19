@@ -1,6 +1,7 @@
 import type { ComponentFailureCode } from '../components/errors.ts'
 import { isFailure } from '../failure.ts'
 import type { Failure, FailureKind } from '../failure.ts'
+import { i18n } from '../i18n/core.ts'
 import type { SecurityFailureCode } from '../security/errors.ts'
 import { WORKSPACE_FAILURE_CODES } from '../workspaces/errors.ts'
 import type { WorkspaceFailureCode } from '../workspaces/errors.ts'
@@ -115,7 +116,7 @@ function withStack(
 function fallback(failure: Failure, debug: boolean): FailurePayload {
   return {
     code: 'internal',
-    message: '内部操作失败',
+    message: i18n.t('invocation.internal'),
     details: withStack({ domain: failure.code }, failure, debug),
   }
 }
@@ -169,7 +170,7 @@ export function toFailure(error: unknown, debug = false): FailurePayload {
     const stack = debug ? debugFrames(error) : undefined
     return {
       code: 'internal',
-      message: '内部操作失败',
+      message: i18n.t('invocation.internal'),
       details: stack === undefined ? undefined : { stack },
     }
   }

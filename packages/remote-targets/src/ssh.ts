@@ -1,5 +1,6 @@
 import { createCommandRunner } from './runner.ts'
 import { resolve, sep } from 'node:path'
+import { i18n } from './i18n.ts'
 import { RemoteTargetsFailure } from './types.ts'
 import type { CommandRunner, RemoteTarget } from './types.ts'
 
@@ -13,7 +14,7 @@ export function resolveUnderRoot(root: string, relative: string): string {
   const base = resolve(root)
   const candidate = resolve(base, relative)
   if (candidate !== base && !candidate.startsWith(base + sep)) {
-    throw new RemoteTargetsFailure('invalid-spec', `路径超出目标根目录：${relative}`)
+    throw new RemoteTargetsFailure('invalid-spec', i18n.t('ssh.path-outside-root', { relative }))
   }
   return candidate
 }
@@ -46,10 +47,7 @@ export function buildSshInvocation(
   if (identity.auth.method === 'password') {
     const fingerprint = connectivity.trust?.fingerprint
     if (fingerprint === undefined) {
-      throw new RemoteTargetsFailure(
-        'invalid-spec',
-        'password 认证必须提供 connectivity.trust.fingerprint（Plink 主机密钥）',
-      )
+      throw new RemoteTargetsFailure('invalid-spec', i18n.t('ssh.password-fingerprint'))
     }
     const args = [
       '-ssh',

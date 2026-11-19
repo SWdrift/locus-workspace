@@ -43,6 +43,7 @@
 
 ```sh
 locus --help
+locus help
 locus help rt://
 locus help locus://workspaces
 locus --json get locus://operations
@@ -53,7 +54,7 @@ locus --json locus://info
 | --- | --- |
 | get/post/put/patch/delete <uri...> | 显式方法调用；多个 URL 只允许 GET |
 | <uri> | 默认 GET，不推断写操作 |
-| help [uri] | 从当前注册声明读取帮助，不执行 handler |
+| help [uri] | 无参数列出已注册域与路由数；给定 scheme:// 或资源 URL 时平铺显示声明；不执行 handler |
 | --data <json> / --file <path或-> | 普通 JSON Body，互斥；- 从 stdin 读取 |
 | --field-file <field=path> | 可重复；只用于 tty 且 file:true 的可信字段 |
 | --prompt <field> | 可重复；显式选择可选的 TTY 字段 |

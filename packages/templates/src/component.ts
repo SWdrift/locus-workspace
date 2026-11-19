@@ -1,19 +1,15 @@
 import { defineComponent } from '@locus/core/components'
+import { i18n } from './i18n.ts'
 import { createTemplateInstance, listTemplates } from './operations.ts'
 
 /** 模板组件的定义；首次访问组件服务时物化到数据目录。 */
 const template = defineComponent({
   id: 'template',
   version: '2',
-  name: '项目模板',
-  summary: '复制模板文件夹并记录来源',
+  name: i18n.t('component.name'),
+  summary: i18n.t('component.summary'),
   kind: 'locus',
-  info: {
-    text: [
-      '复制内置或本地模板文件夹，并写入 .template.json 记录来源与 digest。',
-      '目标目录必须不存在；不执行模板脚本。',
-    ].join('\n'),
-  },
+  info: { text: i18n.t('component.info') },
   operations: [listTemplates, createTemplateInstance],
 })
 

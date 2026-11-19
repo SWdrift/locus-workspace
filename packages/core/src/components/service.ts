@@ -13,6 +13,7 @@ import {
 import { connect } from 'node:net'
 import { basename, dirname, join, resolve, sep } from 'node:path'
 import { stringify } from 'yaml'
+import { i18n } from '../i18n/core.ts'
 import { ComponentFailure } from './errors.ts'
 import { parseComponent } from './parse.ts'
 import { createComponentRunner } from './runner.ts'
@@ -67,10 +68,10 @@ export function createComponentService(options: ComponentServiceOptions): Compon
     const spec = parseComponent(definition, { allowContract: true })
     requireRegistrableId(spec.id)
     if (spec.kind !== 'locus') {
-      throw new ComponentFailure('invalid-spec', `包组件必须是 locus：${spec.id}`)
+      throw new ComponentFailure('invalid-spec', i18n.t('component.package-kind-mismatch', { id: spec.id }))
     }
     if (packageIds.has(spec.id)) {
-      throw new ComponentFailure('invalid-spec', `重复的包组件 id：${spec.id}`)
+      throw new ComponentFailure('invalid-spec', i18n.t('component.package-id-duplicate', { id: spec.id }))
     }
     packageIds.add(spec.id)
     packageDefinitions.push(spec)
@@ -78,7 +79,7 @@ export function createComponentService(options: ComponentServiceOptions): Compon
   let disposed = false
 
   function assertActive(): void {
-    if (disposed) throw new Error('Locus Core 已释放，不能继续使用')
+    if (disposed) throw new Error(i18n.t('component.released'))
   }
 
   function locate(id: string): DescriptorLocation | { readonly conflict: string } | undefined {
@@ -87,7 +88,7 @@ export function createComponentService(options: ComponentServiceOptions): Compon
     const hasFile = existsSync(file)
     const hasFolder = existsSync(folder)
     if (hasFile && hasFolder) {
-      return { conflict: `同时存在 ${file} 与 ${folder}；请保留一种形态` }
+      return { conflict: i18n.t('component.location-conflict', { file, folder }) }
     }
     if (hasFile) return { path: file, form: 'file' }
     if (hasFolder) return { path: folder, form: 'folder' }
@@ -101,7 +102,7 @@ export function createComponentService(options: ComponentServiceOptions): Compon
       writeFileSync(temporary, stringify(serialize(spec)), 'utf8')
       renameSync(temporary, path)
     } catch (error) {
-      throw new ComponentFailure('io', `无法写入组件定义 ${path}：${messageOf(error)}`)
+      throw new ComponentFailure('io', i18n.t('component.write-definition-failed', { path, detail: messageOf(error) }))
     }
   }
 
@@ -110,7 +111,7 @@ export function createComponentService(options: ComponentServiceOptions): Compon
     try {
       text = readFileSync(path, 'utf8')
     } catch (error) {
-      throw new ComponentFailure('io', `无法读取组件定义 ${path}：${messageOf(error)}`)
+      throw new ComponentFailure('io', i18n.t('component.read-definition-failed', { path, detail: messageOf(error) }))
     }
     const spec = parseComponent(text)
     requireRegistrableId(spec.id)
@@ -134,7 +135,7 @@ export function createComponentService(options: ComponentServiceOptions): Compon
         path: join(componentsRoot, `${spec.id}.yaml`),
         codeVersion: spec.version,
         needsUpgrade: false,
-        error: '定义文件缺失',
+        error: i18n.t('component.definition-file-missing'),
       }
     }
     if ('conflict' in location) {
@@ -150,7 +151,10 @@ export function createComponentService(options: ComponentServiceOptions): Compon
     try {
       const parsed = readDefinition(location.path)
       if (parsed.id !== spec.id) {
-        throw new ComponentFailure('invalid-definition', `定义 id 与文件不一致：${parsed.id} != ${spec.id}`)
+        throw new ComponentFailure(
+          'invalid-definition',
+          i18n.t('component.definition-id-mismatch', { actual: parsed.id, expected: spec.id }),
+        )
       }
       // YAML 只保存描述性元数据；operation 与凭据字段来自包代码，不写回可编辑文件。
       const merged = parseComponent(
@@ -203,7 +207,7 @@ export function createComponentService(options: ComponentServiceOptions): Compon
         source: 'dynamic',
         path: join(componentsRoot, `${id}.yaml`),
         needsUpgrade: false,
-        error: '定义文件缺失',
+        error: i18n.t('component.definition-file-missing'),
       }
     }
     if ('conflict' in location) {
@@ -212,7 +216,10 @@ export function createComponentService(options: ComponentServiceOptions): Compon
     try {
       const parsed = readDefinition(location.path)
       if (parsed.id !== id) {
-        throw new ComponentFailure('invalid-definition', `定义 id 与文件不一致：${parsed.id} != ${id}`)
+        throw new ComponentFailure(
+          'invalid-definition',
+          i18n.t('component.definition-id-mismatch', { actual: parsed.id, expected: id }),
+        )
       }
       return { id, source: 'dynamic', path: location.path, spec: parsed, needsUpgrade: false }
     } catch (error) {
@@ -230,10 +237,13 @@ export function createComponentService(options: ComponentServiceOptions): Compon
   function entryById(id: string): RegistryEntry {
     const found = entries().find(entry => entry.id === id)
     if (found === undefined) {
-      throw new ComponentFailure('component-not-found', `找不到组件：${id}`)
+      throw new ComponentFailure('component-not-found', i18n.t('component.not-found', { id }))
     }
     if (found.error !== undefined) {
-      throw new ComponentFailure('invalid-definition', `${found.path}：${found.error}`)
+      throw new ComponentFailure(
+        'invalid-definition',
+        i18n.t('component.definition-problem', { path: found.path, detail: found.error }),
+      )
     }
     return found
   }
@@ -243,7 +253,7 @@ export function createComponentService(options: ComponentServiceOptions): Compon
     const target = resolve(dataDirectory, spec.config)
     const base = resolve(dataDirectory)
     if (target !== base && !target.startsWith(base + sep)) {
-      throw new ComponentFailure('invalid-spec', `config 路径超出数据目录：${spec.config}`)
+      throw new ComponentFailure('invalid-spec', i18n.t('component.config-outside-data', { config: spec.config }))
     }
     return target
   }
@@ -267,7 +277,7 @@ export function createComponentService(options: ComponentServiceOptions): Compon
     const requires = spec.requires ?? []
     if (requires.length === 0) return undefined
     if (seen.has(entry.id)) {
-      return { state: 'abnormal', detail: '依赖循环', source: 'derived' }
+      return { state: 'abnormal', detail: i18n.t('component.dependency-cycle'), source: 'derived' }
     }
     const nextSeen = new Set(seen)
     nextSeen.add(entry.id)
@@ -279,31 +289,35 @@ export function createComponentService(options: ComponentServiceOptions): Compon
       if (target === undefined) {
         return {
           state: null,
-          detail: `未登记依赖：${dependency}`,
+          detail: i18n.t('component.dependency-missing', { dependency }),
           source: 'derived',
         }
       }
       if (target.spec === undefined || target.error !== undefined) {
         return {
           state: null,
-          detail: `依赖 ${dependency} 不可用`,
+          detail: i18n.t('component.dependency-unavailable', { dependency }),
           source: 'derived',
         }
       }
       const view = externalOf(target, byId, nextSeen)
       if (view === undefined) continue
       if (view.state === null) {
-        return { state: null, detail: `依赖 ${dependency} 未探查`, source: 'derived' }
+        return {
+          state: null,
+          detail: i18n.t('component.dependency-unprobed', { dependency }),
+          source: 'derived',
+        }
       }
       if (EXTERNAL_RANK[view.state] > EXTERNAL_RANK[worst]) worst = view.state
-      details.push(`${dependency}: ${view.state}`)
+      details.push(i18n.t('component.dependency-state', { dependency, state: view.state }))
       if (view.checkedAt !== undefined && (checkedAt === undefined || view.checkedAt > checkedAt)) {
         checkedAt = view.checkedAt
       }
     }
     return {
       state: worst,
-      detail: details.length === 0 ? '依赖均无外部状态' : details.join('；'),
+      detail: details.length === 0 ? i18n.t('component.dependency-no-external') : details.join('；'),
       ...(checkedAt === undefined ? {} : { checkedAt }),
       source: 'derived',
     }
@@ -312,7 +326,13 @@ export function createComponentService(options: ComponentServiceOptions): Compon
   function viewOf(entry: RegistryEntry, all: readonly RegistryEntry[]): ComponentView {
     const spec = entry.spec
     if (spec === undefined) {
-      throw new ComponentFailure('invalid-definition', `${entry.path}：${entry.error ?? '定义不可用'}`)
+      throw new ComponentFailure(
+        'invalid-definition',
+        i18n.t('component.definition-problem', {
+          path: entry.path,
+          detail: entry.error ?? i18n.t('component.definition-unavailable'),
+        }),
+      )
     }
     const byId = new Map(all.map(item => [item.id, item]))
     const external = externalOf(entry, byId, new Set())
@@ -320,10 +340,10 @@ export function createComponentService(options: ComponentServiceOptions): Compon
     const configuredPath = configPath(spec)
     const deploy: ComponentDeployView =
       spec.deploy === undefined
-        ? { state: 'not-deployable', detail: '定义未声明部署入口' }
+        ? { state: 'not-deployable', detail: i18n.t('component.deploy-not-declared') }
         : {
             state: row?.deployState ?? 'not-deployed',
-            detail: row?.deployDetail ?? '尚未执行部署',
+            detail: row?.deployDetail ?? i18n.t('component.deploy-not-run'),
             ...(row?.deployCheckedAt == null ? {} : { checkedAt: row.deployCheckedAt }),
           }
     return {
@@ -350,7 +370,7 @@ export function createComponentService(options: ComponentServiceOptions): Compon
     const all = entries()
     const entry = all.find(item => item.id === id)
     if (entry === undefined) {
-      throw new ComponentFailure('component-not-found', `找不到组件：${id}`)
+      throw new ComponentFailure('component-not-found', i18n.t('component.not-found', { id }))
     }
     return viewOf(entry, all)
   }
@@ -358,17 +378,17 @@ export function createComponentService(options: ComponentServiceOptions): Compon
   function requireDynamicTarget(id: string): void {
     requireRegistrableId(id)
     if (packageIds.has(id)) {
-      throw new ComponentFailure('component-package', `组件 ${id} 由包定义，随包存在；只能升级，不能添加或删除`)
+      throw new ComponentFailure('component-package', i18n.t('component.package-readonly', { id }))
     }
     if (locate(id) !== undefined) {
-      throw new ComponentFailure('component-exists', `组件已存在：${id}`)
+      throw new ComponentFailure('component-exists', i18n.t('component.exists', { id }))
     }
   }
 
   function addExternalText(text: string): ComponentView {
     const spec = parseComponent(text)
     if (spec.kind !== 'external') {
-      throw new ComponentFailure('invalid-spec', '动态登记只接受 external 组件')
+      throw new ComponentFailure('invalid-spec', i18n.t('component.external-only'))
     }
     requireDynamicTarget(spec.id)
     writeDefinition(join(componentsRoot, `${spec.id}.yaml`), spec)
@@ -387,7 +407,7 @@ export function createComponentService(options: ComponentServiceOptions): Compon
             id: entry.id,
             source: entry.source,
             path: entry.path,
-            error: entry.error ?? '定义不可用',
+            error: entry.error ?? i18n.t('component.definition-unavailable'),
           })
           continue
         }
@@ -421,24 +441,30 @@ export function createComponentService(options: ComponentServiceOptions): Compon
       try {
         stats = statSync(source)
       } catch (error) {
-        throw new ComponentFailure('io', `无法读取组件来源 ${source}：${messageOf(error)}`)
+        throw new ComponentFailure('io', i18n.t('component.read-source-failed', { source, detail: messageOf(error) }))
       }
       if (!stats.isDirectory()) {
         let text: string
         try {
           text = readFileSync(source, 'utf8')
         } catch (error) {
-          throw new ComponentFailure('io', `无法读取组件定义 ${source}：${messageOf(error)}`)
+          throw new ComponentFailure(
+            'io',
+            i18n.t('component.read-definition-source-failed', { source, detail: messageOf(error) }),
+          )
         }
         return addExternalText(text)
       }
       const descriptor = join(source, DESCRIPTOR_FILE)
       if (!existsSync(descriptor)) {
-        throw new ComponentFailure('invalid-spec', `文件夹缺少 ${DESCRIPTOR_FILE}：${source}`)
+        throw new ComponentFailure(
+          'invalid-spec',
+          i18n.t('component.folder-descriptor-missing', { file: DESCRIPTOR_FILE, source }),
+        )
       }
       const spec = readDefinition(descriptor)
       if (spec.kind !== 'external') {
-        throw new ComponentFailure('invalid-spec', '动态登记只接受 external 组件')
+        throw new ComponentFailure('invalid-spec', i18n.t('component.external-only'))
       }
       requireDynamicTarget(spec.id)
       const destination = join(componentsRoot, spec.id)
@@ -449,7 +475,10 @@ export function createComponentService(options: ComponentServiceOptions): Compon
         renameSync(temporary, destination)
       } catch (error) {
         rmSync(temporary, { recursive: true, force: true })
-        throw new ComponentFailure('io', `无法复制组件定义 ${source}：${messageOf(error)}`)
+        throw new ComponentFailure(
+          'io',
+          i18n.t('component.copy-definition-failed', { source, detail: messageOf(error) }),
+        )
       }
       return show(spec.id)
     },
@@ -457,7 +486,7 @@ export function createComponentService(options: ComponentServiceOptions): Compon
       assertActive()
       const entry = entryById(id)
       if (entry.source === 'package') {
-        throw new ComponentFailure('component-package', `组件 ${id} 由包定义，不能删除`)
+        throw new ComponentFailure('component-package', i18n.t('component.package-delete', { id }))
       }
       try {
         rmSync(entry.path, { force: true })
@@ -466,7 +495,10 @@ export function createComponentService(options: ComponentServiceOptions): Compon
           if (basename(folder) === id) rmSync(folder, { recursive: true, force: true })
         }
       } catch (error) {
-        throw new ComponentFailure('io', `无法删除组件定义 ${entry.path}：${messageOf(error)}`)
+        throw new ComponentFailure(
+          'io',
+          i18n.t('component.delete-definition-failed', { path: entry.path, detail: messageOf(error) }),
+        )
       }
       stateStore.remove(id)
     },
@@ -474,11 +506,11 @@ export function createComponentService(options: ComponentServiceOptions): Compon
       assertActive()
       const entry = entryById(id)
       if (entry.source !== 'package') {
-        throw new ComponentFailure('component-package', `只有包组件支持升级：${id}`)
+        throw new ComponentFailure('component-package', i18n.t('component.upgrade-package-only', { id }))
       }
       const code = packageDefinitions.find(spec => spec.id === id)
       if (code === undefined) {
-        throw new ComponentFailure('component-not-found', `找不到包组件定义：${id}`)
+        throw new ComponentFailure('component-not-found', i18n.t('component.package-definition-missing', { id }))
       }
       const current = entry.spec
       const config = current?.config ?? code.config
@@ -491,16 +523,22 @@ export function createComponentService(options: ComponentServiceOptions): Compon
       const entry = entryById(id)
       const spec = entry.spec
       if (spec === undefined) {
-        throw new ComponentFailure('invalid-definition', `${entry.path}：定义不可用`)
+        throw new ComponentFailure(
+          'invalid-definition',
+          i18n.t('component.definition-problem', {
+            path: entry.path,
+            detail: i18n.t('component.definition-unavailable'),
+          }),
+        )
       }
       if (spec.kind === 'locus') {
         if ((spec.requires ?? []).length === 0) {
-          throw new ComponentFailure('no-external', `组件 ${id} 没有外部状态`)
+          throw new ComponentFailure('no-external', i18n.t('component.no-external-state', { id }))
         }
         return show(id)
       }
       if (spec.probe === undefined) {
-        throw new ComponentFailure('no-probe', `组件 ${id} 未声明探针`)
+        throw new ComponentFailure('no-probe', i18n.t('component.no-probe', { id }))
       }
       const outcome = await executeProbe(spec.probe, runner)
       stateStore.recordExternal(id, outcome.state, outcome.detail, new Date().toISOString())
@@ -511,10 +549,16 @@ export function createComponentService(options: ComponentServiceOptions): Compon
       const entry = entryById(id)
       const spec = entry.spec
       if (spec === undefined) {
-        throw new ComponentFailure('invalid-definition', `${entry.path}：定义不可用`)
+        throw new ComponentFailure(
+          'invalid-definition',
+          i18n.t('component.definition-problem', {
+            path: entry.path,
+            detail: i18n.t('component.definition-unavailable'),
+          }),
+        )
       }
       if (spec.deploy === undefined) {
-        throw new ComponentFailure('no-deploy', `组件 ${id} 未声明部署入口`)
+        throw new ComponentFailure('no-deploy', i18n.t('component.no-deploy', { id }))
       }
       const timeoutMs = spec.deploy.timeoutMs ?? DEPLOY_TIMEOUT_MS
       const result = await runner.run(spec.deploy.argv, { timeoutMs })
@@ -532,7 +576,7 @@ export function createComponentService(options: ComponentServiceOptions): Compon
 
 function requireRegistrableId(id: string): void {
   if (id === 'locus') {
-    throw new ComponentFailure('invalid-spec', '组件 id locus 保留给 Core 自有领域')
+    throw new ComponentFailure('invalid-spec', i18n.t('component.id-reserved'))
   }
 }
 
@@ -590,20 +634,24 @@ function classifyProbe(
   onFailure: 'stopped' | 'abnormal',
 ): { state: ExternalState; detail: string } {
   if (result.errorCode === 'ENOENT') {
-    return { state: 'absent', detail: `未找到可执行文件：${argv[0] ?? ''}` }
+    return {
+      state: 'absent',
+      detail: i18n.t('component.executable-missing', { path: argv[0] ?? '' }),
+    }
   }
   if (result.timedOut) {
-    return { state: 'abnormal', detail: '探针执行超时' }
+    return { state: 'abnormal', detail: i18n.t('component.probe-timeout') }
   }
   if (result.exitCode === 0) {
     return {
       state: 'healthy',
-      detail: summarize(result.stdout) || summarize(result.stderr) || '探针成功',
+      detail: summarize(result.stdout) || summarize(result.stderr) || i18n.t('component.probe-succeeded'),
     }
   }
   return {
     state: onFailure,
-    detail: summarize(result.stderr) || summarize(result.stdout) || `退出码 ${result.exitCode}`,
+    detail:
+      summarize(result.stderr) || summarize(result.stdout) || i18n.t('component.exit-code', { code: result.exitCode }),
   }
 }
 
@@ -611,12 +659,12 @@ function classifyDeploy(result: ComponentCommandResult): { state: DeployState; d
   if (result.exitCode === 0 && result.errorCode === null) {
     return {
       state: 'deployed',
-      detail: summarize(result.stdout) || summarize(result.stderr) || '部署命令成功',
+      detail: summarize(result.stdout) || summarize(result.stderr) || i18n.t('component.deploy-succeeded'),
     }
   }
   return {
     state: 'failed',
-    detail: summarize(result.stderr) || summarize(result.stdout) || '部署命令失败',
+    detail: summarize(result.stderr) || summarize(result.stdout) || i18n.t('component.deploy-failed'),
   }
 }
 
@@ -638,8 +686,12 @@ function probeTcp(probe: TcpProbe): Promise<ProbeOutcome> {
     resolve(outcome)
   }
   socket.setTimeout(timeoutMs)
-  socket.once('connect', () => finish({ state: 'healthy', detail: `${endpoint} 可连接` }))
-  socket.once('timeout', () => finish({ state: 'abnormal', detail: `${endpoint} 连接超时` }))
+  socket.once('connect', () =>
+    finish({ state: 'healthy', detail: i18n.t('component.endpoint-reachable', { endpoint }) }),
+  )
+  socket.once('timeout', () =>
+    finish({ state: 'abnormal', detail: i18n.t('component.endpoint-timeout', { endpoint }) }),
+  )
   socket.once('error', (error: NodeJS.ErrnoException) => {
     finish({
       state: probe.onFailure ?? 'abnormal',
@@ -660,15 +712,22 @@ async function probeHttp(probe: HttpProbe): Promise<ProbeOutcome> {
       await response.body.cancel().catch(() => undefined)
     }
     if (response.status === expectStatus) {
-      return { state: 'healthy', detail: `${probe.url} HTTP ${response.status}` }
+      return {
+        state: 'healthy',
+        detail: i18n.t('component.http-ok', { url: probe.url, status: response.status }),
+      }
     }
     return {
       state: probe.onFailure ?? 'abnormal',
-      detail: `${probe.url} HTTP ${response.status}，期望 ${expectStatus}`,
+      detail: i18n.t('component.http-status', {
+        url: probe.url,
+        status: response.status,
+        expected: expectStatus,
+      }),
     }
   } catch (error) {
     if (error instanceof Error && error.name === 'TimeoutError') {
-      return { state: 'abnormal', detail: `${probe.url} 请求超时` }
+      return { state: 'abnormal', detail: i18n.t('component.http-timeout', { url: probe.url }) }
     }
     return {
       state: probe.onFailure ?? 'abnormal',

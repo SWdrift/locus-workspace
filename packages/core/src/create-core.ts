@@ -4,6 +4,7 @@ import type { ComponentRunner, DefinedComponent } from './components/types.ts'
 import { resolveDataDirectory } from './data-directory.ts'
 import { createCoreEventStore } from './events/sqlite-store.ts'
 import { createEventBus } from './events/bus.ts'
+import { i18n } from './i18n/core.ts'
 import { createApiRouter } from './invocation/router.ts'
 import { createLocusComponent } from './operations.ts'
 import { createWorkspaceStore } from './workspaces/service.ts'
@@ -31,7 +32,7 @@ export function createLocusCore(options?: CreateLocusCoreOptions): LocusCore {
   const definitions = options?.components ?? []
   for (const definition of definitions) {
     if (definition.component.id === 'locus') {
-      throw new ComponentFailure('invalid-definition', 'locus 是 Core 自有领域，不能作为包组件注册')
+      throw new ComponentFailure('invalid-definition', i18n.t('core.locus-reserved'))
     }
   }
   const store = createWorkspaceStore(dataDirectory)
@@ -51,12 +52,12 @@ export function createLocusCore(options?: CreateLocusCoreOptions): LocusCore {
     components: () => components.service,
     security: () => security.service,
     host: () => {
-      if (host === undefined) throw new Error('Security Host 尚未装配')
+      if (host === undefined) throw new Error(i18n.t('core.host-missing'))
       return host
     },
     events,
     operations: () => {
-      if (router === undefined) throw new Error('ApiRouter 尚未装配')
+      if (router === undefined) throw new Error(i18n.t('core.router-missing'))
       return router.operations
     },
   })

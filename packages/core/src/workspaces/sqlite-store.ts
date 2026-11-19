@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import type { DatabaseSync } from 'node:sqlite'
+import { i18n } from '../i18n/core.ts'
 import { openCoreDatabase } from '../storage/database.ts'
 import { WorkspaceFailure } from './errors.ts'
 import type { Mount, RelationSource, Workspace, WorkspaceRelation, WorkspaceService } from './types.ts'
@@ -35,7 +36,7 @@ export function createSqliteWorkspaceStore(dataDirectory: string) {
 
   function assertActive(): void {
     if (disposed) {
-      throw new WorkspaceFailure('disposed', 'Locus Core 已释放，不能继续使用')
+      throw new WorkspaceFailure('disposed', i18n.t('workspace.disposed'))
     }
   }
 
@@ -123,7 +124,10 @@ export function createSqliteWorkspaceStore(dataDirectory: string) {
         requireWorkspace(database, id)
         const result = database.prepare('DELETE FROM relations WHERE workspace_id = ? AND id = ?').run(id, relationId)
         if (result.changes === 0) {
-          throw new WorkspaceFailure('not-found', `找不到 Workspace ${id} 的关系：${relationId}`)
+          throw new WorkspaceFailure(
+            'not-found',
+            i18n.t('workspace.relation-not-found', { workspace: id, relation: relationId }),
+          )
         }
       })
     },
@@ -153,7 +157,7 @@ export function createSqliteWorkspaceStore(dataDirectory: string) {
           .prepare('SELECT id FROM mounts WHERE workspace_id = ? AND path_key = ?')
           .get(workspaceId, normalizedPathKey)
         if (existingPath !== undefined) {
-          throw new WorkspaceFailure('conflict', `该路径已挂载到 Workspace：${normalizedPath}`)
+          throw new WorkspaceFailure('conflict', i18n.t('workspace.mount-path-exists', { path: normalizedPath }))
         }
 
         let name: string
@@ -163,7 +167,7 @@ export function createSqliteWorkspaceStore(dataDirectory: string) {
             .prepare('SELECT id FROM mounts WHERE workspace_id = ? AND name_key = ?')
             .get(workspaceId, name.toLowerCase())
           if (existingName !== undefined) {
-            throw new WorkspaceFailure('conflict', `挂载名称已存在：${name}`)
+            throw new WorkspaceFailure('conflict', i18n.t('workspace.mount-name-exists', { name }))
           }
         } else {
           const base = defaultName
@@ -228,7 +232,7 @@ export function createSqliteWorkspaceStore(dataDirectory: string) {
             .prepare('SELECT id FROM mounts WHERE workspace_id = ? AND name_key = ?')
             .get(workspaceId, mountIdOrName.toLowerCase()) as { id: string } | undefined)
         if (target === undefined) {
-          throw new WorkspaceFailure('not-found', `找不到挂载：${mountIdOrName}`)
+          throw new WorkspaceFailure('not-found', i18n.t('workspace.mount-not-found', { reference: mountIdOrName }))
         }
         database.prepare('DELETE FROM mounts WHERE id = ?').run(target.id)
       })
@@ -259,7 +263,7 @@ function transaction<T>(database: DatabaseSync, write: boolean, action: () => T)
     try {
       database.exec('ROLLBACK')
     } catch (rollbackError) {
-      throw new AggregateError([error, rollbackError], 'Workspace 事务失败，且无法回滚')
+      throw new AggregateError([error, rollbackError], i18n.t('workspace.transaction-failed'))
     }
     throw error
   }
@@ -269,7 +273,7 @@ function requireWorkspace(database: DatabaseSync, id: string): WorkspaceRow {
   const row = database.prepare('SELECT id, name, created_at FROM workspaces WHERE id = ?').get(id) as unknown as
     WorkspaceRow | undefined
   if (!row) {
-    throw new WorkspaceFailure('not-found', `找不到 Workspace：${id}`)
+    throw new WorkspaceFailure('not-found', i18n.t('workspace.not-found', { reference: id }))
   }
   return row
 }

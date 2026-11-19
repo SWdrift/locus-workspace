@@ -1,11 +1,12 @@
 import { defineComponent } from '@locus/core/components'
+import { i18n } from './i18n.ts'
 import { databaseAuth, queryDatabase, registerDatabase } from './operations.ts'
 
 export const postgres = defineComponent({
   id: 'postgres',
   version: '4',
   name: 'PostgreSQL',
-  summary: '使用 Core 绑定的可信目标与数据库字段建立驱动连接',
+  summary: i18n.t('component.summary'),
   kind: 'locus',
   credentials: [databaseAuth],
   operations: [registerDatabase, queryDatabase],

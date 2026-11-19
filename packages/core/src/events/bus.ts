@@ -1,4 +1,5 @@
 import { InvocationFailure } from '../invocation/errors.ts'
+import { i18n } from '../i18n/core.ts'
 import type { EventBus, EventFilter, EventListener, EventStore, LocusEvent } from './types.ts'
 
 export function createEventBus(store?: EventStore): EventBus {
@@ -8,7 +9,7 @@ export function createEventBus(store?: EventStore): EventBus {
   let disposed = false
 
   function assertActive(): void {
-    if (disposed) throw new InvocationFailure('unavailable', '事件总线已释放')
+    if (disposed) throw new InvocationFailure('unavailable', i18n.t('event.bus-disposed'))
   }
 
   function publish(event: LocusEvent): void {
@@ -40,7 +41,7 @@ export function createEventBus(store?: EventStore): EventBus {
     subscribe(type: string, listener: EventListener) {
       assertActive()
       if (typeof type !== 'string' || type.length === 0 || typeof listener !== 'function') {
-        throw new InvocationFailure('invalid-argument', '事件订阅需要 type 与同步监听器')
+        throw new InvocationFailure('invalid-argument', i18n.t('event.subscribe-invalid'))
       }
       let registered = listeners.get(type)
       if (registered === undefined) {

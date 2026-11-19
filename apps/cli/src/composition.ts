@@ -2,33 +2,25 @@ import { Command } from 'commander'
 import { createLocusCore } from '@locus/core'
 import type { LocusCore } from '@locus/core'
 import type { DefinedComponent } from '@locus/core/components'
+import { createI18nRegistry } from '@locus/core/i18n'
+import type { I18nCatalog } from '@locus/core/i18n'
 import type { SecurityHost } from '@locus/core/security'
 import { resolve } from 'node:path'
+import { i18n } from './i18n.ts'
 import { reportError, usageErrorText } from './output/errors.ts'
 import { configureGlobalOptions } from './global-options.ts'
 import type { GlobalOptions } from './global-options.ts'
 import { createProgram } from './program.ts'
 
-type ComponentLoader = () => Promise<DefinedComponent>
+type ComponentModule = DefinedComponent & { readonly i18n: I18nCatalog<any> }
+type ComponentLoader = () => Promise<ComponentModule>
 
 /** 这里只登记定义加载器；组件标识与 URL 路由由组件声明唯一维护。 */
 const componentLoaders: readonly ComponentLoader[] = [
-  async () => {
-    const { component, operations } = await import('@locus/templates')
-    return { component, operations }
-  },
-  async () => {
-    const { component, operations } = await import('@locus/remote-targets')
-    return { component, operations }
-  },
-  async () => {
-    const { component, operations } = await import('@locus/postgres')
-    return { component, operations }
-  },
-  async () => {
-    const { component, operations } = await import('@locus/gitea')
-    return { component, operations }
-  },
+  async () => import('@locus/templates'),
+  async () => import('@locus/remote-targets'),
+  async () => import('@locus/postgres'),
+  async () => import('@locus/gitea'),
 ]
 
 /** 环境、全局参数、包组件与可信 Host 都由这一入口装配。 */
@@ -38,7 +30,10 @@ export async function runCli(argv: readonly string[]): Promise<number> {
   try {
     loadEnvironment()
     globalOptions = parseGlobalOptions(argv)
-    const components = await loadComponentDefinitions(argv)
+    const modules = await loadComponentDefinitions(argv)
+    // 装配期校验 namespace 与 key 归属；新增组件只扩展 loader，不改 Core。
+    createI18nRegistry([...modules.map(module => module.i18n), i18n])
+    const components = modules.map(({ component, operations }) => ({ component, operations }))
     let host: SecurityHost | undefined
     locus = createLocusCore({
       components,
@@ -87,7 +82,7 @@ function parseGlobalOptions(argv: readonly string[]): GlobalOptions {
 }
 
 /** URL 调用与发现装配完整声明；本机专用入口不加载领域包。 */
-async function loadComponentDefinitions(argv: readonly string[]): Promise<readonly DefinedComponent[]> {
+async function loadComponentDefinitions(argv: readonly string[]): Promise<readonly ComponentModule[]> {
   const command = firstPositional(argv)
   switch (command) {
     case 'version':

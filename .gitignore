@@ -16,3 +16,5 @@ node_modules/
 known_hosts*
 id_rsa*
 id_ed25519*
+
+.zed

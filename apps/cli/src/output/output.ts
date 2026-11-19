@@ -1,4 +1,5 @@
 import type { Command } from 'commander'
+import { i18n } from '../i18n.ts'
 
 export interface OutputFlags {
   readonly json?: boolean
@@ -27,9 +28,9 @@ export const processOutput: OutputStreams = {
 
 export function addOutputOptions(command: Command): Command {
   return command
-    .option('--json', '输出机器可读 JSON，诊断仍写入 stderr')
-    .option('--pretty', '美化 JSON 输出；只影响 JSON')
-    .option('--human', '强制人类可读输出')
+    .option('--json', i18n.t('option.json'))
+    .option('--pretty', i18n.t('option.pretty'))
+    .option('--human', i18n.t('option.human'))
 }
 
 /** 正常结果与异常共用优先级，--human 始终覆盖 --json。 */

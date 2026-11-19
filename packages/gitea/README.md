@@ -6,7 +6,7 @@
 
 ## 源码导航
 
-源码入口：[组件声明](src/component.ts)、[operation](src/operations.ts)、[HTTP 适配器](src/requester.ts)、[DTO 与 schema](src/types.ts)。验证入口为[包测试](test/gitea.test.mjs)，公开符号由薄 [index.ts](src/index.ts) 显式导出。
+源码入口：[组件声明](src/component.ts)、[operation](src/operations.ts)、[HTTP 适配器](src/requester.ts)、[DTO 与 schema](src/types.ts)、[本包文案表](src/i18n.ts)。验证入口为[包测试](test/gitea.test.mjs)，公开符号由薄 [index.ts](src/index.ts) 显式导出。
 
 ## 使用
 

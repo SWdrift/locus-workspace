@@ -2,6 +2,7 @@ import { mkdirSync } from 'node:fs'
 import { dirname } from 'node:path'
 import { normalizeTargetFromSpec, parseAddSpecText, targetBinding } from './config.ts'
 import { withCredentialFile } from './credentials.ts'
+import { i18n } from './i18n.ts'
 import { buildSshInvocation, createProcessRunner, resolveUnderRoot } from './ssh.ts'
 import { createProbeStore } from './probe-store.ts'
 import { createTargetStore } from './target-store.ts'
@@ -28,7 +29,7 @@ export function createRemoteTargetsService(options: {
   readonly components?: ComponentGate
 }): RemoteTargetsService {
   if (!options.root.startsWith('/') && !/^[A-Za-z]:[\\/]/.test(options.root)) {
-    throw new RemoteTargetsFailure('invalid-spec', 'remote-targets 根目录必须是绝对路径')
+    throw new RemoteTargetsFailure('invalid-spec', i18n.t('service.root-absolute'))
   }
   const root = options.root
   const store = createTargetStore(root)
@@ -47,19 +48,29 @@ export function createRemoteTargetsService(options: {
     const componentId = TRANSPORT_COMPONENT[target.identity.auth.method]
     const availability = gate.get(componentId)
     if (availability === undefined) {
-      throw new RemoteTargetsFailure('component-unavailable', `目标 ${target.id} 需要组件 ${componentId}，但它未登记`)
+      throw new RemoteTargetsFailure(
+        'component-unavailable',
+        i18n.t('service.component-missing', { target: target.id, component: componentId }),
+      )
     }
     if (availability.state !== 'healthy') {
       throw new RemoteTargetsFailure(
         'component-unavailable',
-        `目标 ${target.id} 需要组件 ${componentId}，当前状态：${availability.state ?? '未探查'}`,
+        i18n.t('service.component-state', {
+          target: target.id,
+          component: componentId,
+          state: availability.state ?? i18n.t('state.not-probed'),
+        }),
       )
     }
   }
 
   function requireCapability(target: RemoteTarget, capability: 'exec' | 'shell'): void {
     if (!target.access.capabilities.includes(capability)) {
-      throw new RemoteTargetsFailure('capability-unsupported', `目标 ${target.id} 未授权能力：${capability}`)
+      throw new RemoteTargetsFailure(
+        'capability-unsupported',
+        i18n.t('service.capability-denied', { target: target.id, capability }),
+      )
     }
   }
 
@@ -67,7 +78,11 @@ export function createRemoteTargetsService(options: {
     if (target.connectivity.remoteShell !== 'cmd') {
       throw new RemoteTargetsFailure(
         'capability-unsupported',
-        `目标 ${target.id} 的 remoteShell 是 ${target.connectivity.remoteShell}；${operation} 仅支持 cmd`,
+        i18n.t('service.cmd-only', {
+          target: target.id,
+          shell: target.connectivity.remoteShell,
+          operation,
+        }),
       )
     }
   }
@@ -79,23 +94,23 @@ export function createRemoteTargetsService(options: {
   ): Promise<T> {
     const auth = target.identity.auth
     if (auth.method === 'key' || auth.path !== undefined) {
-      throw new RemoteTargetsFailure(
-        'migration-required',
-        `目标 ${target.id} 仍使用旧文件认证；需要显式迁移到 Core 凭据绑定`,
-      )
+      throw new RemoteTargetsFailure('migration-required', i18n.t('service.legacy-auth', { target: target.id }))
     }
     const slot = credentialSlot(auth.method)
     if (material.slot !== slot) {
-      throw new RemoteTargetsFailure('invalid-spec', `目标认证方式与凭据槽不匹配：需要 ${slot}`)
+      throw new RemoteTargetsFailure('invalid-spec', i18n.t('service.slot-mismatch', { slot }))
     }
     if (material.values.targetBinding !== targetBinding(target)) {
-      throw new RemoteTargetsFailure('target-config-mismatch', `目标 ${target.id} 配置已变化；需要 Root 重新登记或确认`)
+      throw new RemoteTargetsFailure('target-config-mismatch', i18n.t('service.config-changed', { target: target.id }))
     }
     const secret = slot === 'ssh-password' ? material.values.password : material.values.privateKey
     if (secret === undefined)
-      throw new RemoteTargetsFailure('credential-missing', `目标 ${target.id} 缺少 ${slot} 字段`)
+      throw new RemoteTargetsFailure(
+        'credential-missing',
+        i18n.t('service.credential-field-missing', { target: target.id, slot }),
+      )
     if (slot === 'ssh-private-key' && material.values.passphrase !== undefined) {
-      throw new RemoteTargetsFailure('encrypted-key-unsupported', '私钥带口令；不会自动去除口令，需先确定口令交付方案')
+      throw new RemoteTargetsFailure('encrypted-key-unsupported', i18n.t('service.encrypted-key'))
     }
     return withCredentialFile(secret, consume)
   }
@@ -103,14 +118,11 @@ export function createRemoteTargetsService(options: {
   function addTarget(id: string, spec: unknown, addOptions?: AddOptions): RemoteTarget {
     const target = normalizeTargetFromSpec(spec, id)
     if (target.identity.auth.method !== 'private-key' && target.identity.auth.method !== 'password') {
-      throw new RemoteTargetsFailure(
-        'migration-required',
-        '新目标必须使用 method: private-key 或 password；旧 path/root 仅用于迁移读取',
-      )
+      throw new RemoteTargetsFailure('migration-required', i18n.t('service.new-auth-method'))
     }
     const targets = store.load()
     if (targets.some(item => item.id === target.id)) {
-      throw new RemoteTargetsFailure('target-exists', `目标已存在：${target.id}`)
+      throw new RemoteTargetsFailure('target-exists', i18n.t('service.exists', { target: target.id }))
     }
     if (addOptions?.dryRun !== true) {
       // known_hosts 默认位于目标目录；不创建或保存任何秘密文件。
@@ -148,10 +160,10 @@ export function createRemoteTargetsService(options: {
       const target = resolveTarget(store.load(), reference)
       const auth = target.identity.auth
       if (auth.method !== 'key' && (auth.path === undefined || auth.method !== 'password')) {
-        throw new RemoteTargetsFailure('already-migrated', `目标 ${target.id} 已使用 Core 凭据绑定`)
+        throw new RemoteTargetsFailure('already-migrated', i18n.t('service.already-bound', { target: target.id }))
       }
       if (auth.path === undefined) {
-        throw new RemoteTargetsFailure('invalid-spec', `目标 ${target.id} 缺少可迁移的旧认证文件`)
+        throw new RemoteTargetsFailure('invalid-spec', i18n.t('service.legacy-file-missing', { target: target.id }))
       }
       return {
         method: auth.method === 'key' ? 'key' : 'password',
@@ -163,10 +175,13 @@ export function createRemoteTargetsService(options: {
       const target = resolveTarget(targets, reference)
       const auth = target.identity.auth
       if (auth.method !== 'key' && auth.path === undefined) {
-        throw new RemoteTargetsFailure('already-migrated', `目标 ${target.id} 已使用 Core 凭据绑定`)
+        throw new RemoteTargetsFailure('already-migrated', i18n.t('service.already-bound', { target: target.id }))
       }
       if (auth.method !== 'key' && auth.method !== 'password') {
-        throw new RemoteTargetsFailure('invalid-spec', `目标 ${target.id} 的旧认证方式不可迁移`)
+        throw new RemoteTargetsFailure(
+          'invalid-spec',
+          i18n.t('service.legacy-auth-unmigratable', { target: target.id }),
+        )
       }
       const method: 'private-key' | 'password' = auth.method === 'key' ? 'private-key' : 'password'
       const migrated: RemoteTarget = {
@@ -182,7 +197,9 @@ export function createRemoteTargetsService(options: {
       const probe = await withPotential(target, material, async credentialPath => {
         const invocation = buildSshInvocation(target, root, ['whoami'], credentialPath)
         const result = await runner.run(invocation.command, invocation.args, { timeoutMs: 15_000 })
-        const detail = (result.exitCode === 0 ? result.stdout : result.stderr).trim() || `退出码 ${result.exitCode}`
+        const detail =
+          (result.exitCode === 0 ? result.stdout : result.stderr).trim() ||
+          i18n.t('service.exit-code', { code: result.exitCode })
         return {
           targetId: target.id,
           ok: result.exitCode === 0,
@@ -198,7 +215,7 @@ export function createRemoteTargetsService(options: {
       requireCapability(target, 'exec')
       requireTransport(target)
       if (command.length === 0) {
-        throw new RemoteTargetsFailure('invalid-spec', 'exec 需要至少一条远端命令')
+        throw new RemoteTargetsFailure('invalid-spec', i18n.t('service.exec-empty'))
       }
       return withPotential(target, material, async credentialPath => {
         const invocation = buildSshInvocation(target, root, command, credentialPath)
@@ -221,7 +238,9 @@ export function createRemoteTargetsService(options: {
       const probe = await withPotential(target, material, async credentialPath => {
         const invocation = buildSshInvocation(target, root, ['hostname'], credentialPath)
         const result = await runner.run(invocation.command, invocation.args, { timeoutMs: 15_000 })
-        const detail = (result.exitCode === 0 ? result.stdout : result.stderr).trim() || `退出码 ${result.exitCode}`
+        const detail =
+          (result.exitCode === 0 ? result.stdout : result.stderr).trim() ||
+          i18n.t('service.exit-code', { code: result.exitCode })
         return {
           targetId: target.id,
           ok: result.exitCode === 0,
@@ -245,14 +264,17 @@ export function createRemoteTargetsService(options: {
         )
         const result = await runner.run(invocation.command, invocation.args, { timeoutMs: 30_000 })
         if (result.exitCode !== 0) {
-          throw new RemoteTargetsFailure('io', result.stderr.trim() || `退出码 ${result.exitCode}`)
+          throw new RemoteTargetsFailure(
+            'io',
+            result.stderr.trim() || i18n.t('service.exit-code', { code: result.exitCode }),
+          )
         }
         return parseServiceOutput(result.stdout)
       })
     },
     async restartService(reference, name, material): Promise<RemoteService> {
       if (!/^[A-Za-z0-9_. -]{1,128}$/.test(name)) {
-        throw new RemoteTargetsFailure('invalid-spec', `服务名不合法：${name}`)
+        throw new RemoteTargetsFailure('invalid-spec', i18n.t('service.service-name-invalid', { name }))
       }
       const target = resolveTarget(store.load(), reference)
       requireTransport(target)
@@ -270,10 +292,13 @@ export function createRemoteTargetsService(options: {
         )
         const result = await runner.run(invocation.command, invocation.args, { timeoutMs: 60_000 })
         if (result.exitCode !== 0) {
-          throw new RemoteTargetsFailure('io', result.stderr.trim() || `退出码 ${result.exitCode}`)
+          throw new RemoteTargetsFailure(
+            'io',
+            result.stderr.trim() || i18n.t('service.exit-code', { code: result.exitCode }),
+          )
         }
         const [service] = parseServiceOutput(result.stdout)
-        if (service === undefined) throw new RemoteTargetsFailure('io', '无法解析服务状态')
+        if (service === undefined) throw new RemoteTargetsFailure('io', i18n.t('service.service-state-unparsable'))
         return service
       })
     },
@@ -293,7 +318,10 @@ function resolveTarget(targets: readonly RemoteTarget[], reference: string): Rem
   if (prefixed.length > 1) {
     throw new RemoteTargetsFailure(
       'ambiguous-target',
-      `目标前缀不唯一：${reference}；候选：${prefixed.map(target => target.id).join(', ')}`,
+      i18n.t('service.prefix-ambiguous', {
+        reference,
+        candidates: prefixed.map(target => target.id).join(', '),
+      }),
     )
   }
 
@@ -303,11 +331,14 @@ function resolveTarget(targets: readonly RemoteTarget[], reference: string): Rem
   if (labelled.length > 1) {
     throw new RemoteTargetsFailure(
       'ambiguous-target',
-      `目标标签不唯一：${reference}；候选：${labelled.map(target => target.id).join(', ')}`,
+      i18n.t('service.label-ambiguous', {
+        reference,
+        candidates: labelled.map(target => target.id).join(', '),
+      }),
     )
   }
 
-  throw new RemoteTargetsFailure('target-not-found', `找不到目标：${reference}`)
+  throw new RemoteTargetsFailure('target-not-found', i18n.t('service.not-found', { reference }))
 }
 
 function credentialSlot(method: AuthMethod): RemoteCredentialSlot {
@@ -329,7 +360,7 @@ function parseServiceOutput(stdout: string): readonly RemoteService[] {
   try {
     parsed = JSON.parse(stdout)
   } catch {
-    throw new RemoteTargetsFailure('io', '无法解析远端服务列表')
+    throw new RemoteTargetsFailure('io', i18n.t('service.services-unparsable'))
   }
   const values = Array.isArray(parsed) ? parsed : [parsed]
   const services: RemoteService[] = []

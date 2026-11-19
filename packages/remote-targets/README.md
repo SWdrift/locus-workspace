@@ -6,7 +6,7 @@
 
 ## 源码导航
 
-源码导航：[组件声明](src/component.ts)、[分组 operation](src/operations/)、[输出 schema](src/schemas.ts)、[领域服务](src/service.ts)、[目标定义存储](src/target-store.ts)、[探测存储](src/probe-store.ts)、[SSH/Plink 参数](src/ssh.ts)、[凭据交付](src/credentials.ts)。对应验证在[服务测试](test/remote-targets.test.mjs)与[安全集成](test/security-integration.test.mjs)。
+源码导航：[组件声明](src/component.ts)、[分组 operation](src/operations/)、[输出 schema](src/schemas.ts)、[领域服务](src/service.ts)、[目标定义存储](src/target-store.ts)、[探测存储](src/probe-store.ts)、[SSH/Plink 参数](src/ssh.ts)、[凭据交付](src/credentials.ts)、[本包文案表](src/i18n.ts)。对应验证在[服务测试](test/remote-targets.test.mjs)与[安全集成](test/security-integration.test.mjs)。
 
 ## 使用前提
 

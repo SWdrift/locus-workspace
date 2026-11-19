@@ -1,4 +1,5 @@
 import { isAbsolute } from 'node:path'
+import { i18n } from '../i18n/core.ts'
 import { InvocationFailure } from '../invocation/errors.ts'
 import { snapshotOperationMetadata } from '../invocation/operation.ts'
 import type { LocusMethod, OperationDefinition, OperationMetadata } from '../invocation/types.ts'
@@ -90,46 +91,46 @@ export function deepFreeze<T>(value: T): T {
 }
 
 export function validateComponent(input: unknown, options: ValidationOptions): ValidatedComponent {
-  const object = requirePlainObject(input, '组件定义')
-  requireKeys(object, SPEC_KEYS, '组件定义')
+  const object = requirePlainObject(input, i18n.t('label.component-definition'))
+  requireKeys(object, SPEC_KEYS, i18n.t('label.component-definition'))
 
   const id = requireText(object.id, 'id')
   if (!COMPONENT_ID.test(id)) {
-    invalid('id 必须以小写字母开头，只包含小写字母、数字和短横线，最长 64 字符')
+    invalid(i18n.t('validation.id-invalid'))
   }
   const version = requireText(object.version, 'version')
   const name = requireText(object.name, 'name')
   const summary = requireText(object.summary, 'summary')
   const kind = object.kind
   if (kind !== 'locus' && kind !== 'external') {
-    invalid('kind 必须是 locus 或 external')
+    invalid(i18n.t('validation.kind-invalid'))
   }
 
   if (object.operations !== undefined && !options.allowContract) {
-    invalid('可编辑 YAML 不能声明 operations；operation 属于可信代码契约')
+    invalid(i18n.t('validation.yaml-operations'))
   }
   if (object.credentials !== undefined && !options.allowContract) {
-    invalid('可编辑 YAML 不能声明 credentials；凭据字段属于可信代码契约')
+    invalid(i18n.t('validation.yaml-credentials'))
   }
   if (kind === 'external' && (object.operations !== undefined || object.credentials !== undefined)) {
-    invalid('只有 locus 组件可以声明 operations 与 credentials')
+    invalid(i18n.t('validation.locus-only-contract'))
   }
 
   let requires: readonly string[] | undefined
   if (object.requires !== undefined) {
-    if (kind !== 'locus') invalid('只有 locus 组件可以声明 requires')
-    if (!Array.isArray(object.requires)) invalid('requires 必须是数组')
+    if (kind !== 'locus') invalid(i18n.t('validation.locus-only-requires'))
+    if (!Array.isArray(object.requires)) invalid(i18n.t('validation.requires-array'))
     const values = object.requires.map((item, index) => requireText(item, `requires[${index}]`))
     for (const value of values) {
-      if (!COMPONENT_ID.test(value)) invalid(`requires 包含无效组件 id：${value}`)
+      if (!COMPONENT_ID.test(value)) invalid(i18n.t('validation.requires-invalid-id', { value }))
     }
-    if (new Set(values).size !== values.length) invalid('requires 不能重复')
-    if (values.includes(id)) invalid('requires 不能引用自身')
+    if (new Set(values).size !== values.length) invalid(i18n.t('validation.requires-duplicate'))
+    if (values.includes(id)) invalid(i18n.t('validation.requires-self'))
     requires = values
   }
 
   if (object.probe !== undefined && kind !== 'external') {
-    invalid('只有 external 组件可以声明 probe')
+    invalid(i18n.t('validation.external-only-probe'))
   }
 
   const operationsResult =
@@ -162,44 +163,44 @@ function invalid(message: string): never {
 
 function requirePlainObject(value: unknown, field: string): Record<string, unknown> {
   if (value === null || typeof value !== 'object' || Array.isArray(value)) {
-    invalid(`${field} 必须是映射`)
+    invalid(i18n.t('validation.map-required', { field }))
   }
   const prototype = Object.getPrototypeOf(value)
   if (prototype !== Object.prototype && prototype !== null) {
-    invalid(`${field} 必须是普通映射`)
+    invalid(i18n.t('validation.plain-map-required', { field }))
   }
   return value as Record<string, unknown>
 }
 
 function requireText(value: unknown, field: string): string {
   if (typeof value !== 'string' || value.trim().length === 0) {
-    invalid(`${field} 必须是非空字符串`)
+    invalid(i18n.t('validation.non-empty-string', { field }))
   }
   if (value.includes('\0')) {
-    invalid(`${field} 不能包含 NUL 字符`)
+    invalid(i18n.t('validation.nul-forbidden', { field }))
   }
   if (value !== value.trim()) {
-    invalid(`${field} 不能有首尾空白`)
+    invalid(i18n.t('validation.no-surrounding-space', { field }))
   }
   return value
 }
 
 function requireKeys(value: Record<string, unknown>, allowed: Record<string, true>, field: string): void {
   for (const key of Object.keys(value)) {
-    if (allowed[key] !== true) invalid(`${field} 包含未知字段：${key}`)
+    if (allowed[key] !== true) invalid(i18n.t('validation.unknown-field', { field, key }))
   }
 }
 
 function validateSlotId(value: unknown, field: string): string {
   const id = requireText(value, field)
   if (!CREDENTIAL_ID.test(id)) {
-    invalid(`${field} 必须以小写字母开头，只包含小写字母、数字和短横线，最长 64 字符`)
+    invalid(i18n.t('validation.slot-id-invalid', { field }))
   }
   return id
 }
 
 function validateFields(value: unknown, field: string): readonly CredentialField[] {
-  if (!Array.isArray(value) || value.length === 0) invalid(`${field} 必须是非空数组`)
+  if (!Array.isArray(value) || value.length === 0) invalid(i18n.t('validation.non-empty-array', { field }))
   const names = new Set<string>()
   let hasSecret = false
   return value
@@ -208,16 +209,16 @@ function validateFields(value: unknown, field: string): readonly CredentialField
       const object = requirePlainObject(item, itemField)
       requireKeys(object, FIELD_KEYS, itemField)
       const name = requireText(object.name, `${itemField}.name`)
-      if (!FIELD_NAME.test(name)) invalid(`${itemField}.name 必须以小写字母开头，只包含字母和数字`)
-      if (names.has(name)) invalid(`${field} 不能包含重复字段：${name}`)
+      if (!FIELD_NAME.test(name)) invalid(i18n.t('validation.field-name-invalid', { itemField }))
+      if (names.has(name)) invalid(i18n.t('validation.duplicate-field', { field, name }))
       names.add(name)
-      if (typeof object.secret !== 'boolean') invalid(`${itemField}.secret 必须是布尔值`)
-      if (typeof object.required !== 'boolean') invalid(`${itemField}.required 必须是布尔值`)
+      if (typeof object.secret !== 'boolean') invalid(i18n.t('validation.boolean-secret', { itemField }))
+      if (typeof object.required !== 'boolean') invalid(i18n.t('validation.boolean-required', { itemField }))
       if (object.secret) hasSecret = true
       return { name, secret: object.secret, required: object.required }
     })
     .map(fieldValue => {
-      if (!hasSecret) invalid(`${field} 至少需要一个 secret 字段`)
+      if (!hasSecret) invalid(i18n.t('validation.secret-field-required', { field }))
       return fieldValue
     })
 }
@@ -234,13 +235,13 @@ function declarationOf(item: unknown, field: string): { id: unknown; fields: unk
 }
 
 function validateCredentials(value: unknown): readonly ComponentCredential[] {
-  if (!Array.isArray(value)) invalid('credentials 必须是数组')
+  if (!Array.isArray(value)) invalid(i18n.t('validation.credentials-array'))
   const ids = new Set<string>()
   return value.map((item, index) => {
     const field = `credentials[${index}]`
     const { id: rawId, fields: rawFields } = declarationOf(item, field)
     const id = validateSlotId(rawId, `${field}.id`)
-    if (ids.has(id)) invalid(`credentials 包含重复凭据槽 id：${id}`)
+    if (ids.has(id)) invalid(i18n.t('validation.credential-slot-duplicate', { id }))
     ids.add(id)
     return Object.freeze({ id, fields: Object.freeze(validateFields(rawFields, `${field}.fields`)) })
   })
@@ -253,7 +254,7 @@ function validateOperations(
   readonly operations: readonly OperationMetadata[]
   readonly defined: readonly OperationDefinition<any, any, any>[]
 } {
-  if (!Array.isArray(value)) invalid('operations 必须是数组')
+  if (!Array.isArray(value)) invalid(i18n.t('validation.operations-array'))
   const ids = new Set<string>()
   const metadata: OperationMetadata[] = []
   const defined: OperationDefinition<any, any, any>[] = []
@@ -262,35 +263,36 @@ function validateOperations(
     const object = requirePlainObject(item, field)
     requireKeys(object, OPERATION_KEYS, field)
     const id = requireText(object.id, `${field}.id`)
-    if (!OPERATION.test(id)) invalid(`${field}.id 必须以小写字母开头，以 . 或 - 分隔名称段`)
-    if (ids.has(id)) invalid(`operations 包含重复 operation id：${id}`)
+    if (!OPERATION.test(id)) invalid(i18n.t('validation.operation-id-invalid', { field }))
+    if (ids.has(id)) invalid(i18n.t('validation.operation-duplicate', { id }))
     ids.add(id)
     const method = object.method
-    if (!METHODS.includes(method as LocusMethod)) invalid(`${field}.method 必须是 GET、POST、PUT、PATCH 或 DELETE`)
+    if (!METHODS.includes(method as LocusMethod)) invalid(i18n.t('validation.method-invalid', { field }))
     const scheme = requireText(object.scheme, `${field}.scheme`)
-    if (!SCHEME.test(scheme) || scheme !== scheme.toLowerCase()) invalid(`${field}.scheme 必须是小写 scheme`)
+    if (!SCHEME.test(scheme) || scheme !== scheme.toLowerCase())
+      invalid(i18n.t('validation.scheme-lowercase', { field }))
     const authority = requireText(object.authority, `${field}.authority`)
     if (!AUTHORITY.test(authority) || authority !== authority.toLowerCase())
-      invalid(`${field}.authority 必须是小写 authority`)
+      invalid(i18n.t('validation.authority-lowercase', { field }))
     const path = object.path
     if (typeof path !== 'string' || (path !== '' && !/^\/[^/]+(?:\/[^/]+)*$/.test(path))) {
-      invalid(`${field}.path 必须为空或以 / 开头且不能包含空段`)
+      invalid(i18n.t('validation.path-invalid', { field }))
     }
     const auth = object.auth
-    if (auth !== 'user' && auth !== 'root' && auth !== 'none') invalid(`${field}.auth 必须是 user、root 或 none`)
+    if (auth !== 'user' && auth !== 'root' && auth !== 'none') invalid(i18n.t('validation.auth-invalid', { field }))
     const inputSchema = object.input as { parse?: unknown } | undefined
     const outputSchema = object.output as { parse?: unknown } | undefined
     const querySchema = object.query as { parse?: unknown } | undefined
     if (executable && (typeof inputSchema?.parse !== 'function' || typeof outputSchema?.parse !== 'function')) {
-      invalid(`${field} 的 input 与 output 必须提供 parse`)
+      invalid(i18n.t('validation.io-parse-required', { field }))
     }
     if (executable && object.query !== undefined && typeof querySchema?.parse !== 'function') {
-      invalid(`${field}.query 必须提供 parse`)
+      invalid(i18n.t('validation.query-parse-required', { field }))
     }
     if (executable) {
-      if (typeof object.run !== 'function') invalid(`${field}.run 必须是具名函数引用`)
+      if (typeof object.run !== 'function') invalid(i18n.t('validation.run-reference', { field }))
     } else if (object.run !== undefined) {
-      invalid(`${field}.run 只能出现在 defineComponent 的定义中`)
+      invalid(i18n.t('validation.run-definition-only', { field }))
     }
     let declaration: OperationMetadata
     try {
@@ -328,7 +330,7 @@ function assertJsonValue(value: unknown, field: string): void {
   if (value === null) return
   if (typeof value === 'string' || typeof value === 'boolean') return
   if (typeof value === 'number') {
-    if (!Number.isFinite(value)) invalid(`${field} 必须是有限数字`)
+    if (!Number.isFinite(value)) invalid(i18n.t('validation.finite-number', { field }))
     return
   }
   if (Array.isArray(value)) {
@@ -342,20 +344,20 @@ function assertJsonValue(value: unknown, field: string): void {
     }
     return
   }
-  invalid(`${field} 必须是 JSON 值`)
+  invalid(i18n.t('validation.json-value', { field }))
 }
 
 function validateConfig(value: unknown): ComponentConfig {
   if (typeof value === 'string') {
     if (value.trim().length === 0 || value !== value.trim()) {
-      invalid('config 路径必须是非空字符串且没有首尾空白')
+      invalid(i18n.t('validation.config-non-empty'))
     }
     if (value.includes('\0') || isAbsolute(value) || /^[A-Za-z]:/.test(value)) {
-      invalid('config 路径必须是相对路径')
+      invalid(i18n.t('validation.config-relative'))
     }
     const segments = value.split(/[\\/]+/).filter(segment => segment.length > 0)
     if (segments.length === 0 || segments.some(segment => segment === '..')) {
-      invalid('config 路径不能为空或包含 ..')
+      invalid(i18n.t('validation.config-traversal'))
     }
     return value
   }
@@ -366,7 +368,7 @@ function validateConfig(value: unknown): ComponentConfig {
 
 function validateArgv(value: unknown, field: string): readonly string[] {
   if (!Array.isArray(value) || value.length === 0) {
-    invalid(`${field}.argv 必须是非空数组`)
+    invalid(i18n.t('validation.argv-array', { field }))
   }
   return value.map((item, index) => requireText(item, `${field}.argv[${index}]`))
 }
@@ -374,7 +376,7 @@ function validateArgv(value: unknown, field: string): readonly string[] {
 function validateTimeout(value: unknown, field: string): number | undefined {
   if (value === undefined) return undefined
   if (!Number.isInteger(value) || (value as number) <= 0 || (value as number) > 3_600_000) {
-    invalid(`${field}.timeoutMs 必须是 1 到 3600000 的整数`)
+    invalid(i18n.t('validation.timeout-range', { field }))
   }
   return value as number
 }
@@ -382,7 +384,7 @@ function validateTimeout(value: unknown, field: string): number | undefined {
 function validateOnFailure(value: unknown): 'stopped' | 'abnormal' | undefined {
   if (value === undefined) return undefined
   if (value !== 'stopped' && value !== 'abnormal') {
-    invalid('probe.onFailure 必须是 stopped 或 abnormal')
+    invalid(i18n.t('validation.on-failure'))
   }
   return value
 }
@@ -398,7 +400,7 @@ function validateProbe(value: unknown): ComponentProbe {
     const host = requireText(object.host, 'probe.host')
     const port = object.port
     if (!Number.isInteger(port) || (port as number) < 1 || (port as number) > 65535) {
-      invalid('probe.port 必须是 1 到 65535 的整数')
+      invalid(i18n.t('validation.probe-port'))
     }
     return {
       kind: 'tcp',
@@ -416,17 +418,17 @@ function validateProbe(value: unknown): ComponentProbe {
     try {
       parsed = new URL(url)
     } catch {
-      invalid('probe.url 必须是合法 URL')
+      invalid(i18n.t('validation.probe-url'))
     }
     if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
-      invalid('probe.url 只支持 http 与 https')
+      invalid(i18n.t('validation.probe-url-scheme'))
     }
     const expectStatus = object.expectStatus
     if (
       expectStatus !== undefined &&
       (!Number.isInteger(expectStatus) || (expectStatus as number) < 100 || (expectStatus as number) > 599)
     ) {
-      invalid('probe.expectStatus 必须是 100 到 599 的整数')
+      invalid(i18n.t('validation.probe-status'))
     }
     return {
       kind: 'http',
@@ -438,7 +440,7 @@ function validateProbe(value: unknown): ComponentProbe {
   }
 
   if (kind !== undefined && kind !== 'argv') {
-    invalid('probe.kind 必须是 argv、tcp 或 http')
+    invalid(i18n.t('validation.probe-kind'))
   }
   requireKeys(object, ARGV_PROBE_KEYS, 'probe')
   return {
@@ -461,12 +463,12 @@ function validateInfo(value: unknown): ComponentInfo {
   requireKeys(object, INFO_KEYS, 'info')
   const hasText = object.text !== undefined
   const hasJson = object.json !== undefined
-  if (hasText === hasJson) invalid('info 必须且只能包含 text 或 json 之一')
+  if (hasText === hasJson) invalid(i18n.t('validation.info-exclusive'))
   if (hasText) {
     if (typeof object.text !== 'string' || object.text.trim().length === 0) {
-      invalid('info.text 必须是非空字符串')
+      invalid(i18n.t('validation.info-text'))
     }
-    if (object.text.includes('\0')) invalid('info.text 不能包含 NUL 字符')
+    if (object.text.includes('\0')) invalid(i18n.t('validation.info-text-nul'))
     return { text: object.text }
   }
   assertJsonValue(object.json, 'info.json')

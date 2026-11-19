@@ -2,6 +2,7 @@ import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync 
 import { randomUUID } from 'node:crypto'
 import { join } from 'node:path'
 import { parseDocument, serializeDocument } from './config.ts'
+import { i18n } from './i18n.ts'
 import { RemoteTargetsFailure } from './types.ts'
 import type { RemoteTarget } from './types.ts'
 
@@ -24,7 +25,9 @@ export function createTargetStore(root: string): TargetStore {
       } catch (error) {
         throw new RemoteTargetsFailure(
           'io',
-          `无法读取目标配置：${error instanceof Error ? error.message : String(error)}`,
+          i18n.t('store.read-failed', {
+            detail: error instanceof Error ? error.message : String(error),
+          }),
         )
       }
       return parseDocument(text)
@@ -39,7 +42,9 @@ export function createTargetStore(root: string): TargetStore {
         rmSync(temporary, { force: true })
         throw new RemoteTargetsFailure(
           'io',
-          `无法写入目标配置：${error instanceof Error ? error.message : String(error)}`,
+          i18n.t('store.write-failed', {
+            detail: error instanceof Error ? error.message : String(error),
+          }),
         )
       }
     },

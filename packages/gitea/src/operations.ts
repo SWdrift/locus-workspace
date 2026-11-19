@@ -1,5 +1,6 @@
 import { defineCredential, defineOperation } from '@locus/core/invocation'
 import { z } from 'zod'
+import { i18n } from './i18n.ts'
 import { createGiteaRequester, normalizeOrigin } from './requester.ts'
 import { giteaRegisterInputSchema, giteaRequestInputSchema, giteaResultSchema } from './types.ts'
 import type { GiteaResponse } from './types.ts'
@@ -34,8 +35,7 @@ async function consumeResponse(response: Response): Promise<GiteaResponse> {
 
 export const registerRepository = defineOperation({
   id: 'gitea.repository.register',
-  summary:
-    '以路径 id 作为资源键登记或替换 Gitea API 凭据；JSON Body 必填 origin（仅含协议、主机和端口的 HTTP/HTTPS 源站），token 由可信输入提供，无 query；返回 registered:true 与凭据 reference。',
+  summary: i18n.t('operation.repository.register'),
   method: 'PUT',
   scheme: 'gitea',
   authority: 'repositories',
@@ -49,7 +49,7 @@ export const registerRepository = defineOperation({
       tty: true,
       file: true,
       required: true,
-      description: '绑定到 origin 的 Gitea API 令牌；仅接受可信输入，请求时作为 Bearer 凭据使用。',
+      description: i18n.t('field.token'),
     },
   },
   async run(_query, input, context) {
@@ -63,8 +63,7 @@ export const registerRepository = defineOperation({
 
 export const requestRepository = defineOperation({
   id: 'gitea.repository.request',
-  summary:
-    '使用路径 id 绑定的 Gitea 凭据发起同源请求；JSON Body 必填 path（可含上游 query），可选 method（默认 GET）、headers（不得含 Authorization）、body（文本），本操作无 query；返回 kind=response 及 status/筛选后的 headers/文本 body，或 authentication-failed（401/403）、network-failed，不跟随重定向。',
+  summary: i18n.t('operation.repository.request'),
   method: 'POST',
   scheme: 'gitea',
   authority: 'repositories',

@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto'
 import { isAbsolute } from 'node:path'
 import { parse as parseYaml, stringify as stringifyYaml } from 'yaml'
+import { i18n } from './i18n.ts'
 import { RemoteTargetsFailure } from './types.ts'
 import type {
   Capability,
@@ -27,7 +28,7 @@ export function normalizeTargetFromSpec(value: unknown, id: string): RemoteTarge
 
   const declaredId = optionalText(object, 'id', 'spec')
   if (declaredId !== undefined && declaredId !== id) {
-    failure(`spec.id 与命令参数不一致：${declaredId} != ${id}`)
+    failure(i18n.t('config.id-mismatch', { actual: declaredId, expected: id }))
   }
 
   const resource = normalizeResource(object.resource, 'spec.resource')
@@ -41,17 +42,18 @@ export function normalizeTargetFromSpec(value: unknown, id: string): RemoteTarge
 export function parseDocument(text: string): readonly RemoteTarget[] {
   const raw = parseText(text)
 
-  const object = asObject(raw, '配置')
-  only(object, ['version', 'targets'], '配置')
+  const configLabel = i18n.t('label.config')
+  const object = asObject(raw, configLabel)
+  only(object, ['version', 'targets'], configLabel)
   if (object.version !== DOCUMENT_VERSION) {
-    failure(`配置版本必须是 ${DOCUMENT_VERSION}`)
+    failure(i18n.t('config.version-required', { version: DOCUMENT_VERSION }))
   }
-  if (!Array.isArray(object.targets)) failure('配置.targets 必须是数组')
+  if (!Array.isArray(object.targets)) failure(i18n.t('config.targets-array'))
 
   const targets = object.targets.map((item, index) => normalizeStoredTarget(item, `targets[${index}]`))
   const ids = new Set<string>()
   for (const target of targets) {
-    if (ids.has(target.id)) failure(`目标 id 重复：${target.id}`)
+    if (ids.has(target.id)) failure(i18n.t('config.target-id-duplicate', { id: target.id }))
     ids.add(target.id)
   }
   return targets
@@ -100,21 +102,21 @@ function failure(message: string): never {
 
 function asObject(value: unknown, path: string): JsonObject {
   if (value === null || typeof value !== 'object' || Array.isArray(value)) {
-    failure(`${path} 必须是对象`)
+    failure(i18n.t('config.object-required', { path }))
   }
   return value as JsonObject
 }
 
 function only(object: JsonObject, allowed: readonly string[], path: string): void {
   for (const key of Object.keys(object)) {
-    if (!allowed.includes(key)) failure(`${path} 含未知字段：${key}`)
+    if (!allowed.includes(key)) failure(i18n.t('config.unknown-field', { path, key }))
   }
 }
 
 function requiredText(object: JsonObject, key: string, path: string): string {
   const value = object[key]
   if (typeof value !== 'string' || value.trim().length === 0) {
-    failure(`${path}.${key} 必须是非空字符串`)
+    failure(i18n.t('config.non-empty-string', { path, key }))
   }
   return value
 }
@@ -123,7 +125,7 @@ function optionalText(object: JsonObject, key: string, path: string): string | u
   const value = object[key]
   if (value === undefined) return undefined
   if (typeof value !== 'string' || value.trim().length === 0) {
-    failure(`${path}.${key} 必须是非空字符串`)
+    failure(i18n.t('config.non-empty-string', { path, key }))
   }
   return value
 }
@@ -132,24 +134,24 @@ function optionalInteger(object: JsonObject, key: string, path: string): number 
   const value = object[key]
   if (value === undefined) return undefined
   if (typeof value !== 'number' || !Number.isInteger(value)) {
-    failure(`${path}.${key} 必须是整数`)
+    failure(i18n.t('config.integer-required', { path, key }))
   }
   return value
 }
 
 function validateId(id: string): void {
   if (!ID_PATTERN.test(id)) {
-    failure(`目标 id 只能包含小写字母、数字、点、下划线和连字符，且以字母或数字开头：${id}`)
+    failure(i18n.t('config.id-invalid', { id }))
   }
 }
 
 /** 只允许目标根目录内的相对路径，避免凭据引用逃逸到任意文件。 */
 function validateRelativePath(value: string, path: string): void {
   if (isAbsolute(value) || /^[A-Za-z]:[\\/]/.test(value)) {
-    failure(`${path} 必须是相对路径：${value}`)
+    failure(i18n.t('config.relative-path', { path, value }))
   }
   if (value.split(/[\\/]/).includes('..')) {
-    failure(`${path} 不能包含 ..：${value}`)
+    failure(i18n.t('config.path-traversal', { path, value }))
   }
 }
 
@@ -157,7 +159,7 @@ function parseText(text: string): unknown {
   try {
     return parseYaml(text)
   } catch (error) {
-    failure(`无法解析配置：${error instanceof Error ? error.message : String(error)}`)
+    failure(i18n.t('config.parse-failed', { detail: error instanceof Error ? error.message : String(error) }))
   }
 }
 
@@ -185,18 +187,18 @@ function normalizeIdentity(value: unknown, path: string, id: string): RemoteIden
     (method === 'password' && credentialPath === undefined && credentialRoot === undefined)
   ) {
     if (credentialPath !== undefined || credentialRoot !== undefined) {
-      failure(`${path}.auth 新认证方式不能提供旧 path/root`)
+      failure(i18n.t('config.auth-legacy-fields', { path }))
     }
     return { login, auth: { method } }
   }
 
   if (method !== 'key' && method !== 'password') {
-    failure(`${path}.auth.method 只能是 private-key、password 或旧 key：${method}`)
+    failure(i18n.t('config.auth-method', { path, method }))
   }
   const legacyPath = credentialPath ?? `credentials/${id}/${method === 'key' ? 'id_ed25519' : 'password'}`
   validateRelativePath(legacyPath, `${path}.auth.path`)
   if (credentialRoot !== undefined && !isAbsolute(credentialRoot) && !/^[A-Za-z]:[\\/]/.test(credentialRoot)) {
-    failure(`${path}.auth.root 必须是绝对路径：${credentialRoot}`)
+    failure(i18n.t('config.auth-root-absolute', { path, root: credentialRoot }))
   }
   return {
     login,
@@ -214,12 +216,12 @@ function normalizeAccess(value: unknown, path: string): RemoteAccess {
   only(object, ['capabilities'], path)
   const raw = object.capabilities
   if (raw === undefined) return { capabilities: [...CAPABILITIES] }
-  if (!Array.isArray(raw)) failure(`${path}.capabilities 必须是数组`)
+  if (!Array.isArray(raw)) failure(i18n.t('config.capabilities-array', { path }))
 
   const capabilities: Capability[] = []
   for (const item of raw) {
     if (typeof item !== 'string' || !CAPABILITIES.includes(item as Capability)) {
-      failure(`${path}.capabilities 含不支持的能力：${String(item)}`)
+      failure(i18n.t('config.capability-invalid', { path, capability: String(item) }))
     }
     const capability = item as Capability
     if (!capabilities.includes(capability)) capabilities.push(capability)
@@ -247,20 +249,20 @@ function normalizeConnectivity(value: unknown, path: string, resource: RemoteRes
 
   const transport = optionalText(object, 'transport', path) ?? 'ssh'
   if (transport !== 'ssh') {
-    throw new RemoteTargetsFailure('unsupported-protocol', `暂不支持协议：${transport}`)
+    throw new RemoteTargetsFailure('unsupported-protocol', i18n.t('config.protocol-unsupported', { transport }))
   }
 
   const via = (optionalText(object, 'via', path) ?? 'direct') as TargetVia
-  if (via !== 'direct' && via !== 'frp') failure(`${path}.via 只能是 direct 或 frp：${via}`)
+  if (via !== 'direct' && via !== 'frp') failure(i18n.t('config.via-invalid', { path, via }))
 
   const host = requiredText(object, 'host', path)
   const port = optionalInteger(object, 'port', path) ?? 22
-  if (port < 1 || port > 65535) failure(`${path}.port 必须在 1-65535 之间：${port}`)
+  if (port < 1 || port > 65535) failure(i18n.t('config.port-range', { path, port }))
 
   const defaultShell: RemoteShell = resource.kind === 'windows-device' ? 'cmd' : 'posix'
   const remoteShell = (optionalText(object, 'remoteShell', path) ?? defaultShell) as RemoteShell
   if (remoteShell !== 'posix' && remoteShell !== 'cmd') {
-    failure(`${path}.remoteShell 只能是 posix 或 cmd：${remoteShell}`)
+    failure(i18n.t('config.remote-shell', { path, shell: remoteShell }))
   }
 
   const client = optionalText(object, 'client', path)

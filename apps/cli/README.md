@@ -8,7 +8,7 @@
 
 ## 源码导航
 
-查看 [program.ts](src/program.ts) 的入口组合、[composition.ts](src/composition.ts) 的静态包装配、[commands](src/commands/) 的通用 URL 与特殊入口，以及 [host](src/host/) 的可信输入与授权恢复。输出归 [output](src/output/)，行为验证在 [CLI 测试](test/cli.test.mjs)和[安全 Host 测试](test/security.test.mjs)。
+查看 [program.ts](src/program.ts) 的入口组合、[composition.ts](src/composition.ts) 的静态包装配与 i18n 注册、[commands](src/commands/) 的通用 URL 与特殊入口，以及 [host](src/host/) 的可信输入与授权恢复。命令描述、提示与诊断文案归 [i18n.ts](src/i18n.ts)；输出归 [output](src/output/)，行为验证在 [CLI 测试](test/cli.test.mjs)和[安全 Host 测试](test/security.test.mjs)。
 
 ## 构建与运行
 
@@ -23,7 +23,7 @@ pnpm locus locus://info
 
 ## URL 调用
 
-get/post/put/patch/delete 后跟资源 URL；裸 URL 默认 GET。多个 URL 只允许 GET。help 接受 scheme 或资源 URL，从当前路由表显示方法、路径、认证要求、summary 和公开字段说明，不执行 handler、不触发探针或物化。
+get/post/put/patch/delete 后跟资源 URL；裸 URL 默认 GET。多个 URL 只允许 GET。help 无参数只列已注册域与路由数；接受 scheme:// 或资源 URL 时平铺显示方法、路径、认证要求、summary 和公开字段说明，不执行 handler、不触发探针或物化。
 
 普通复杂输入使用 --data JSON 或 --file path（- 表示 stdin），二者互斥；只接受 JSON 媒体类型。路径参数在 URL 中，query 在 URL 查询字符串中；业务校验由 operation 的 schema 完成。
 
@@ -31,7 +31,7 @@ get/post/put/patch/delete 后跟资源 URL；裸 URL 默认 GET。多个 URL 只
 
 ## 输出与确认
 
-调用结果的 --json 使用 InvocationResult 信封，业务数据在 data；help 的 JSON 是描述数组，本地 Host 输入／认证异常按 code 诊断；--pretty 美化 JSON，--human 覆盖 --json。诊断写 stderr。通用写入由显式 HTTP 方法表达意图，不存在旧领域命令的 --yes，也不会从裸 URL 推断写操作。
+调用结果的 --json 使用 InvocationResult 信封，业务数据在 data；help 无参数时 JSON 是 `{scheme, routes}` 数组，给出 URI 时是描述数组，本地 Host 输入／认证异常按 code 诊断；--pretty 美化 JSON，--human 覆盖 --json。诊断写 stderr。通用写入由显式 HTTP 方法表达意图，不存在旧领域命令的 --yes，也不会从裸 URL 推断写操作。
 
 退出码 0 表示 operation 成功，1 表示调用参数拒绝，2 表示业务／授权／持久化失败，3 表示批量 GET 部分失败。探测结果和远端 exitCode 是 data，不自动改变通用 CLI 退出码；调用者必须检查业务结果。本地 shell 子进程退出码仍透传。
 

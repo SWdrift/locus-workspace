@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { i18n } from '../i18n/core.ts'
 import { defineOperation } from '../invocation/operation.ts'
 import type { OperationDefinition } from '../invocation/types.ts'
 import type { EventBus } from './types.ts'
@@ -22,7 +23,7 @@ export function createEventOperations(events: EventBus): readonly OperationDefin
   return [
     defineOperation({
       id: 'locus.events.list',
-      summary: '读取持久化事件；query 可选 type、subject 精确筛选及 limit（1–10000）；无需 Body。',
+      summary: i18n.t('operation.events.list'),
       method: 'GET',
       scheme: 'locus',
       authority: 'events',

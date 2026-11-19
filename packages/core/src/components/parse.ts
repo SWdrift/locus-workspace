@@ -1,5 +1,6 @@
 import { createRequire } from 'node:module'
 import type * as Yaml from 'yaml'
+import { i18n } from '../i18n/core.ts'
 import { ComponentFailure } from './errors.ts'
 import type { ComponentSpec } from './types.ts'
 import { validateComponent } from './validation.ts'
@@ -12,7 +13,8 @@ let yaml: Pick<typeof Yaml, 'parse'> | undefined
  */
 export function parseComponent(input: unknown, options: { readonly allowContract?: boolean } = {}): ComponentSpec {
   const value = typeof input === 'string' ? parseYaml(input) : input
-  if (value === null || value === undefined) throw new ComponentFailure('invalid-spec', '组件定义不能为空')
+  if (value === null || value === undefined)
+    throw new ComponentFailure('invalid-spec', i18n.t('component.empty-definition'))
   return validateComponent(value, {
     executable: false,
     allowContract: options.allowContract === true,
@@ -29,7 +31,9 @@ function parseYaml(text: string): unknown {
   } catch (error) {
     throw new ComponentFailure(
       'invalid-spec',
-      `YAML 解析失败：${error instanceof Error ? error.message : String(error)}`,
+      i18n.t('component.yaml-parse-failed', {
+        detail: error instanceof Error ? error.message : String(error),
+      }),
     )
   }
 }

@@ -1,4 +1,5 @@
 import { execa } from 'execa'
+import { i18n } from './i18n.ts'
 import type { CommandRunner, RunOptions, RunResult } from './types.ts'
 
 /** 系统客户端由 execa 执行，不经 shell，不把秘密放入参数或环境。 */
@@ -9,7 +10,7 @@ export function createCommandRunner(): CommandRunner {
     interactive: boolean,
     options?: RunOptions,
   ): Promise<RunResult> {
-    if (options?.signal?.aborted) return { exitCode: 130, stdout: '', stderr: '操作已取消' }
+    if (options?.signal?.aborted) return { exitCode: 130, stdout: '', stderr: i18n.t('runner.cancelled') }
     const result = await execa(command, [...args], {
       reject: false,
       stripFinalNewline: false,
@@ -27,11 +28,11 @@ export function createCommandRunner(): CommandRunner {
     const stderr = result.stderr ?? ''
     const spawnFailed = result.exitCode === undefined && result.signal === undefined
     const diagnostic = result.isCanceled
-      ? '操作已取消'
+      ? i18n.t('runner.cancelled')
       : result.timedOut
-        ? '命令超时'
+        ? i18n.t('runner.timeout')
         : spawnFailed
-          ? '无法启动系统客户端'
+          ? i18n.t('runner.spawn-failed')
           : ''
     return {
       exitCode: result.isCanceled ? 130 : result.timedOut ? 124 : (result.exitCode ?? 1),

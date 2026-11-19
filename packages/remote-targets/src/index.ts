@@ -1,4 +1,5 @@
 export { component, operations } from './component.ts'
+export { i18n } from './i18n.ts'
 export { createRemoteTargetsService } from './service.ts'
 export { parseAddSpecText, targetBinding } from './config.ts'
 export { RemoteTargetsFailure } from './types.ts'

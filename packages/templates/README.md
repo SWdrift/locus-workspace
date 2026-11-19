@@ -14,6 +14,7 @@
 | --- | --- |
 | 组件声明与调用契约 | [component.ts](src/component.ts)、[operations.ts](src/operations.ts)、[schemas.ts](src/schemas.ts) |
 | 模板解析、复制与实例记录 | [engine.ts](src/engine.ts) |
+| 本包文案表 | [i18n.ts](src/i18n.ts) |
 | 结果类型与领域错误 | [types.ts](src/types.ts) |
 | 行为验证 | [templates.test.mjs](test/templates.test.mjs) |
 

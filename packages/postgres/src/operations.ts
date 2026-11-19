@@ -1,5 +1,6 @@
 import { defineCredential, defineOperation } from '@locus/core/invocation'
 import { z } from 'zod'
+import { i18n } from './i18n.ts'
 import { queryPostgres } from './query.ts'
 import { queryInputSchema, queryResultSchema, registerInputSchema } from './schemas.ts'
 
@@ -16,8 +17,7 @@ export const databaseAuth = defineCredential({
 
 export const registerDatabase = defineOperation({
   id: 'pg.database.register',
-  summary:
-    '以路径 id 作为资源键登记或替换 PostgreSQL 连接凭据；JSON Body 必填 host、database、username，可选 port（字符串），password 由可信输入提供，无 query；返回 registered:true 与凭据 reference。',
+  summary: i18n.t('operation.database.register'),
   method: 'PUT',
   scheme: 'pg',
   authority: 'databases',
@@ -31,7 +31,7 @@ export const registerDatabase = defineOperation({
       tty: true,
       file: true,
       required: true,
-      description: '指定 PostgreSQL 用户的连接密码；仅接受可信输入。',
+      description: i18n.t('field.password'),
     },
   },
   async run(_query, input, context) {
@@ -48,8 +48,7 @@ export const registerDatabase = defineOperation({
 
 export const queryDatabase = defineOperation({
   id: 'pg.database.query',
-  summary:
-    '使用路径 id 绑定的 PostgreSQL 连接执行 SQL；JSON Body 必填 sql，可选 values（参数数组，对应 SQL 的 $1、$2 等占位符），无 query；返回 JSON 兼容 rows 数组与 rowCount。',
+  summary: i18n.t('operation.database.query'),
   method: 'POST',
   scheme: 'pg',
   authority: 'databases',

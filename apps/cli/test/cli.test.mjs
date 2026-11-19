@@ -55,14 +55,19 @@ test('version、静态帮助与 operation 帮助不执行业务、不创建数�
   const help = f.run(['--help'])
   assert.equal(help.code, 0)
   assert.match(help.stdout, /get/)
-  assert.match(help.stdout, /pg\.database\.register/)
+  assert.match(help.stdout, /help \[uri\]/)
+  assert.doesNotMatch(help.stdout, /pg\.database\.register/)
   assert.equal(existsSync(f.data), false)
 
   const registered = f.run(['help'])
   assert.equal(registered.code, 0, registered.stderr)
-  assert.match(registered.stdout, /locus\.workspaces\.create/)
-  assert.match(registered.stdout, /rt\.target\.register/)
+  assert.match(registered.stdout, /locus:\/\//)
+  assert.match(registered.stdout, /pg:\/\//)
+  assert.doesNotMatch(registered.stdout, /pg\.database\.register/)
   assert.equal(existsSync(f.data), false)
+
+  const scopes = JSON.parse(f.run(['--json', 'help']).stdout)
+  assert.deepEqual(scopes.find(scope => scope.scheme === 'pg://'), { scheme: 'pg://', routes: 2 })
 
   const scheme = f.run(['help', 'pg://'])
   assert.equal(scheme.code, 0, scheme.stderr)

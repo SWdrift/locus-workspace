@@ -1,5 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto'
 import type { EventBus } from '../events/types.ts'
+import { i18n } from '../i18n/core.ts'
 import { SecurityFailure } from '../security/errors.ts'
 import type {
   CredentialRef,
@@ -72,10 +73,13 @@ export function createDispatcher(
     }
     try {
       if (!LOCUS_METHODS.includes(request.method)) {
-        throw new InvocationFailure('unsupported-method', `不支持的方法：${String(request.method)}`)
+        throw new InvocationFailure(
+          'unsupported-method',
+          i18n.t('invocation.method-invalid', { method: String(request.method) }),
+        )
       }
       if (typeof request.uri !== 'string' || request.uri.length === 0) {
-        throw new InvocationFailure('invalid-uri', '缺少 URI')
+        throw new InvocationFailure('invalid-uri', i18n.t('invocation.uri-missing'))
       }
       const resolved = router.resolve(request.method, request.uri)
       uri = resolved.url.href
@@ -83,32 +87,32 @@ export function createDispatcher(
       operationId = operation.id
 
       if (request.method === 'GET' && request.body !== undefined) {
-        throw new InvocationFailure('invalid-body', 'GET 不接受 Body')
+        throw new InvocationFailure('invalid-body', i18n.t('invocation.get-body'))
       }
       if (request.body !== undefined && !isJsonMediaType(request.contentType)) {
-        throw new InvocationFailure('unsupported-media-type', '只接受 application/json 或 +json')
+        throw new InvocationFailure('unsupported-media-type', i18n.t('invocation.media-type'))
       }
       if (request.body !== undefined && !isPlainRecord(request.body)) {
-        throw new InvocationFailure('invalid-body', 'JSON Body 必须是对象')
+        throw new InvocationFailure('invalid-body', i18n.t('invocation.body-object'))
       }
 
       const fields = operation.fields ?? {}
       const body: Record<string, unknown> = request.body === undefined ? {} : { ...request.body }
       if (trustedInput !== undefined) {
         if (!isPlainRecord(trustedInput)) {
-          throw new InvocationFailure('invalid-body', '可信输入必须是映射')
+          throw new InvocationFailure('invalid-body', i18n.t('invocation.trusted-input-object'))
         }
         for (const [name, value] of Object.entries(trustedInput)) {
           const field = fields[name]
           if (field === undefined || field.tty !== true) {
-            throw new InvocationFailure('invalid-argument', `可信输入字段未声明为 tty：${name}`)
+            throw new InvocationFailure('invalid-argument', i18n.t('invocation.trusted-input-tty', { name }))
           }
           body[name] = value
         }
       }
       for (const [name, field] of Object.entries(fields)) {
         if (field.tty === true && request.body !== undefined && Object.hasOwn(request.body, name)) {
-          throw new InvocationFailure('invalid-body', `外部 Body 不能包含 tty 字段：${name}`)
+          throw new InvocationFailure('invalid-body', i18n.t('invocation.body-tty', { name }))
         }
       }
 
@@ -124,7 +128,10 @@ export function createDispatcher(
         )
       } catch (error) {
         if (error instanceof InvocationFailure) throw error
-        throw new InvocationFailure('invalid-argument', `输入不符合 operation ${operation.id} 的契约`)
+        throw new InvocationFailure(
+          'invalid-argument',
+          i18n.t('invocation.input-contract', { operation: operation.id }),
+        )
       }
 
       const parameters = Object.freeze({
@@ -205,10 +212,10 @@ export function createDispatcher(
       let result: InvocationResult
       if (operation.auth === 'none') {
         if (namespace !== 'locus' || operation.id !== 'locus.security.initialize') {
-          throw new InvocationFailure('forbidden', `auth: none 只允许 init：${operation.id}`)
+          throw new InvocationFailure('forbidden', i18n.t('invocation.auth-none-init', { operation: operation.id }))
         }
         if (session.source !== 'human') {
-          throw new InvocationFailure('forbidden', 'init 只接受可信 Host 的 human Session')
+          throw new InvocationFailure('forbidden', i18n.t('invocation.init-session'))
         }
         result = await invoke(
           Object.freeze({
@@ -232,7 +239,9 @@ export function createDispatcher(
       const results: InvocationResult[] = []
       for (const request of requests) {
         if (request.method !== 'GET') {
-          results.push(errorResult(request.uri, randomUUID(), 'unsupported-method', '批量请求只允许 GET'))
+          results.push(
+            errorResult(request.uri, randomUUID(), 'unsupported-method', i18n.t('invocation.batch-get-only')),
+          )
           continue
         }
         results.push(await runOne(request))
@@ -252,7 +261,10 @@ function parseQuery(operation: OperationDefinition<any, any, any>, query: Invoca
   const names = Object.keys(query)
   if (operation.query === undefined) {
     if (names.length > 0) {
-      throw new InvocationFailure('invalid-argument', `operation ${operation.id} 不接受 query 参数`)
+      throw new InvocationFailure(
+        'invalid-argument',
+        i18n.t('invocation.query-unsupported', { operation: operation.id }),
+      )
     }
     return undefined
   }
@@ -266,7 +278,7 @@ function parseQuery(operation: OperationDefinition<any, any, any>, query: Invoca
   try {
     return operation.query.parse(value)
   } catch {
-    throw new InvocationFailure('invalid-argument', `查询参数不符合 operation ${operation.id} 的契约`)
+    throw new InvocationFailure('invalid-argument', i18n.t('invocation.query-contract', { operation: operation.id }))
   }
 }
 

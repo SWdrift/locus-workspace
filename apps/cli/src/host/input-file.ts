@@ -1,5 +1,6 @@
 import { closeSync, constants, fstatSync, lstatSync, openSync, readSync } from 'node:fs'
 import { resolve } from 'node:path'
+import { i18n } from '../i18n.ts'
 
 const MAX_FIELD_FILE_BYTES = 1024 * 1024
 
@@ -35,7 +36,10 @@ export function readTrustedFieldFile(path: string): string {
   } catch (error) {
     const code = (error as NodeJS.ErrnoException).code
     throw new Error(
-      `无法读取可信字段文件 ${absolute}：需要不超过 1 MiB 的 UTF-8 普通文件，拒绝符号链接${code === undefined ? '' : `（${code}）`}`,
+      i18n.t('error.trusted-field-file', {
+        path: absolute,
+        code: code === undefined ? '' : `（${code}）`,
+      }),
     )
   } finally {
     if (descriptor !== undefined) closeSync(descriptor)

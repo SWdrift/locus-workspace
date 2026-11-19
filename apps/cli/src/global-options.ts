@@ -1,6 +1,7 @@
 import { Option } from 'commander'
 import type { Command } from 'commander'
 import type { SecurityGrantScope } from '@locus/core/security'
+import { i18n } from './i18n.ts'
 import { addOutputOptions } from './output/output.ts'
 import type { OutputFlags } from './output/output.ts'
 
@@ -16,12 +17,12 @@ export function configureGlobalOptions(
 ): Command {
   return addOutputOptions(command)
     .addOption(
-      new Option('--grant-scope <scope>', 'Root 提权范围')
+      new Option('--grant-scope <scope>', i18n.t('option.grant-scope'))
         .choices(['operation', 'session'])
         .default(defaults.grantScope),
     )
     .addOption(
-      new Option('--profile <profile>', '隔离安全 Profile 与 development 数据目录')
+      new Option('--profile <profile>', i18n.t('option.profile'))
         .choices(['production', 'development'])
         .default(defaults.profile),
     )

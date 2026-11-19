@@ -2,6 +2,7 @@ import { emitKeypressEvents } from 'node:readline'
 import type { Key } from 'node:readline'
 import type { ReadStream, WriteStream } from 'node:tty'
 import { SecurityFailure } from '@locus/core/security'
+import { i18n } from '../i18n.ts'
 
 /** 仅可信 CLI 组合根注入；普通组件不持有输入端口。 */
 export interface CliSecurityUI {
@@ -10,8 +11,7 @@ export interface CliSecurityUI {
   confirmLocalTakeover(warning: string): Promise<boolean>
 }
 
-export const RESET_WARNING =
-  '警告：重置 Root 相当于本机管理接管，无需旧密码。此操作将替换 Root 验证材料、清除锁定并撤销旧授权；不会删除 Workspace，也不会删除或恢复资源凭据。同一 OS 用户仍可绕过本地软件边界。'
+export const RESET_WARNING = i18n.t('reset.warning')
 
 /** 隐藏输入不经过 readline 的回显，也不经过 argv、环境变量或普通 stdin spec。 */
 export function createTerminalSecurityUI(
@@ -118,7 +118,7 @@ export function createTerminalSecurityUI(
     async confirmLocalTakeover(warning) {
       if (!interactive()) throw new SecurityFailure('authentication-unavailable')
       output.write(`${warning}\n`)
-      return (await readSecret('输入 RESET ROOT 确认本机管理接管（输入隐藏）：')) === 'RESET ROOT'
+      return (await readSecret(i18n.t('prompt.reset-confirm'))) === 'RESET ROOT'
     },
   }
 }
@@ -128,8 +128,8 @@ export async function readNewRootPassword(ui: CliSecurityUI): Promise<{ password
   if (!ui.interactive) throw new SecurityFailure('authentication-unavailable')
   let password = ''
   try {
-    password = await ui.readSecret('新 Root 密码：')
-    const confirmation = await ui.readSecret('再次输入新 Root 密码：')
+    password = await ui.readSecret(i18n.t('prompt.new-root-password'))
+    const confirmation = await ui.readSecret(i18n.t('prompt.root-password-confirmation'))
     return { password, confirmation }
   } finally {
     password = ''

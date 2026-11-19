@@ -1,4 +1,5 @@
 import { defineComponent } from '@locus/core/components'
+import { i18n } from './i18n.ts'
 import { migrate, password, privateKey, updateCredential } from './operations/credentials.ts'
 import { runJob } from './operations/jobs.ts'
 import { listServices, restartService } from './operations/services.ts'
@@ -15,8 +16,8 @@ import {
 const remoteTargets = defineComponent({
   id: 'remote-targets',
   version: '6',
-  name: '远程目标',
-  summary: '登记并通过 SSH 访问远程目标',
+  name: i18n.t('component.name'),
+  summary: i18n.t('component.summary'),
   kind: 'locus',
   requires: ['openssh'],
   config: 'remote-targets/',
@@ -35,13 +36,7 @@ const remoteTargets = defineComponent({
     runJob,
   ],
   credentials: [privateKey, password],
-  info: {
-    text: [
-      '通过系统 OpenSSH/Plink 访问已登记目标。',
-      '私钥与密码分别登记到独立字段槽；凭据按 component + slot + target id 绑定。',
-      '密钥认证需要 openssh 组件为 healthy；密码认证需要 plink 组件。',
-    ].join('\n'),
-  },
+  info: { text: i18n.t('component.info') },
 })
 
 export const component = remoteTargets.component

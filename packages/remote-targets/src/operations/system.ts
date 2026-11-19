@@ -1,13 +1,13 @@
 import { defineOperation } from '@locus/core/invocation'
 import { z } from 'zod'
+import { i18n } from '../i18n.ts'
 import { probeResultSchema } from '../schemas.ts'
 import { withService } from './context.ts'
 import { materialOf } from './credentials.ts'
 
 export const readSystem = defineOperation({
   id: 'rt.system.read',
-  summary:
-    '通过 SSH 在路径 id 指定目标上执行 hostname 并保存探测记录（支持完整 ID、唯一 ID 前缀或唯一标签），返回 targetId、ok、detail 与 checkedAt；无 query 或 JSON Body。',
+  summary: i18n.t('operation.system.read'),
   method: 'GET',
   scheme: 'rt',
   authority: 'targets',

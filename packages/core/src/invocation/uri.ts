@@ -1,4 +1,5 @@
 import { InvocationFailure } from './errors.ts'
+import { i18n } from '../i18n/core.ts'
 import type { InvocationUrl } from './types.ts'
 
 export const SCHEME = /^[a-z][a-z0-9+.-]*$/
@@ -8,7 +9,7 @@ const CONTROL = /[\u0000-\u001f\u007f]/
 
 export function encodeSegment(value: string): string {
   if (value.length === 0 || value.includes('/') || value.includes('\\') || CONTROL.test(value)) {
-    throw new InvocationFailure('invalid-argument', 'URL 参数不能为空或包含分隔符、控制字符')
+    throw new InvocationFailure('invalid-argument', i18n.t('invocation.url-segment-invalid'))
   }
   return encodeURIComponent(value)
 }
@@ -19,22 +20,22 @@ export function encodeSegment(value: string): string {
  */
 export function parseLocusUri(uri: string): InvocationUrl {
   if (typeof uri !== 'string' || uri.trim().length === 0 || CONTROL.test(uri)) {
-    invalidUri('URI 必须是非空字符串，且不能包含控制字符')
+    invalidUri(i18n.t('invocation.uri-invalid'))
   }
-  if (uri !== uri.trim()) invalidUri('URI 不能有首尾空白')
+  if (uri !== uri.trim()) invalidUri(i18n.t('invocation.uri-whitespace'))
   let url: URL
   try {
     url = new URL(uri)
   } catch {
-    invalidUri('URI 不是合法 URL')
+    invalidUri(i18n.t('invocation.uri-malformed'))
   }
   const scheme = url.protocol.slice(0, -1).toLowerCase()
-  if (!SCHEME.test(scheme)) invalidUri('scheme 不合法')
-  if (url.username.length > 0 || url.password.length > 0) invalidUri('URI 不能包含 userinfo')
-  if (url.hash.length > 0) invalidUri('URI 不能包含 fragment')
-  if (url.hostname.length === 0) invalidUri('URI 缺少 authority')
+  if (!SCHEME.test(scheme)) invalidUri(i18n.t('invocation.scheme-invalid'))
+  if (url.username.length > 0 || url.password.length > 0) invalidUri(i18n.t('invocation.userinfo-forbidden'))
+  if (url.hash.length > 0) invalidUri(i18n.t('invocation.fragment-forbidden'))
+  if (url.hostname.length === 0) invalidUri(i18n.t('invocation.authority-missing'))
   const authority = url.host.toLowerCase()
-  if (!AUTHORITY.test(authority)) invalidUri('authority 不合法')
+  if (!AUTHORITY.test(authority)) invalidUri(i18n.t('invocation.authority-invalid'))
 
   let rawPath = url.pathname
   if (rawPath === '/') rawPath = ''
@@ -46,8 +47,8 @@ export function parseLocusUri(uri: string): InvocationUrl {
   const query: Record<string, readonly string[]> = Object.create(null) as Record<string, readonly string[]>
   const pairs: Array<[string, string]> = []
   for (const [key, value] of url.searchParams) {
-    if (CONTROL.test(key) || CONTROL.test(value)) invalidUri('query 不能包含控制字符')
-    if (key.length === 0) invalidUri('query 参数名不能为空')
+    if (CONTROL.test(key) || CONTROL.test(value)) invalidUri(i18n.t('invocation.query-control'))
+    if (key.length === 0) invalidUri(i18n.t('invocation.query-key-empty'))
     pairs.push([key, value])
     const current = query[key]
     query[key] = current === undefined ? Object.freeze([value]) : Object.freeze([...current, value])
@@ -70,16 +71,16 @@ function invalidUri(message: string): never {
 }
 
 function decodeSegment(raw: string): string {
-  if (ENCODED_SEPARATOR.test(raw)) invalidUri('路径不能包含编码后的分隔符或 NUL')
+  if (ENCODED_SEPARATOR.test(raw)) invalidUri(i18n.t('invocation.path-encoded-separator'))
   let decoded: string
   try {
     decoded = decodeURIComponent(raw)
   } catch {
-    invalidUri('路径包含无效的百分号编码')
+    invalidUri(i18n.t('invocation.path-encoding-invalid'))
   }
-  if (decoded.length === 0) invalidUri('路径不能包含空段')
+  if (decoded.length === 0) invalidUri(i18n.t('invocation.path-empty-segment'))
   if (decoded.includes('/') || decoded.includes('\\') || CONTROL.test(decoded)) {
-    invalidUri('路径段解码后不能包含分隔符、控制字符或 NUL')
+    invalidUri(i18n.t('invocation.path-segment-invalid'))
   }
   return decoded
 }

@@ -4,6 +4,7 @@ import { createComponentOperations } from './components/operations.ts'
 import type { ComponentsService, DefinedComponent } from './components/types.ts'
 import { createEventOperations } from './events/operations.ts'
 import type { EventBus } from './events/types.ts'
+import { i18n } from './i18n/core.ts'
 import { defineOperation, describeOperation, operationMetadataSchema } from './invocation/operation.ts'
 import type { OperationMetadata } from './invocation/types.ts'
 import { createSecurityOperations } from './security/operations.ts'
@@ -27,7 +28,7 @@ interface CoreOperationDependencies {
 export function createLocusComponent(deps: CoreOperationDependencies): DefinedComponent {
   const info = defineOperation({
     id: 'locus.info.get',
-    summary: '读取当前 Locus 版本；无需 Body 或 query。',
+    summary: i18n.t('operation.info.get'),
     method: 'GET',
     scheme: 'locus',
     authority: 'info',
@@ -39,7 +40,7 @@ export function createLocusComponent(deps: CoreOperationDependencies): DefinedCo
   })
   const operations = defineOperation({
     id: 'locus.operations.list',
-    summary: '发现当前已注册的全部 operation 路由、用途与输入字段；无需 Body 或 query。',
+    summary: i18n.t('operation.operations.list'),
     method: 'GET',
     scheme: 'locus',
     authority: 'operations',
@@ -53,7 +54,7 @@ export function createLocusComponent(deps: CoreOperationDependencies): DefinedCo
     id: 'locus',
     version: '1',
     name: 'Locus Core',
-    summary: 'Core 自有 Workspace、组件、安全、凭据与事件资源',
+    summary: i18n.t('component.locus-summary'),
     kind: 'locus',
     operations: [
       info,

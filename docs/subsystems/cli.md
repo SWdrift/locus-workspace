@@ -10,7 +10,7 @@ CLI 是声明驱动的 URL 客户端和可信本地 Host，不维护领域命令
 
 ## 命令树
 
-默认入口是 get/post/put/patch/delete <uri...>；裸 URI 表示 GET。help [uri] 显示已装配声明。手写入口仅 version、init、security reset-root、shell。旧领域命令直接删除，没有翻译 shim，也没有 locus <component-id> 回退。
+默认入口是 get/post/put/patch/delete <uri...>；裸 URI 表示 GET。help 无参数只列已注册域与路由数；给出 scheme:// 或资源 URL 时平铺显示该域声明；`--help` 不附全量路由表。手写入口仅 version、init、security reset-root、shell。旧领域命令直接删除，没有翻译 shim，也没有 locus <component-id> 回退。
 
 ## 调用生命周期
 

@@ -1,5 +1,6 @@
 import { SecurityFailure } from '@locus/core/security'
 import type { CredentialDefinition, OperationContext } from '@locus/core/invocation'
+import { i18n } from './i18n.ts'
 import type { GiteaResponse, GiteaResult } from './types.ts'
 
 /** Origin 在 Root 登记时固定；请求阶段不接受调用者指定的目标。 */
@@ -63,9 +64,9 @@ export function createGiteaRequester(
           }
           const consumed = await consumeResponse(response)
           // 上游可能回显认证字段；绑定令牌不能借响应正文或普通 Header 离开凭据消费边界。
-          consumed.body = consumed.body.replaceAll(token, '[已脱敏]')
+          consumed.body = consumed.body.replaceAll(token, i18n.t('redaction.token'))
           for (const [name, value] of Object.entries(consumed.headers)) {
-            consumed.headers[name] = value.replaceAll(token, '[已脱敏]')
+            consumed.headers[name] = value.replaceAll(token, i18n.t('redaction.token'))
           }
           return { kind: 'response', response: consumed }
         } catch {

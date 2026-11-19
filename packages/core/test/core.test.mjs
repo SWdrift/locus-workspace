@@ -342,7 +342,7 @@ test('已有未版本化结构拒绝覆盖，空库可安全初始化', (t) => {
   database.exec("CREATE TABLE existing (value TEXT); INSERT INTO existing VALUES ('保留')")
   database.close()
   const before = readFileSync(filename)
-  assert.throws(() => setup.open().workspaces.list(), /仅初始化新空库/)
+  assert.throws(() => setup.open().workspaces.list(), /只初始化全新的空数据库/)
   assert.deepEqual(readFileSync(filename), before)
 
   const emptyDirectory = join(setup.root, 'existing-empty')

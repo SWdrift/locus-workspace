@@ -1,0 +1,5 @@
+export { defineI18n } from './define.ts'
+export { createI18nRegistry } from './registry.ts'
+export type { I18nCatalog, I18nValue } from './define.ts'
+export type { I18nEntry, I18nRegistry } from './registry.ts'
+export { i18n } from './core.ts'

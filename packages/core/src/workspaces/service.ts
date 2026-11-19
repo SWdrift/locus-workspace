@@ -1,4 +1,5 @@
 import { basename, isAbsolute, resolve } from 'node:path'
+import { i18n } from '../i18n/core.ts'
 import { WorkspaceFailure } from './errors.ts'
 import { createSqliteWorkspaceStore } from './sqlite-store.ts'
 import type { MountService, RelationSource, ResourceReference, WorkspaceRelation, WorkspaceService } from './types.ts'
@@ -9,7 +10,7 @@ export function createWorkspaceStore(dataDirectory: string) {
   const workspaces: WorkspaceService = {
     create(name) {
       store.assertActive()
-      requireText(name, 'Workspace 名称')
+      requireText(name, i18n.t('label.workspace-name'))
       return store.workspaces.create(name.trim())
     },
     list() {
@@ -18,53 +19,53 @@ export function createWorkspaceStore(dataDirectory: string) {
     },
     get(id) {
       store.assertActive()
-      requireText(id, 'Workspace id')
+      requireText(id, i18n.t('label.workspace-id'))
       return store.workspaces.get(id)
     },
     rename(id, name) {
       store.assertActive()
-      requireText(id, 'Workspace id')
-      requireText(name, 'Workspace 名称')
+      requireText(id, i18n.t('label.workspace-id'))
+      requireText(name, i18n.t('label.workspace-name'))
       return store.workspaces.rename(id, name.trim())
     },
     link(id, kind, target, source) {
       store.assertActive()
-      requireText(id, 'Workspace id')
+      requireText(id, i18n.t('label.workspace-id'))
       validateRelation(kind, target, source)
       if (target.namespace === 'locus.workspace' && target.id === id) {
-        throw new WorkspaceFailure('conflict', 'Workspace 不能把自身保存为成员或关联')
+        throw new WorkspaceFailure('conflict', i18n.t('workspace.self-reference'))
       }
       return store.workspaces.link(id, kind, target, source)
     },
     unlink(id, relationId) {
       store.assertActive()
-      requireText(id, 'Workspace id')
-      requireText(relationId, '关系 id')
+      requireText(id, i18n.t('label.workspace-id'))
+      requireText(relationId, i18n.t('label.relation-id'))
       store.workspaces.unlink(id, relationId)
     },
     remove(id) {
       store.assertActive()
-      requireText(id, 'Workspace id')
+      requireText(id, i18n.t('label.workspace-id'))
       store.workspaces.remove(id)
     },
   }
   const mounts: MountService = {
     add(workspaceId, path, options) {
       store.assertActive()
-      requireText(workspaceId, 'Workspace id')
+      requireText(workspaceId, i18n.t('label.workspace-id'))
       const normalizedPath = normalizeMountPath(path)
       const name = options?.name === undefined ? undefined : requireMountName(options.name)
       return store.mounts.add(workspaceId, normalizedPath, name ?? defaultMountName(normalizedPath), name)
     },
     list(workspaceId) {
       store.assertActive()
-      requireText(workspaceId, 'Workspace id')
+      requireText(workspaceId, i18n.t('label.workspace-id'))
       return store.mounts.list(workspaceId)
     },
     remove(workspaceId, mountIdOrName) {
       store.assertActive()
-      requireText(workspaceId, 'Workspace id')
-      requireText(mountIdOrName, '挂载 id 或名称')
+      requireText(workspaceId, i18n.t('label.workspace-id'))
+      requireText(mountIdOrName, i18n.t('label.mount-reference'))
       store.mounts.remove(workspaceId, mountIdOrName)
     },
   }
@@ -73,22 +74,19 @@ export function createWorkspaceStore(dataDirectory: string) {
 
 function requireText(value: unknown, field: string): asserts value is string {
   if (typeof value !== 'string' || value.trim().length === 0) {
-    throw new WorkspaceFailure('invalid-argument', `${field} 必须是非空字符串`)
+    throw new WorkspaceFailure('invalid-argument', i18n.t('workspace.field-non-empty', { field }))
   }
   if (value.includes('\0')) {
-    throw new WorkspaceFailure('invalid-argument', `${field} 不能包含 NUL 字符`)
+    throw new WorkspaceFailure('invalid-argument', i18n.t('workspace.field-nul', { field }))
   }
 }
 
 const MOUNT_NAME = /^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/
 
 function requireMountName(value: unknown): string {
-  requireText(value, '挂载名称')
+  requireText(value, i18n.t('label.mount-name'))
   if (!MOUNT_NAME.test(value)) {
-    throw new WorkspaceFailure(
-      'invalid-argument',
-      '挂载名称必须以字母或数字开头，只包含字母、数字、下划线和短横线，最长 64 字符',
-    )
+    throw new WorkspaceFailure('invalid-argument', i18n.t('workspace.mount-name-invalid'))
   }
   return value
 }
@@ -102,30 +100,30 @@ function defaultMountName(pathValue: string): string {
 }
 
 function normalizeMountPath(value: unknown): string {
-  requireText(value, '挂载路径')
+  requireText(value, i18n.t('label.mount-path'))
   if (!isAbsolute(value)) {
-    throw new WorkspaceFailure('invalid-argument', '挂载路径必须是绝对路径')
+    throw new WorkspaceFailure('invalid-argument', i18n.t('workspace.mount-path-absolute'))
   }
   return resolve(value)
 }
 
 function validateRelation(kind: WorkspaceRelation['kind'], target: ResourceReference, source: RelationSource): void {
   if (kind !== 'member' && kind !== 'association') {
-    throw new WorkspaceFailure('invalid-argument', `无效关系 kind：${String(kind)}，必须是 member 或 association`)
+    throw new WorkspaceFailure('invalid-argument', i18n.t('workspace.relation-kind-invalid', { kind: String(kind) }))
   }
   if (target === null || typeof target !== 'object') {
-    throw new WorkspaceFailure('invalid-argument', '关系 target 必须包含 namespace 和 id')
+    throw new WorkspaceFailure('invalid-argument', i18n.t('workspace.relation-target'))
   }
-  requireText(target.namespace, '关系 target.namespace')
-  requireText(target.id, '关系 target.id')
+  requireText(target.namespace, i18n.t('label.relation-target-namespace'))
+  requireText(target.id, i18n.t('label.relation-target-id'))
   if (source === null || typeof source !== 'object') {
-    throw new WorkspaceFailure('invalid-argument', '关系 source 必须包含 kind 和 detail')
+    throw new WorkspaceFailure('invalid-argument', i18n.t('workspace.relation-source'))
   }
   if (source.kind !== 'manual' && source.kind !== 'discovery') {
     throw new WorkspaceFailure(
       'invalid-argument',
-      `无效关系 source.kind：${String(source.kind)}，必须是 manual 或 discovery`,
+      i18n.t('workspace.relation-source-kind-invalid', { kind: String(source.kind) }),
     )
   }
-  requireText(source.detail, '关系 source.detail')
+  requireText(source.detail, i18n.t('label.relation-source-detail'))
 }

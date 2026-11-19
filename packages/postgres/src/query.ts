@@ -1,5 +1,6 @@
 import { InvocationFailure } from '@locus/core/invocation'
 import { Pool } from 'pg'
+import { i18n } from './i18n.ts'
 import type { PostgresPoolParameters, PostgresQueryInput, PostgresQueryResult } from './types.ts'
 
 /** 临时验证消费者每次查询创建并释放驱动池，不维护长期连接抽象。 */
@@ -13,7 +14,7 @@ export async function queryPostgres(
     pool = new Pool(parameters)
   } catch {
     parameters.password = ''
-    throw new InvocationFailure('unavailable', 'PostgreSQL 连接初始化失败')
+    throw new InvocationFailure('unavailable', i18n.t('query.connection-init-failed'))
   }
   try {
     const result = await pool.query(input.sql, input.values ?? [])
@@ -23,7 +24,7 @@ export async function queryPostgres(
   } catch (error) {
     throw new InvocationFailure(
       'unavailable',
-      `PostgreSQL 查询失败：${error instanceof Error ? error.message : String(error)}`,
+      i18n.t('query.failed', { detail: error instanceof Error ? error.message : String(error) }),
     )
   } finally {
     parameters.password = ''
@@ -37,12 +38,12 @@ function poolParameters(values: Readonly<Record<string, string>>): PostgresPoolP
   const user = values.username
   const password = values.password
   if (host === undefined || database === undefined || user === undefined || password === undefined) {
-    throw new InvocationFailure('invalid-argument', '数据库凭据缺少 host、database、username 或 password')
+    throw new InvocationFailure('invalid-argument', i18n.t('query.credential-incomplete'))
   }
   const portValue = values.port
   const port = portValue === undefined ? undefined : Number(portValue)
   if (portValue !== undefined && (!Number.isInteger(port) || (port as number) < 1 || (port as number) > 65535)) {
-    throw new InvocationFailure('invalid-argument', '数据库端口必须是 1 到 65535 的整数')
+    throw new InvocationFailure('invalid-argument', i18n.t('query.port-range'))
   }
   return { host, database, user, password, ...(port === undefined ? {} : { port }) }
 }

@@ -1,6 +1,7 @@
 import { accessSync, constants, statSync } from 'node:fs'
 import { delimiter, isAbsolute, join } from 'node:path'
 import { execa } from 'execa'
+import { i18n } from '../i18n/core.ts'
 import type { ComponentRunner } from './types.ts'
 
 const MAX_BUFFER = 1024 * 1024
@@ -14,7 +15,7 @@ export function createComponentRunner(): ComponentRunner {
         return {
           exitCode: 1,
           stdout: '',
-          stderr: '组件命令为空',
+          stderr: i18n.t('component.command-empty'),
           errorCode: 'EINVAL',
           timedOut: false,
         }

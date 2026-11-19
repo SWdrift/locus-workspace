@@ -474,9 +474,16 @@ test('临时组件仅凭 operation 声明接入 URL 与帮助，帮助展示字�
   const temporary = temporaryComponent()
   const setup = await fixture(t, [temporary.definition])
   const ui = scriptedUI()
+  for (const args of [['--help'], ['help']]) {
+    const help = await invoke(t, setup, args, ui)
+    assert.ok(help.error === undefined || help.error.exitCode === 0, help.stderr)
+    assert.doesNotMatch(help.stdout, /temporary\.read/)
+    assert.doesNotMatch(help.stdout, /temporary\.write/)
+    assert.equal(temporary.calls(), 0)
+    assert.deepEqual(ui.prompts, [])
+    assert.equal(existsSync(join(setup.dataDirectory, 'core.sqlite')), false)
+  }
   for (const args of [
-    ['--help'],
-    ['help'],
     ['help', 'temporary://'],
     ['help', 'temporary://items/new'],
   ]) {

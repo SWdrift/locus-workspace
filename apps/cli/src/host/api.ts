@@ -3,6 +3,7 @@ import type { ApiRouter, ComponentStateView, InvocationRequest, InvocationResult
 import type { EventBus } from '@locus/core/events'
 import { SecurityFailure } from '@locus/core/security'
 import type { SecurityChallenge, SecurityGrantScope, SecurityHost, SecuritySession } from '@locus/core/security'
+import { i18n } from '../i18n.ts'
 import type { CliSecurityUI } from './terminal.ts'
 
 export interface CliApiOptions {
@@ -44,7 +45,7 @@ export function createCliApi(options: CliApiOptions): CliApi {
     if (challenge === undefined) return result
     if (!options.ui.interactive) throw new SecurityFailure('authentication-unavailable')
     const label = `${challenge.componentId}:${challenge.operation}`
-    const password = await options.ui.readSecret(`Root 密码（授权 ${label}）：`)
+    const password = await options.ui.readSecret(i18n.t('prompt.root-password', { label }))
     let grant
     try {
       grant = await options.host.authenticate(challenge, password, options.grantScope)

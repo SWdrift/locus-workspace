@@ -107,7 +107,7 @@ Dispatcher 只输出规范化 URI 与 requestId；不输出输入 Body、秘密�
 
 `locus get|post|put|patch|delete <uri...>` 直接调用 operation。多 URI 只允许 GET；`--data` 与 `--file`（含 `-`）互斥，Body 只接受 `application/json` 与 `+json`；`--json` 输出信封，`--pretty` 只影响 JSON，未指定时输出人类可读结果。退出码：`0` 成功；`1` 参数、URI、方法或媒体类型错误；`2` 业务、授权或远端失败；`3` 批量部分失败。
 
-裸 URL 默认 GET，help [uri] 从已注册声明读取方法和字段；不执行 handler。纯转发领域命令与组件 id 顶层回退已删除，特殊手写入口仅 version、init、security reset-root 和本地 shell。普通 Body 使用 JSON；可选可信字段通过 --prompt 选择，字段文件必须在声明中显式获准，Root 密码不允许文件。语法见[实用命令](../commands.md)。
+裸 URL 默认 GET。help 无参数只列已注册域与路由数；给出 scheme:// 或资源 URL 时从已注册声明平铺读取方法和字段；两者都不执行 handler。纯转发领域命令与组件 id 顶层回退已删除，特殊手写入口仅 version、init、security reset-root 和本地 shell。普通 Body 使用 JSON；可选可信字段通过 --prompt 选择，字段文件必须在声明中显式获准，Root 密码不允许文件。语法见[实用命令](../commands.md)。
 
 ## 限制
 

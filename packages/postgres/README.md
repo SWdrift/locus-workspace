@@ -8,7 +8,7 @@
 
 ## 源码导航
 
-源码入口：[组件声明](src/component.ts)、[operation](src/operations.ts)、[查询与驱动释放](src/query.ts)、[DTO](src/types.ts)及[schema](src/schemas.ts)。行为验证在[包测试](test/postgres.test.mjs)；该包仍是临时消费者，不建立长期连接池平台。
+源码入口：[组件声明](src/component.ts)、[operation](src/operations.ts)、[查询与驱动释放](src/query.ts)、[DTO](src/types.ts)、[schema](src/schemas.ts)与[本包文案表](src/i18n.ts)。行为验证在[包测试](test/postgres.test.mjs)；该包仍是临时消费者，不建立长期连接池平台。
 
 ## 使用
 

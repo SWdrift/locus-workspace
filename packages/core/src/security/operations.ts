@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { i18n } from '../i18n/core.ts'
 import { defineOperation } from '../invocation/operation.ts'
 import { InvocationFailure } from '../invocation/errors.ts'
 import type { OperationDefinition } from '../invocation/types.ts'
@@ -64,13 +65,13 @@ const securityPasswordInput = z.object({ password: z.string(), confirmation: z.s
 const resetInput = z.object({ password: z.string(), confirmation: z.string(), confirm: z.string() })
 const ttyFields = Object.freeze({
   password: Object.freeze({
-    description: '新的 Root 密码，只接受可信本机 TTY 输入。',
+    description: i18n.t('field.root-password'),
     required: true,
     secret: true,
     tty: true,
   }),
   confirmation: Object.freeze({
-    description: '再次输入新的 Root 密码，只接受可信本机 TTY 输入。',
+    description: i18n.t('field.root-confirmation'),
     required: true,
     secret: true,
     tty: true,
@@ -79,7 +80,7 @@ const ttyFields = Object.freeze({
 const resetFields = Object.freeze({
   ...ttyFields,
   confirm: Object.freeze({
-    description: '输入 RESET ROOT 确认本机接管，只接受可信本机 TTY 输入。',
+    description: i18n.t('field.reset-confirm'),
     required: true,
     secret: true,
     tty: true,
@@ -95,7 +96,7 @@ export function createSecurityOperations(
   return [
     defineOperation({
       id: 'locus.security.status',
-      summary: '读取当前 Profile 的 Root 初始化状态与身份信息；无需 Body 或 query。',
+      summary: i18n.t('operation.security.status'),
       method: 'GET',
       scheme: 'locus',
       authority: 'security',
@@ -107,7 +108,7 @@ export function createSecurityOperations(
     }),
     defineOperation({
       id: 'locus.security.provider',
-      summary: '读取 Credential Provider 后端状态；不读取秘密条目，无需 Body 或 query。',
+      summary: i18n.t('operation.security.provider'),
       method: 'GET',
       scheme: 'locus',
       authority: 'security',
@@ -119,8 +120,7 @@ export function createSecurityOperations(
     }),
     defineOperation({
       id: 'locus.security.initialize',
-      summary:
-        '首次初始化 Root；仅 human Session，password 与 confirmation 必须由可信本机 TTY 提供，不接受 Body 或字段文件。',
+      summary: i18n.t('operation.security.initialize'),
       method: 'POST',
       scheme: 'locus',
       authority: 'security',
@@ -131,15 +131,14 @@ export function createSecurityOperations(
       fields: ttyFields,
       run: async (_query, input) => {
         if ((await deps.security().status()).initialized)
-          throw new InvocationFailure('conflict', 'Root 安全身份已初始化')
+          throw new InvocationFailure('conflict', i18n.t('security.root-already-initialized'))
         await deps.host().initializeRoot(input.password, input.confirmation)
         return { initialized: true as const }
       },
     }),
     defineOperation({
       id: 'locus.security.reset-root',
-      summary:
-        '本机接管并重置 Root；可信本机 TTY 必须提供 password、confirmation 及 confirm（固定为 RESET ROOT），不接受 Body 或字段文件。',
+      summary: i18n.t('operation.security.reset-root'),
       method: 'POST',
       scheme: 'locus',
       authority: 'security',
@@ -149,14 +148,15 @@ export function createSecurityOperations(
       output: z.object({ reset: z.literal(true) }),
       fields: resetFields,
       run: async (_query, input) => {
-        if (input.confirm !== 'RESET ROOT') throw new InvocationFailure('forbidden', '重置 Root 需要显式本机接管确认')
+        if (input.confirm !== 'RESET ROOT')
+          throw new InvocationFailure('forbidden', i18n.t('security.reset-confirm-required'))
         await deps.host().resetRoot(input.password, input.confirmation)
         return { reset: true as const }
       },
     }),
     defineOperation({
       id: 'locus.security.change-root-password',
-      summary: '经 Root 授权变更密码；password 与 confirmation 必须由可信本机 TTY 提供，不接受 Body 或字段文件。',
+      summary: i18n.t('operation.security.change-root-password'),
       method: 'POST',
       scheme: 'locus',
       authority: 'security',
@@ -172,7 +172,7 @@ export function createSecurityOperations(
     }),
     defineOperation({
       id: 'locus.security.operations.list',
-      summary: '列出全部组件 operation 的默认与有效认证等级及覆盖来源；需要 Root，无需 Body 或 query。',
+      summary: i18n.t('operation.security.operations.list'),
       method: 'GET',
       scheme: 'locus',
       authority: 'security',
@@ -184,14 +184,14 @@ export function createSecurityOperations(
     }),
     defineOperation({
       id: 'locus.security.operations.set',
-      summary: '覆盖路径 component/operation 的认证等级；Body 必须提供 level（user 或 root），需要 Root。',
+      summary: i18n.t('operation.security.operations.set'),
       method: 'PUT',
       scheme: 'locus',
       authority: 'security',
       path: '/operations/:component/:operation',
       auth: 'root',
       input: z.object({ level: securityLevel }),
-      fields: { level: { description: '认证等级覆盖值：user 或 root。', required: true } },
+      fields: { level: { description: i18n.t('field.auth-level'), required: true } },
       output: operationAuthority,
       run: (_query, input, context) =>
         management().setOperationLevel({
@@ -202,7 +202,7 @@ export function createSecurityOperations(
     }),
     defineOperation({
       id: 'locus.security.operations.reset',
-      summary: '移除路径 component/operation 的认证等级覆盖，恢复代码声明；需要 Root，无需 Body 或 query。',
+      summary: i18n.t('operation.security.operations.reset'),
       method: 'DELETE',
       scheme: 'locus',
       authority: 'security',
@@ -218,7 +218,7 @@ export function createSecurityOperations(
     }),
     defineOperation({
       id: 'locus.credentials.list',
-      summary: '列出当前 Profile 的凭据公开元数据与全部绑定，不返回秘密值；需要 Root，无需 Body 或 query。',
+      summary: i18n.t('operation.credentials.list'),
       method: 'GET',
       scheme: 'locus',
       authority: 'credentials',
@@ -233,7 +233,7 @@ export function createSecurityOperations(
     }),
     defineOperation({
       id: 'locus.credentials.component',
-      summary: '列出路径 component 的凭据绑定与相关公开元数据，不返回秘密值；需要 Root，无需 Body 或 query。',
+      summary: i18n.t('operation.credentials.component'),
       method: 'GET',
       scheme: 'locus',
       authority: 'credentials',
@@ -255,7 +255,7 @@ export function createSecurityOperations(
     }),
     defineOperation({
       id: 'locus.credentials.get',
-      summary: '按路径 component/slot/key 精确读取绑定与凭据公开元数据，不返回秘密值；需要 Root，无需 Body 或 query。',
+      summary: i18n.t('operation.credentials.get'),
       method: 'GET',
       scheme: 'locus',
       authority: 'credentials',
@@ -272,15 +272,22 @@ export function createSecurityOperations(
           item => item.componentId === componentId && item.slot === slot && item.resourceKey === resourceKey,
         )
         if (binding === undefined)
-          throw new InvocationFailure('not-found', `没有凭据绑定：${componentId}/${slot}/${resourceKey}`)
+          throw new InvocationFailure(
+            'not-found',
+            i18n.t('security.binding-not-found', { component: componentId, slot, key: resourceKey }),
+          )
         const credential = (await management().listCredentials()).find(item => item.reference === binding.reference)
-        if (credential === undefined) throw new InvocationFailure('not-found', `找不到凭据元数据：${binding.reference}`)
+        if (credential === undefined)
+          throw new InvocationFailure(
+            'not-found',
+            i18n.t('security.credential-metadata-missing', { reference: binding.reference }),
+          )
         return { binding, credential }
       },
     }),
     defineOperation({
       id: 'locus.credentials.remove',
-      summary: '按路径 component/slot/key 删除已绑定凭据及其 Provider 条目与绑定；需要 Root，无需 Body 或 query。',
+      summary: i18n.t('operation.credentials.remove'),
       method: 'DELETE',
       scheme: 'locus',
       authority: 'credentials',
@@ -297,21 +304,24 @@ export function createSecurityOperations(
           item => item.componentId === componentId && item.slot === slot && item.resourceKey === resourceKey,
         )
         if (binding === undefined)
-          throw new InvocationFailure('not-found', `没有凭据绑定：${componentId}/${slot}/${resourceKey}`)
+          throw new InvocationFailure(
+            'not-found',
+            i18n.t('security.binding-not-found', { component: componentId, slot, key: resourceKey }),
+          )
         await management().deleteCredential(binding.reference)
         return { reference: binding.reference, removed: true as const }
       },
     }),
     defineOperation({
       id: 'locus.credentials.cleanup',
-      summary: '检查当前 Profile 的孤立 Provider 条目；Body 可选 apply，只有 true 才删除；需要 Root。',
+      summary: i18n.t('operation.credentials.cleanup'),
       method: 'POST',
       scheme: 'locus',
       authority: 'credentials',
       path: '/actions/cleanup',
       auth: 'root',
       input: z.object({ apply: z.boolean().optional() }),
-      fields: { apply: { description: '是否实际删除孤立条目；省略或 false 时仅报告。', required: false } },
+      fields: { apply: { description: i18n.t('field.cleanup-apply'), required: false } },
       output: z.object({
         service: z.string(),
         orphans: z.array(z.string()).readonly(),
@@ -322,14 +332,14 @@ export function createSecurityOperations(
     }),
     defineOperation({
       id: 'locus.credentials.status',
-      summary: '检查凭据公开元数据及秘密条目是否存在；Body 必须提供 reference（credential:...）；需要 Root。',
+      summary: i18n.t('operation.credentials.status'),
       method: 'POST',
       scheme: 'locus',
       authority: 'credentials',
       path: '/actions/status',
       auth: 'root',
       input: z.object({ reference: credentialReference }),
-      fields: { reference: { description: 'Core 签发的 credential:... 凭据引用，不是秘密值。', required: true } },
+      fields: { reference: { description: i18n.t('field.credential-reference'), required: true } },
       output: z.object({ metadata: credentialMetadata, present: z.boolean() }),
       run: (_query, input) => management().credentialStatus(input.reference),
     }),

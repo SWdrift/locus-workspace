@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { i18n } from '../i18n/core.ts'
 import { defineOperation, operationMetadataSchema } from '../invocation/operation.ts'
 import type { OperationDefinition } from '../invocation/types.ts'
 import type { ComponentList, ComponentProbeAll, ComponentRemoval, ComponentsService, ComponentView } from './types.ts'
@@ -71,7 +72,7 @@ export function createComponentOperations(
   return [
     defineOperation({
       id: 'locus.components.list',
-      summary: '列出已登记组件、最近观察状态与定义问题；无需 Body 或 query，不主动探查。',
+      summary: i18n.t('operation.components.list'),
       method: 'GET',
       scheme: 'locus',
       authority: 'components',
@@ -83,7 +84,7 @@ export function createComponentOperations(
     }),
     defineOperation({
       id: 'locus.components.get',
-      summary: '按路径 id 读取组件完整说明、operation 与最近观察状态；无需 Body 或 query。',
+      summary: i18n.t('operation.components.get'),
       method: 'GET',
       scheme: 'locus',
       authority: 'components',
@@ -95,7 +96,7 @@ export function createComponentOperations(
     }),
     defineOperation({
       id: 'locus.components.register',
-      summary: '登记 external 组件；Body 提供 text（YAML 内容）或 path（本机 YAML 文件路径）。',
+      summary: i18n.t('operation.components.register'),
       method: 'POST',
       scheme: 'locus',
       authority: 'components',
@@ -103,8 +104,8 @@ export function createComponentOperations(
       auth: 'user',
       input: componentSource,
       fields: {
-        text: { description: 'external 组件的完整 YAML 定义；与 path 任择其一。', required: false },
-        path: { description: '本机 external 组件 YAML 文件路径；与 text 任择其一。', required: false },
+        text: { description: i18n.t('field.component-text'), required: false },
+        path: { description: i18n.t('field.component-path'), required: false },
       },
       output: componentView,
       run: (_query, input) =>
@@ -112,7 +113,7 @@ export function createComponentOperations(
     }),
     defineOperation({
       id: 'locus.components.remove',
-      summary: '按路径 id 删除动态登记的 external 组件；包组件不可删除，无需 Body 或 query。',
+      summary: i18n.t('operation.components.remove'),
       method: 'DELETE',
       scheme: 'locus',
       authority: 'components',
@@ -128,7 +129,7 @@ export function createComponentOperations(
     }),
     defineOperation({
       id: 'locus.components.upgrade',
-      summary: '按路径 id 刷新包组件定义到代码版本并保留 config；无需 Body 或 query。',
+      summary: i18n.t('operation.components.upgrade'),
       method: 'POST',
       scheme: 'locus',
       authority: 'components',
@@ -140,7 +141,7 @@ export function createComponentOperations(
     }),
     defineOperation({
       id: 'locus.components.probe',
-      summary: '按路径 id 执行 external 组件已声明的探针并保存观察结果；无需 Body 或 query。',
+      summary: i18n.t('operation.components.probe'),
       method: 'POST',
       scheme: 'locus',
       authority: 'components',
@@ -152,7 +153,7 @@ export function createComponentOperations(
     }),
     defineOperation({
       id: 'locus.components.probe-all',
-      summary: '探查全部 external 组件，逐项返回结果或跳过原因；无需 Body 或 query。',
+      summary: i18n.t('operation.components.probe-all'),
       method: 'POST',
       scheme: 'locus',
       authority: 'components',
@@ -178,7 +179,7 @@ export function createComponentOperations(
     }),
     defineOperation({
       id: 'locus.components.deploy',
-      summary: '按路径 id 执行组件已声明的部署命令并保存结果；无需 Body 或 query。',
+      summary: i18n.t('operation.components.deploy'),
       method: 'POST',
       scheme: 'locus',
       authority: 'components',
