@@ -2,16 +2,25 @@ import { basename, isAbsolute, resolve } from 'node:path'
 import { i18n } from '../i18n/core.ts'
 import { WorkspaceFailure } from './errors.ts'
 import { createSqliteWorkspaceStore } from './sqlite-store.ts'
-import type { MountService, RelationSource, ResourceReference, WorkspaceRelation, WorkspaceService } from './types.ts'
+import type {
+  MountService,
+  MountUpdate,
+  RelationSource,
+  ResourceReference,
+  WorkspaceRelation,
+  WorkspaceService,
+  WorkspaceUpdate,
+} from './types.ts'
 
 /** 输入与领域规则在服务边界完成；SQLite 存储负责原子读写与连接生命周期。 */
 export function createWorkspaceStore(dataDirectory: string) {
   const store = createSqliteWorkspaceStore(dataDirectory)
   const workspaces: WorkspaceService = {
-    create(name) {
+    create(name, options) {
       store.assertActive()
-      requireText(name, i18n.t('label.workspace-name'))
-      return store.workspaces.create(name.trim())
+      const normalized = requireWorkspaceName(name)
+      const description = options?.description === undefined ? undefined : optionalDescription(options.description)
+      return store.workspaces.create(normalized, description)
     },
     list() {
       store.assertActive()
@@ -22,11 +31,15 @@ export function createWorkspaceStore(dataDirectory: string) {
       requireText(id, i18n.t('label.workspace-id'))
       return store.workspaces.get(id)
     },
-    rename(id, name) {
+    update(id, input: WorkspaceUpdate) {
       store.assertActive()
       requireText(id, i18n.t('label.workspace-id'))
-      requireText(name, i18n.t('label.workspace-name'))
-      return store.workspaces.rename(id, name.trim())
+      const name = input.name === undefined ? undefined : requireWorkspaceName(input.name)
+      const description = input.description === undefined ? undefined : clearableDescription(input.description)
+      return store.workspaces.update(id, {
+        ...(name === undefined ? {} : { name }),
+        ...(description === undefined ? {} : { description }),
+      })
     },
     link(id, kind, target, source) {
       store.assertActive()
@@ -55,12 +68,28 @@ export function createWorkspaceStore(dataDirectory: string) {
       requireText(workspaceId, i18n.t('label.workspace-id'))
       const normalizedPath = normalizeMountPath(path)
       const name = options?.name === undefined ? undefined : requireMountName(options.name)
-      return store.mounts.add(workspaceId, normalizedPath, name ?? defaultMountName(normalizedPath), name)
+      return store.mounts.add(
+        workspaceId,
+        normalizedPath,
+        name ?? defaultMountName(normalizedPath),
+        name,
+        options?.primary === true,
+      )
     },
     list(workspaceId) {
       store.assertActive()
       requireText(workspaceId, i18n.t('label.workspace-id'))
       return store.mounts.list(workspaceId)
+    },
+    update(workspaceId, mountIdOrName, input: MountUpdate) {
+      store.assertActive()
+      requireText(workspaceId, i18n.t('label.workspace-id'))
+      requireText(mountIdOrName, i18n.t('label.mount-reference'))
+      const name = input.name === undefined ? undefined : requireMountName(input.name)
+      return store.mounts.update(workspaceId, mountIdOrName, {
+        ...(name === undefined ? {} : { name }),
+        ...(input.primary === undefined ? {} : { primary: input.primary }),
+      })
     },
     remove(workspaceId, mountIdOrName) {
       store.assertActive()
@@ -70,6 +99,33 @@ export function createWorkspaceStore(dataDirectory: string) {
     },
   }
   return { workspaces, mounts, assertActive: store.assertActive, dispose: store.dispose }
+}
+
+function requireWorkspaceName(value: unknown): string {
+  requireText(value, i18n.t('label.workspace-name'))
+  const name = value.trim()
+  if (name.length > 64 || /[\u0000-\u001F\u007F]/.test(name)) {
+    throw new WorkspaceFailure('invalid-argument', i18n.t('workspace.name-invalid'))
+  }
+  return name
+}
+
+/** 返回 undefined 表示不写入；返回 null 表示清空。 */
+function clearableDescription(value: unknown): string | null | undefined {
+  if (typeof value !== 'string') {
+    throw new WorkspaceFailure('invalid-argument', i18n.t('workspace.description-invalid'))
+  }
+  const description = value.trim()
+  if (description.length === 0) return null
+  if (description.length > 500) {
+    throw new WorkspaceFailure('invalid-argument', i18n.t('workspace.description-too-long', { max: '500' }))
+  }
+  return description
+}
+
+function optionalDescription(value: unknown): string | undefined {
+  const description = clearableDescription(value)
+  return description === null ? undefined : description
 }
 
 function requireText(value: unknown, field: string): asserts value is string {

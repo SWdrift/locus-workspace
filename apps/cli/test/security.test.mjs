@@ -356,14 +356,14 @@ test('shell 读取 Workspace 经过 Root 覆盖路由：非交互拒绝，交互
   const setup = await fixture(t)
   success(await invoke(t, setup, ['--json', 'init'], scriptedUI([ROOT_PASSWORD, ROOT_PASSWORD])))
   const workspace = success(await invoke(t, setup, [
-    '--json', 'post', 'locus://workspaces', '--data', '{"name":"受控 Shell"}',
+    '--json', 'post', 'locus://ws', '--data', '{"name":"受控 Shell"}',
   ], scriptedUI())).data
   const mount = success(await invoke(t, setup, [
-    '--json', 'post', `locus://workspaces/${workspace.id}/mounts`, '--data',
+    '--json', 'post', `locus://ws/${workspace.id}/mounts`, '--data',
     JSON.stringify({ path: setup.dataDirectory, name: 'data' }),
   ], scriptedUI())).data
   success(await invoke(t, setup, [
-    '--json', 'put', 'locus://security/operations/locus/locus.workspaces.get', '--data', '{"level":"root"}',
+    '--json', 'put', 'locus://security/operations/locus/locus.ws.get', '--data', '{"level":"root"}',
   ], scriptedUI([ROOT_PASSWORD])))
 
   const unavailable = scriptedUI([], true, false)
@@ -375,7 +375,7 @@ test('shell 读取 Workspace 经过 Root 覆盖路由：非交互拒绝，交互
 
   const ui = scriptedUI([ROOT_PASSWORD])
   const context = success(await invoke(t, setup, ['--pretty', 'shell', workspace.id, '--print-env'], ui))
-  assert.deepEqual(ui.prompts, ['Root 密码（授权 locus:locus.workspaces.get）：'])
+  assert.deepEqual(ui.prompts, ['Root 密码（授权 locus:locus.ws.get）：'])
   assert.equal(context.environment.LOCUS_WORKSPACE_ID, workspace.id)
   assert.equal(context.cwd, setup.dataDirectory)
   assert.deepEqual(context.mounts.map((item) => item.id), [mount.id])
@@ -438,7 +438,7 @@ test('URL 动词输出信封；批量 GET 保留部分失败并按协议返回�
   assert.equal(typeof bare.requestId, 'string')
 
   const created = success(await invoke(t, setup, [
-    '--json', 'post', 'locus://workspaces', '--data', '{"name":"URL 工作区"}',
+    '--json', 'post', 'locus://ws', '--data', '{"name":"URL 工作区"}',
   ], scriptedUI()))
   assert.equal(created.ok, true)
   assert.equal(created.data.name, 'URL 工作区')
@@ -451,7 +451,7 @@ test('URL 动词输出信封；批量 GET 保留部分失败并按协议返回�
   assert.equal(results[1].error.code, 'not-found')
 
   const invalidBody = await invoke(t, setup, [
-    '--json', 'post', 'locus://workspaces', '--data', '{"name":"x"}', '--content-type', 'text/plain',
+    '--json', 'post', 'locus://ws', '--data', '{"name":"x"}', '--content-type', 'text/plain',
   ], scriptedUI())
   assert.ok(invalidBody.error)
   assert.equal(invalidBody.error.exitCode, 1)
@@ -460,7 +460,7 @@ test('URL 动词输出信封；批量 GET 保留部分失败并按协议返回�
 test('events URL query 按类型筛选请求事件', async (t) => {
   const setup = await fixture(t)
   await success(await invoke(t, setup, [
-    '--json', 'post', 'locus://workspaces', '--data', '{"name":"事件"}',
+    '--json', 'post', 'locus://ws', '--data', '{"name":"事件"}',
   ], scriptedUI()))
   await success(await invoke(t, setup, ['--json', 'get', 'locus://info'], scriptedUI()))
   const events = success(await invoke(t, setup, [

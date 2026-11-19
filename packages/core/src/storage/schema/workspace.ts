@@ -1,9 +1,12 @@
-/** Workspace、关系与挂载。 */
+/** Workspace、关系与挂载；v9 追加 name_key、description 与挂载 primary。 */
 export const WORKSPACE_SCHEMA = `
   CREATE TABLE workspaces (
     id TEXT PRIMARY KEY,
     name TEXT NOT NULL CHECK (length(trim(name)) > 0),
-    created_at TEXT NOT NULL
+    created_at TEXT NOT NULL,
+    name_key TEXT NOT NULL CHECK (length(trim(name_key)) > 0),
+    description TEXT,
+    UNIQUE (name_key)
   ) STRICT;
   CREATE TABLE relations (
     id TEXT PRIMARY KEY,
@@ -24,7 +27,9 @@ export const WORKSPACE_SCHEMA = `
     path TEXT NOT NULL CHECK (length(trim(path)) > 0),
     path_key TEXT NOT NULL CHECK (length(trim(path_key)) > 0),
     created_at TEXT NOT NULL,
+    is_primary INTEGER NOT NULL DEFAULT 0 CHECK (is_primary IN (0, 1)),
     UNIQUE (workspace_id, name_key),
     UNIQUE (workspace_id, path_key)
   ) STRICT;
+  CREATE UNIQUE INDEX mounts_primary_unique ON mounts(workspace_id) WHERE is_primary = 1;
 `

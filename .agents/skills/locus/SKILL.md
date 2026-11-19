@@ -22,9 +22,9 @@ description: 通过声明驱动的资源 URL 管理 Workspace、组件、模板�
 ## 快速流程
 
 ```sh
-locus help locus://workspaces
-locus --json get locus://workspaces
-locus --json post locus://workspaces --data '{"name":"研究"}'
+locus help locus://ws
+locus --json get locus://ws
+locus --json post locus://ws --data '{"name":"研究"}'
 locus --json get locus://components
 locus help rt://
 locus --json get rt://targets

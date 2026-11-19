@@ -154,7 +154,7 @@ SSH 协议、目标模型、迁移流程与临时文件交付归 Remote Targets�
 ## 持久化、错误与备份
 
 
-Core SQLite 当前 `user_version=8`，包含 Workspace、关系、挂载、组件状态，以及安装、Root 验证材料、失败计数／租约／世代、Profile、凭据公开字段与 owner、`component + slot + resourceKey` 绑定、operation 等级覆盖与事件记录。安全表不保存资源秘密。开发阶段不维护旧 schema 逐版本迁移；版本不符时要求备份后重建数据目录，未知版本、冲突结构或损坏验证材料明确拒绝，不重建覆盖；没有自动备份。备份仍按 [Core 约定](../../../packages/core/README.md#持久化与恢复)停写后复制整个目录。
+Core SQLite 当前 `user_version=9`，包含 Workspace、关系、挂载、组件状态，以及安装、Root 验证材料、失败计数／租约／世代、Profile、凭据公开字段与 owner、`component + slot + resourceKey` 绑定、operation 等级覆盖与事件记录。安全表不保存资源秘密。结构变更保留当前版本的一份一跳迁移，更早脚本可删除，升级步骤见[数据迁移](../../development.md#数据迁移)；版本不符时明确拒绝，不自动迁移或重建，未知版本、冲突结构或损坏验证材料明确失败；没有自动备份。备份仍按 [Core 约定](../../../packages/core/README.md#持久化与恢复)停写后复制整个目录。
 
 
 数据库备份包含敏感离线验证材料，但不包含 Keyring 秘密；恢复引用和绑定不等于恢复秘密。Session／Challenge／Grant 不持久化，重启不能恢复授权。丢失 Keyring 或换机须重新录入资源凭据。事件记录是 best-effort，不作为完整审计或重放依据。

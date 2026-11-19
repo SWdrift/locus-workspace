@@ -1,4 +1,5 @@
 {
+  "schema": "locus.template/v1",
   "id": "minimal",
   "name": "Minimal",
   "version": "1.0.0",

@@ -8,7 +8,7 @@ import { SECURITY_SCHEMA } from './schema/security.ts'
 import { WORKSPACE_SCHEMA } from './schema/workspace.ts'
 
 /** Workspace、组件与安全元数据共用同一个数据库与版本号。 */
-export const CORE_SCHEMA_VERSION = 8
+export const CORE_SCHEMA_VERSION = 9
 
 const SECURITY_TABLES = [
   'security_installation',
@@ -19,7 +19,7 @@ const SECURITY_TABLES = [
   'security_operation_levels',
 ] as const
 
-const WORKSPACE_COLUMNS = ['id', 'name', 'created_at'] as const
+const WORKSPACE_COLUMNS = ['id', 'name', 'created_at', 'name_key', 'description'] as const
 const RELATION_COLUMNS = [
   'id',
   'workspace_id',
@@ -30,7 +30,16 @@ const RELATION_COLUMNS = [
   'source_detail',
   'created_at',
 ] as const
-const MOUNT_COLUMNS = ['id', 'workspace_id', 'name', 'name_key', 'path', 'path_key', 'created_at'] as const
+const MOUNT_COLUMNS = [
+  'id',
+  'workspace_id',
+  'name',
+  'name_key',
+  'path',
+  'path_key',
+  'created_at',
+  'is_primary',
+] as const
 const COMPONENT_COLUMNS = [
   'component_id',
   'external_state',
@@ -93,13 +102,14 @@ const INTEGER_COLUMNS: Readonly<Record<string, true>> = {
   attempt_expires_at: true,
   created_at: true,
   updated_at: true,
+  is_primary: true,
 }
 const EVENT_INTEGER_COLUMNS: Readonly<Record<string, true>> = { seq: true }
 
 /** 建库 DDL 按主题分片在 `storage/schema/`，只在初始化新空库时执行。 */
 const SCHEMA = `${WORKSPACE_SCHEMA}\n${COMPONENT_SCHEMA}\n${SECURITY_SCHEMA}\n${EVENTS_SCHEMA}`
 
-/** 开发阶段不做旧结构迁移；版本不符时要求备份后重建数据目录，不覆盖未知数据。 */
+/** 运行时不做自动迁移；版本不符时要求先备份并执行当前一跳迁移，不覆盖未知数据。 */
 export function openCoreDatabase(dataDirectory: string): DatabaseSync {
   const filename = join(dataDirectory, 'core.sqlite')
   mkdirSync(dataDirectory, { recursive: true })
@@ -202,7 +212,7 @@ function requireTable(
 function requireCurrentTables(database: DatabaseSync): void {
   requireTable(database, 'workspaces', WORKSPACE_COLUMNS)
   requireTable(database, 'relations', RELATION_COLUMNS)
-  requireTable(database, 'mounts', MOUNT_COLUMNS)
+  requireTable(database, 'mounts', MOUNT_COLUMNS, { is_primary: true })
   requireTable(database, 'component_states', COMPONENT_COLUMNS)
   requireTable(database, 'events', EVENTS_COLUMNS, EVENT_INTEGER_COLUMNS)
   for (const table of SECURITY_TABLES) {

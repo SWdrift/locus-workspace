@@ -23,7 +23,7 @@ Core 只认识 `locus://` 自有资源，不内置其他 Scheme。`rt://` 属于
 示例：
 
 ```text
-locus://workspaces/<id>/mounts
+locus://ws/<id>/mounts
 rt://targets/<id>/system
 template://templates/<id>/instances
 pg://databases/<id>/queries
@@ -111,4 +111,4 @@ Dispatcher 只输出规范化 URI 与 requestId；不输出输入 Body、秘密�
 
 ## 限制
 
-不包含 HTTP Server/Gateway、Web UI、OMP/MCP 适配器、多用户与 RBAC、事件重放、二进制或 `fs` 资源、持久 job 队列与远程交互会话。开发库按 schema v8 重建，不维护旧结构迁移；`packages/postgres` 仍是临时真实消费者，验证完成后移除。
+不包含 HTTP Server/Gateway、Web UI、OMP/MCP 适配器、多用户与 RBAC、事件重放、二进制或 `fs` 资源、持久 job 队列与远程交互会话。数据库结构按相邻版本一跳迁移升级，运行时拒绝不匹配版本；`packages/postgres` 仍是临时真实消费者，验证完成后移除。

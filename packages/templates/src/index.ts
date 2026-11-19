@@ -5,9 +5,13 @@ export { TemplateFailure } from './types.ts'
 export type {
   CreateTemplateOptions,
   CreateTemplateResult,
+  RegisterTemplateInput,
+  TemplateDetail,
   TemplateFailureCode,
-  TemplateInstanceRecord,
+  TemplateList,
+  TemplateProblem,
   TemplateService,
   TemplateSourceKind,
   TemplateSummary,
+  UpdateTemplateMetadataInput,
 } from './types.ts'

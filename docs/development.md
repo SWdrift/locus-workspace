@@ -14,7 +14,7 @@ Node.js 24 或更高、pnpm 11.24.0。执行 `pnpm install`，修改源码后执
 
 ```sh
 pnpm locus --help
-pnpm locus get locus://workspaces
+pnpm locus get locus://ws
 ```
 
 安全开发使用 `--profile development`，CLI 的初始化与管理仍只在可信本地 TTY 输入。
@@ -63,6 +63,12 @@ pro（生产）环境的配置放在同结构的 `.env.pro`：生产数据目录
 Web 当前只有占位，不参与构建与测试。新增 app 时再补构建与验证入口，不为占位建立空服务。
 
 源码按领域定位，主要入口置于私有辅助函数之前；operation 的路由与契约逐字段展开，类型使用显式 `import type`。模块 README 的源码导航提供修改入口和对应测试，跨包跳转依赖已有 declaration map，不另建符号索引。
+
+## 数据迁移
+
+提升 `CORE_SCHEMA_VERSION` 时，在同一变更中为 Locus 自有数据库新增一份从上一 `user_version` 到新版本的一跳迁移，放在 `temp/migrations/`，例如 `core-v8-to-v9.sql`。`temp/` 不入库，迁移也不进入运行时：始终保留当前版本的一份迁移，更早的脚本可以删除，因此只保证落后一个版本的本机部署可以直接升级。
+
+升级前停止全部 Locus 写者并复制整个数据目录；在 `core.sqlite` 上以单事务执行迁移 SQL，脚本末尾把 `PRAGMA user_version` 更新到目标版本；`PRAGMA integrity_check` 通过后用新构建启动，确认 Workspace 与凭据元数据可读后再删除更早的迁移。版本与脚本名不一致、跨多个版本或降级都不自动处理；Core 遇到不匹配版本明确拒绝，不覆盖数据。
 
 ## Skill 与脚本
 

@@ -31,14 +31,14 @@ test('Skill 脚本按名称选择 Workspace 并读取挂载与 shell 上下文',
     }
   }
 
-  const created = run([CLI, '--json', 'post', 'locus://workspaces', '--data', JSON.stringify({ name: '技能语境' })])
+  const created = run([CLI, '--json', 'post', 'locus://ws', '--data', JSON.stringify({ name: '技能语境' })])
   assert.equal(created.code, 0)
   const workspace = JSON.parse(created.stdout).data
   const mounted = run([
     CLI,
     '--json',
     'post',
-    `locus://workspaces/${workspace.id}/mounts`,
+    `locus://ws/${workspace.id}/mounts`,
     '--data',
     JSON.stringify({ path: mountPath, name: 'work' }),
   ])

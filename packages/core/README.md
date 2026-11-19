@@ -173,10 +173,10 @@ Root 级 operation 抛出带不透明 Challenge 的 `SecurityFailure`；只有 H
 ## Workspace 与关系
 
 
-创建产生 UUID，与目录、名称和会话无关。Workspace 可以没有目录；列出、按 Identity 打开、改名均不依赖外部能力。打开只是读取长期对象，不建立隐藏的“当前项目根目录”。
+创建产生 UUID，与目录、名称和会话无关。Workspace 名称唯一（trim 后精确匹配），可选 `description`；列出、按 Identity 打开、更新名称或描述均不依赖外部能力。打开只是读取长期对象，不建立隐藏的“当前项目根目录”。
 
 
-挂载是本机绝对路径的工作区引用，同一 Workspace 内名称与路径都唯一。名称必须以字母或数字开头，只包含字母、数字、下划线和短横线，最长 64 字符；省略名称时取目录名并安全化。Core 不检查路径当前是否存在；目录内容、权限与生命周期仍归原生系统。
+挂载是本机绝对路径的工作区引用，同一 Workspace 内名称与路径都唯一。名称必须以字母或数字开头，只包含字母、数字、下划线和短横线，最长 64 字符；省略名称时取目录名并安全化。每个 Workspace 最多一个 `primary` 挂载，作为 shell 默认 cwd；缺失时回退到第一个可访问挂载。Core 不检查路径当前是否存在；目录内容、权限与生命周期仍归原生系统。
 
 
 长期关系分 `member` 与 `association`；目标是由领域提供方解释的 `namespace` / `id`，并保存确认来源及时间。同 Workspace、同关系种类和同目标重复确认保留首次关系与来源；成员和关联可以并存。解除一处关系不删除目标、其他 Workspace 的归属或外部资源。`workspaces.remove()` 删除 Workspace 及其挂载、自有关系，以及其他 Workspace 指向该 Workspace 的 `locus.workspace` 关系，不删除外部目录。
@@ -191,13 +191,13 @@ Root 级 operation 抛出带不透明 Challenge 的 `SecurityFailure`；只有 H
 ## 持久化与恢复
 
 
-Core 唯一拥有 `dataDirectory/core.sqlite`，格式版本为 SQLite `user_version=8`，包含 Workspace、关系、挂载、组件状态，以及安装、Root 验证、Profile、凭据公开字段与 owner、operation 等级覆盖、`component + slot + resourceKey` 绑定与事件记录。资源秘密不进入数据库；Root 派生验证材料仍敏感。数据库使用 DELETE journal、FULL synchronous、外键与事务；写入成功返回前提交，读用例采用一致快照。多个连接重新读取已提交数据，不用进程内旧对象覆盖；写锁等待 1000ms 后明确失败，调用者不能把失败当成确认成功。
+Core 唯一拥有 `dataDirectory/core.sqlite`，格式版本为 SQLite `user_version=9`，包含 Workspace 名称/描述/挂载 primary、关系、组件状态，以及安装、Root 验证、Profile、凭据公开字段与 owner、operation 等级覆盖、`component + slot + resourceKey` 绑定与事件记录。资源秘密不进入数据库；Root 派生验证材料仍敏感。数据库使用 DELETE journal、FULL synchronous、外键与事务；写入成功返回前提交，读用例采用一致快照。多个连接重新读取已提交数据，不用进程内旧对象覆盖；写锁等待 1000ms 后明确失败，调用者不能把失败当成确认成功。
 
 
 建库 DDL 按主题分片在 `src/storage/schema/`（Workspace、组件、安全、事件）并以字符串常量导出；只在初始化新空库时执行，已有库不读 DDL。
 
 
-未知版本、已有表结构但无版本或损坏库明确失败，不覆盖为空库。0 字节库视为初始化中断留下的空库，可安全建立当前结构；已有任何表结构则拒绝接管。开发阶段不维护旧 schema 逐版本迁移：版本与当前 `user_version=8` 不一致时要求备份后重建数据目录，版本与表结构冲突时拒绝，已有数据保留。仍应升级前备份，没有自动备份实现。清除实验数据只能由用户在备份后、停止所有写者时移走选定数据目录，不自动清理或删除用户成果。
+未知版本、已有表结构但无版本或损坏库明确失败，不覆盖为空库。0 字节库视为初始化中断留下的空库，可安全建立当前结构；已有任何表结构则拒绝接管。结构变更保留当前版本的一份一跳迁移，更早脚本可删除，脚本与升级步骤由[开发与验证](../../docs/development.md#数据迁移)维护；版本与当前 `user_version=9` 不一致时 Core 明确拒绝，不自动迁移，版本与表结构冲突时拒绝，已有数据保留。升级前仍需备份，没有自动备份实现。清除实验数据只能由用户在备份后、停止所有写者时移走选定数据目录，不自动清理或删除用户成果。
 
 
 备份需停止全部 Locus 写者后复制**整个数据目录**。将副本放到干净目录并通过 `dataDirectory` 或 `LOCUS_HOME` 打开即可保持身份和关系。副本含 Root 离线验证材料与安装 UUID，但不包含原生文件、仓库或 OS Keyring 秘密；恢复凭据引用不等于恢复秘密。跨设备同步与自动合并不受支持。

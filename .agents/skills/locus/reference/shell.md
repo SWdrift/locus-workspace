@@ -6,7 +6,7 @@
 
 ```sh
 locus shell <workspace>
-locus shell <workspace> --command "locus get locus://workspaces/<workspace>"
+locus shell <workspace> --command "locus get locus://ws/<workspace>"
 locus shell <workspace> --print-env
 locus shell <workspace> --shell /path/to/shell
 ```
@@ -16,6 +16,13 @@ locus shell <workspace> --shell /path/to/shell
 - `--command` 执行一条命令后退出，退出码取自子 shell。
 - `--print-env` 只输出解析后的 JSON 上下文，不启动 shell；用于调试与脚本。
 
+## cwd 选择
+
+1. 有 `primary` 挂载且目录可访问：使用它。
+2. `primary` 不可访问：在 stderr 与 `--print-env` 报告 `primaryMissing`，回退到第一个可访问挂载。
+3. 没有 `primary`：使用第一个可访问挂载。
+4. 没有可访问挂载：使用用户主目录。
+
 ## 注入内容
 
 | 变量 | 含义 |
@@ -23,8 +30,8 @@ locus shell <workspace> --shell /path/to/shell
 | `LOCUS_CLI` | 当前 CLI 的 `index.js` 绝对路径 |
 | `LOCUS_WORKSPACE_ID` | Workspace Identity |
 | `LOCUS_WORKSPACE_NAME` | Workspace 名称 |
-| `LOCUS_WORKSPACE_ROOT` | 第一个可访问挂载；没有可访问挂载时为当前用户主目录 |
-| `LOCUS_MOUNTS` | 所有挂载的 JSON 数组：`id`、`name`、`path` |
+| `LOCUS_WORKSPACE_ROOT` | 选定的 cwd |
+| `LOCUS_MOUNTS` | 所有挂载的 JSON 数组：`id`、`name`、`path`、`primary` |
 | `LOCUS_MOUNT_<NAME>` | 每个挂载的路径；名称转为大写，非字母数字变为下划线，冲突时追加序号 |
 | `PATH` | 前置临时 bin 目录，其中提供 `locus` 启动器 |
 

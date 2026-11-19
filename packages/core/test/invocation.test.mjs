@@ -272,7 +272,7 @@ test('Core 纯声明消费者发现全部路由且不物化组件、不创建数
   const uri = core.router.build('consumer.get', { id: '资源' })
   assert.equal(core.router.resolve('GET', uri).operation.id, 'consumer.get')
   assert.ok(descriptions.some((item) => item.id === 'consumer.get'))
-  assert.ok(descriptions.some((item) => item.id === 'locus.workspaces.create'))
+  assert.ok(descriptions.some((item) => item.id === 'locus.ws.create'))
   for (const item of descriptions.filter((item) => item.component === 'locus')) {
     assert.equal(typeof item.summary, 'string', item.id)
     assert.match(item.summary, /[\u3400-\u9fff]/, item.id)
@@ -336,7 +336,7 @@ test('Dispatcher 建链、结果信封与稳定错误映射', async (t) => {
   assert.equal(scheme.error.code, 'unsupported-scheme')
 
   const media = await dispatcher.invoke({
-    method: 'POST', uri: 'locus://workspaces', body: { name: 'x' }, contentType: 'text/plain',
+    method: 'POST', uri: 'locus://ws', body: { name: 'x' }, contentType: 'text/plain',
   })
   assert.equal(media.ok, false)
   assert.equal(media.error.code, 'unsupported-media-type')
@@ -394,10 +394,10 @@ test('Workspace 与事件 operation 的输出结构完整且可由公开 schema 
     return result.data
   }
   const workspace = await invoke({
-    method: 'POST', uri: 'locus://workspaces', body: { name: '契约 Workspace' }, contentType: 'application/json',
+    method: 'POST', uri: 'locus://ws', body: { name: '契约 Workspace' }, contentType: 'application/json',
   })
-  const uri = `locus://workspaces/${workspace.id}`
-  await invoke({ method: 'GET', uri: 'locus://workspaces' })
+  const uri = `locus://ws/${workspace.id}`
+  await invoke({ method: 'GET', uri: 'locus://ws' })
   await invoke({ method: 'GET', uri })
   await invoke({ method: 'PATCH', uri, body: { name: '已改名' }, contentType: 'application/json' })
   const mount = await invoke({
@@ -429,7 +429,7 @@ test('Workspace 数据库损坏在调用边界归为内部故障，不伪装成�
   const damaged = Buffer.from('保留损坏库供恢复，不重建')
   writeFileSync(filename, damaged)
   const result = await dispatcher.invoke({
-    method: 'POST', uri: 'locus://workspaces', body: { name: '有效名称' }, contentType: 'application/json',
+    method: 'POST', uri: 'locus://ws', body: { name: '有效名称' }, contentType: 'application/json',
   })
   assert.equal(result.ok, false)
   assert.equal(result.error.code, 'internal')
@@ -443,7 +443,7 @@ test('Workspace 写锁故障不归为参数错误且不修改已确认对象', a
   try {
     locker.exec('BEGIN IMMEDIATE')
     const result = await dispatcher.invoke({
-      method: 'PATCH', uri: `locus://workspaces/${workspace.id}`,
+      method: 'PATCH', uri: `locus://ws/${workspace.id}`,
       body: { name: '不能提交' }, contentType: 'application/json',
     })
     assert.equal(result.ok, false)
@@ -592,7 +592,7 @@ test('批量 GET 保序并保留部分失败；非 GET 批量被拒绝', async (
   assert.equal(results[1].ok, false)
 
   const rejected = await dispatcher.invokeAll([
-    { method: 'POST', uri: 'locus://workspaces' },
+    { method: 'POST', uri: 'locus://ws' },
   ])
   assert.equal(rejected[0].ok, false)
   assert.equal(rejected[0].error.code, 'unsupported-method')

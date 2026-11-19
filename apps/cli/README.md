@@ -41,7 +41,7 @@ get/post/put/patch/delete 后跟资源 URL；裸 URL 默认 GET。多个 URL 只
 
 ## 统一 Shell
 
-locus shell <workspace> 仍接受 UUID 或唯一名称；经 Workspace GET operation 获取包含挂载的上下文，遵守该 operation 的授权覆盖。--shell 指定可执行文件，--command 执行后退出，--print-env 只输出上下文。临时 locus 启动器前置 PATH，注入 LOCUS_WORKSPACE_*、LOCUS_MOUNTS 与 LOCUS_MOUNT_*；缺失挂载报告并跳过，第一个可访问挂载作为 cwd。
+locus shell <workspace> 仍接受 UUID 或唯一名称；经 `locus.ws.get` operation 获取包含挂载的上下文，遵守该 operation 的授权覆盖。--shell 指定可执行文件，--command 执行后退出，--print-env 只输出上下文。临时 locus 启动器前置 PATH，注入 LOCUS_WORKSPACE_*、LOCUS_MOUNTS（含 primary）与 LOCUS_MOUNT_*；缺失挂载报告并跳过。cwd 优先 primary 挂载，缺失时报告 primaryMissing 并回退第一个可访问挂载。
 
 环境注入不是沙箱。--print-env 包含继承环境，不是通用环境脱敏器。细节见 [Shell 参考](../../.agents/skills/locus/reference/shell.md)。
 

@@ -21,6 +21,8 @@ interface WorkspaceShellContext {
   readonly cwd: string
   readonly environment: Record<string, string>
   readonly mounts: readonly Mount[]
+  readonly primary: Mount | null
+  readonly primaryMissing: boolean
   readonly missing: readonly string[]
   readonly cleanup: () => void
 }
@@ -42,6 +44,8 @@ export function runWorkspaceShell(
             cwd: context.cwd,
             environment: context.environment,
             mounts: context.mounts,
+            primary: context.primary,
+            primaryMissing: context.primaryMissing,
             missing: context.missing,
           },
           options.pretty === true,
@@ -54,8 +58,14 @@ export function runWorkspaceShell(
       const lines = [
         i18n.t('shell.banner', { name: workspace.name, id: workspace.id }),
         ...(context.mounts.length
-          ? context.mounts.map(mount => `  ${i18n.t('shell.mount', { name: mount.name, path: mount.path })}`)
+          ? context.mounts.map(
+              mount =>
+                `  ${i18n.t('shell.mount', { name: mount.name, path: mount.path })}${mount.primary ? ` ${i18n.t('shell.primary-suffix')}` : ''}`,
+            )
           : [`  ${i18n.t('shell.no-mounts')}`]),
+        ...(context.primaryMissing && context.primary !== null
+          ? [i18n.t('shell.primary-missing', { name: context.primary.name, path: context.primary.path })]
+          : []),
         ...(context.missing.length ? [`  ${i18n.t('shell.missing', { paths: context.missing.join(', ') })}`] : []),
         i18n.t('shell.ready'),
       ]
@@ -117,12 +127,15 @@ function shellInvocation(
 
 function createShellContext(workspace: Workspace, options: WorkspaceShellOptions): WorkspaceShellContext {
   const mounts = workspace.mounts
-  let primary: Mount | undefined
+  const declaredPrimary = mounts.find(mount => mount.primary) ?? null
+  let firstAccessible: Mount | undefined
+  const accessible = new Set<string>()
   const missing: string[] = []
   for (const mount of mounts) {
     try {
       if (statSync(mount.path).isDirectory()) {
-        primary ??= mount
+        accessible.add(mount.id)
+        firstAccessible ??= mount
       } else {
         missing.push(mount.path)
       }
@@ -130,7 +143,10 @@ function createShellContext(workspace: Workspace, options: WorkspaceShellOptions
       missing.push(mount.path)
     }
   }
-  const cwd = primary?.path ?? homedir()
+  const primaryAccessible = declaredPrimary !== null && accessible.has(declaredPrimary.id)
+  const cwd =
+    primaryAccessible && declaredPrimary !== null ? declaredPrimary.path : (firstAccessible?.path ?? homedir())
+  const primaryMissing = declaredPrimary !== null && !primaryAccessible
   const tempRoot = mkdtempSync(join(tmpdir(), 'locus-shell-'))
   try {
     const binDirectory = join(tempRoot, 'bin')
@@ -146,7 +162,7 @@ function createShellContext(workspace: Workspace, options: WorkspaceShellOptions
     environment.LOCUS_WORKSPACE_NAME = workspace.name
     environment.LOCUS_WORKSPACE_ROOT = cwd
     environment.LOCUS_MOUNTS = JSON.stringify(
-      mounts.map(mount => ({ id: mount.id, name: mount.name, path: mount.path })),
+      mounts.map(mount => ({ id: mount.id, name: mount.name, path: mount.path, primary: mount.primary })),
     )
 
     const pathKey = Object.keys(environment).find(key => key.toLowerCase() === 'path') ?? 'PATH'
@@ -171,6 +187,8 @@ function createShellContext(workspace: Workspace, options: WorkspaceShellOptions
       cwd,
       environment,
       mounts,
+      primary: declaredPrimary,
+      primaryMissing,
       missing,
       cleanup: () => rmSync(tempRoot, { recursive: true, force: true }),
     }

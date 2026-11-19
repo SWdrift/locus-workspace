@@ -24,7 +24,7 @@ Root 使用本地短密码与 Node 原生 scrypt；SQLite 只保存验证材料�
 
 Remote Targets 新配置使用 `method: private-key|password`；旧 `auth.path/root` 只供显式 `migrate` 读取，运行时不再使用。迁移先导入 Core、回读验证，再改写配置，不删除原文件。带口令私钥没有冻结的口令交付契约，迁移明确阻塞，不自动去口令。
 
-开发阶段 Core SQLite 不承诺旧 schema 兼容；结构变更按当前 schema 重建，不维护逐版本迁移和历史格式测试。
+Core SQLite 不自动迁移；结构变更按[本机部署的一跳数据迁移](2026-11-19-single-hop-data-migrations.md)保留从上一版本到当前版本的迁移，不维护逐版本迁移链和历史格式测试。
 
 ## 备选方案
 

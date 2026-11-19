@@ -26,7 +26,7 @@ Status: implemented
 
 **Scheme 归属固定**：`locus://` 归 Core，`rt://` 归 remote-targets，`template://` 归 templates，`pg://` 归 postgres，`gitea://` 归 gitea。组合根显式注册，无动态插件加载。`packages/postgres` 仍是临时验证消费者。
 
-开发库直接采用 schema v8：凭据绑定改为 resource key，operation 等级替换 capability 等级，新增事件表；不维护旧 schema 迁移。
+开发库直接采用 schema v8：凭据绑定改为 resource key，operation 等级替换 capability 等级，新增事件表；此后的结构变更按[本机部署的一跳数据迁移](2026-11-19-single-hop-data-migrations.md)保留相邻版本迁移。
 
 ## 备选方案
 

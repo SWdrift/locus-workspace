@@ -2,6 +2,8 @@
 
 Status: implemented
 
+后续扩展：Workspace 名称唯一、`description` 与挂载 `primary` 见[Workspace v9 决策](2026-11-19-workspace-v9.md)；shell 默认 cwd 现在优先 primary。
+
 ## 问题
 
 Workspace 已有稳定身份、成员/关联与独立 CLI，但没有目录上下文：用户无法把一个 Workspace 关联到多个本机项目，也没有在 Workspace 内连续操作的环境。移除 Filesystem 后，位置登记与观察也一并消失，简单恢复旧插件会重新引入宿主、Provider 与通用资源抽象。

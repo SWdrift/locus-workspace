@@ -20,7 +20,7 @@ export function registerShellCommand(program: Command, { call, router }: ShellCo
     .option('--command <command>', i18n.t('option.command'))
     .option('--print-env', i18n.t('option.print-env'))
   shell.action(async (reference: string) => {
-    const workspace = (await call('GET', router.build('locus.workspaces.get', { id: reference }))) as Workspace
+    const workspace = (await call('GET', router.build('locus.ws.get', { id: reference }))) as Workspace
     const exitCode = runWorkspaceShell(
       workspace,
       {

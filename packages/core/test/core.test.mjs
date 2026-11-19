@@ -41,7 +41,7 @@ test('进程在未提交写事务中退出后，Core 恢复已确认身份而不
     '--input-type=module', '-e',
     `import { DatabaseSync } from 'node:sqlite';
      const db = new DatabaseSync(process.argv[1]);
-     db.exec("BEGIN IMMEDIATE; INSERT INTO workspaces VALUES ('interrupted', '未提交', '2026-11-08');");
+     db.exec("BEGIN IMMEDIATE; INSERT INTO workspaces (id, name, created_at, name_key) VALUES ('interrupted', '未提交', '2026-11-08', '未提交');");
      process.exit(9);`,
     join(setup.dataDirectory, 'core.sqlite'),
   ], { encoding: 'utf8', timeout: 10000 })
@@ -159,7 +159,7 @@ test('零目录 Workspace 的身份、改名与关系来源跨重开及备份恢
   assert.equal(Number.isNaN(Date.parse(created.createdAt)), false)
   assert.deepEqual(created.relations, [])
 
-  core.workspaces.rename(created.id, '继续工作')
+  core.workspaces.update(created.id, { name: '继续工作' })
   const target = { namespace: 'example.resource', id: '不透明引用，不需要目录存在' }
   core.workspaces.link(created.id, 'member', target, { kind: 'manual', detail: '用户明确输入' })
   core.workspaces.link(created.id, 'association', target, { kind: 'discovery', detail: '发现批次：first' })
@@ -176,7 +176,7 @@ test('零目录 Workspace 的身份、改名与关系来源跨重开及备份恢
   copyFileSync(join(setup.dataDirectory, 'core.sqlite'), join(backupDirectory, 'core.sqlite'))
   const restored = setup.open(backupDirectory)
   assert.deepEqual(restored.workspaces.get(created.id), expected)
-  restored.workspaces.rename(created.id, '备份恢复后的独立修改')
+  restored.workspaces.update(created.id, { name: '备份恢复后的独立修改' })
   const original = setup.open()
   assert.equal(original.workspaces.get(created.id).name, expected.name)
 })
@@ -213,6 +213,39 @@ test('共享目标与嵌套 Workspace 各自独立，取消一处关系不删除
     core.workspaces.list().map((workspace) => workspace.id),
     [parent.id, child.id, other.id],
   )
+})
+
+test('Workspace 名称唯一并保存描述，挂载 primary 每个 Workspace 最多一个', (t) => {
+  const setup = fixture(t)
+  const core = setup.open()
+  const first = core.workspaces.create('同名', { description: '第一版描述' })
+  assert.equal(first.name, '同名')
+  assert.equal(first.description, '第一版描述')
+  assert.throws(() => core.workspaces.create('同名'), { code: 'conflict' })
+
+  const renamed = core.workspaces.update(first.id, { name: '新名', description: '第二版描述' })
+  assert.equal(renamed.name, '新名')
+  assert.equal(renamed.description, '第二版描述')
+  core.workspaces.update(first.id, { description: '' })
+  assert.equal(core.workspaces.get(first.id).description, undefined)
+
+  const second = core.workspaces.create('另一个')
+  assert.throws(() => core.workspaces.update(second.id, { name: '新名' }), { code: 'conflict' })
+
+  const alpha = core.mounts.add(first.id, join(setup.root, 'alpha'), { primary: true })
+  assert.equal(alpha.primary, true)
+  const beta = core.mounts.add(first.id, join(setup.root, 'beta'), { primary: true })
+  assert.equal(beta.primary, true)
+  let mounts = core.mounts.list(first.id)
+  assert.equal(mounts.find((mount) => mount.name === 'alpha').primary, false)
+  assert.equal(mounts.find((mount) => mount.name === 'beta').primary, true)
+
+  const updated = core.mounts.update(first.id, 'alpha', { primary: true })
+  assert.equal(updated.primary, true)
+  mounts = core.mounts.list(first.id)
+  assert.equal(mounts.find((mount) => mount.name === 'beta').primary, false)
+  assert.throws(() => core.mounts.update(first.id, 'alpha', { name: 'beta' }), { code: 'conflict' })
+  assert.equal(core.mounts.update(first.id, 'alpha', { name: 'gamma' }).name, 'gamma')
 })
 
 test('Workspace 不能把自身保存为嵌套引用，且失败不写入半条关系', (t) => {
@@ -257,9 +290,13 @@ test('无效输入在打开数据库前拒绝，已有数据库不写入无效�
     () => service.create(' \t\n '),
     () => service.create(null),
     () => service.create('\0'),
+    () => service.create('x'.repeat(65)),
+    () => service.create('控制\u0001字符'),
+    () => service.create('描述过长', { description: 'x'.repeat(501) }),
     () => service.get(' '),
-    () => service.rename('', '名称'),
-    () => service.rename('id', ''),
+    () => service.update('', { name: '名称' }),
+    () => service.update('id', { name: '' }),
+    () => service.update('id', { description: 'x'.repeat(501) }),
     () => service.link('id', 'invalid', target, source),
     () => service.link('id', 'member', null, source),
     () => service.link('id', 'member', { namespace: ' ', id: 'target' }, source),
@@ -293,7 +330,7 @@ test('缺失 Workspace、关系或嵌套目标给出可定位错误，不改变�
   )
   const before = readFileSync(join(setup.dataDirectory, 'core.sqlite'))
   assert.throws(() => core.workspaces.get('missing-workspace'), { code: 'not-found' })
-  assert.throws(() => core.workspaces.rename('missing-workspace', '改名'), { code: 'not-found' })
+  assert.throws(() => core.workspaces.update('missing-workspace', { name: '改名' }), { code: 'not-found' })
   assert.throws(
     () =>
       core.workspaces.link(
@@ -388,14 +425,14 @@ test('多个连接始终读取最新提交，不会用旧快照覆盖其他连�
   const workspace = first.workspaces.create('初始名称')
   const second = setup.open()
   const staleSnapshot = second.workspaces.get(workspace.id)
-  first.workspaces.rename(workspace.id, '第一次改名')
+  first.workspaces.update(workspace.id, { name: '第一次改名' })
   const relation = first.workspaces.link(
     workspace.id,
     'member',
     { namespace: 'example.resource', id: 'shared-target' },
     { kind: 'manual', detail: '另一连接确认' },
   )
-  second.workspaces.rename(workspace.id, '第二次改名')
+  second.workspaces.update(workspace.id, { name: '第二次改名' })
   assert.equal(staleSnapshot.name, '初始名称')
   const current = first.workspaces.get(workspace.id)
   assert.equal(current.name, '第二次改名')
@@ -410,13 +447,13 @@ test('已有写锁时明确拒绝写入且不丢数据，释放锁后连接仍�
   const locker = new DatabaseSync(join(setup.dataDirectory, 'core.sqlite'))
   try {
     locker.exec('BEGIN IMMEDIATE')
-    assert.throws(() => core.workspaces.rename(workspace.id, '不能提交'), /locked/i)
+    assert.throws(() => core.workspaces.update(workspace.id, { name: '不能提交' }), /locked/i)
     assert.deepEqual(core.workspaces.get(workspace.id), workspace)
     locker.exec('ROLLBACK')
   } finally {
     locker.close()
   }
-  assert.equal(core.workspaces.rename(workspace.id, '锁释放后').name, '锁释放后')
+  assert.equal(core.workspaces.update(workspace.id, { name: '锁释放后' }).name, '锁释放后')
 })
 
 test('dispose 关闭已打开的连接并阻止捕获的服务继续使用，重复释放安全', async (t) => {
@@ -435,7 +472,7 @@ test('dispose 关闭已打开的连接并阻止捕获的服务继续使用，重
     () => service.create('新对象'),
     () => service.list(),
     () => service.get(workspace.id),
-    () => service.rename(workspace.id, '改名'),
+    () => service.update(workspace.id, { name: '改名' }),
     () => service.remove(workspace.id),
     () =>
       service.link(

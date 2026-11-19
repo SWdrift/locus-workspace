@@ -28,7 +28,7 @@ Workspace 可以没有目录，关系目标是领域解释的 `namespace` / `id`
 | `packages/gitea/` | Gitea Compose：声明 `gitea.repository.register` / `gitea.repository.request` 与 `api-token` 字段槽，用绑定 origin 的 Authorization Header 发起请求 |
 | `apps/cli/` | 独立 `locus` bin：参数解析、经 Dispatcher 调用 operation、人类/JSON 渲染、统一 shell 与退出码；不重新实现领域规则 |
 | `apps/web/` | 占位，无可运行入口；等真实接口消费需求再实现 |
-| `packages/templates/` | 复制模板文件夹、计算 digest、写实例 `.template.json`；导出 `locus` 组件的 `component` 与 `operations` |
+| `packages/templates/` | 管理模板库、读写 `.template.json` 元信息、复制模板文件夹并计算 digest；导出 `locus` 组件的 `component` 与 `operations` |
 | `packages/remote-targets/` | 声明式登记 SSH 目标、校验身份/能力/连接、通过 `OperationContext.credential` 获取受限临时凭据并调用系统 OpenSSH/Plink；导出 `locus` 组件的 `component` 与 `operations`，消费 `openssh`/`plink` 状态 |
 | `.agents/skills/locus/` | 分层索引、Workspace/组件/远程目标参考与只读脚本；通过 CLI JSON 契约工作，不直接访问数据库 |
 
@@ -132,7 +132,7 @@ Core 使用 Node、yaml、组件 runner 的 execa，并懒加载 Keyring；Postg
 
 - 默认入口为通用 URL 方法与声明驱动的帮助，旧领域别名和组件 id 顶层回退不再存在；帮助与版本不访问组件服务、不创建数据目录。
 
-- `packages/templates` 只复制文件与写实例 `.template.json`，不创建 Workspace、不挂载目录、不执行模板脚本。
+- `packages/templates` 管理可编辑模板库并只复制文件；不写实例记录、不创建 Workspace、不挂载目录、不执行模板脚本。模板与 Workspace 没有 API 关联，由用户自行挂载生成目录。
 - Remote Targets 以 targets.yaml 为真源、state.sqlite 为观察状态，消费 CLI 注入的组件状态窄视图 `ComponentGate` 与 `OperationContext.credential`。新配置使用 `method: private-key|password`，凭据按 `component + slot + target id` 绑定；旧文件只供 `rt.target.migrate` 显式导入，运行时不再读取旧秘密文件。带口令私钥迁移明确阻塞，不自动去口令。
 
 - 传输组件检查在连接前完成，但不替代目标能力与凭据检查；未登记或状态未就绪时明确失败，不静默改用其他客户端。Plink 密码仍使用受限临时文件，密码不进入 argv、环境变量或普通配置。
@@ -153,7 +153,7 @@ Core 使用 Node、yaml、组件 runner 的 execa，并懒加载 Keyring；Postg
 ## 数据与恢复
 
 
-Core 独占 core.sqlite（当前 schema v8），保存 Workspace、组件状态、operation 等级覆盖、凭据公开字段与 owner、凭据引用元数据、`component + slot + resourceKey` 绑定与事件记录；资源秘密在 OS Keyring，Root 派生验证材料单独持久化。组件定义、Remote Targets 的 targets.yaml/state.sqlite 仍各有归属。开发阶段数据库不承诺旧 schema 兼容，结构变更按当前 schema 重建；停写备份由 [Core](../packages/core/README.md#持久化与恢复)维护，秘密和备份后果由[安全子系统](subsystems/core/security.md#持久化错误与备份)维护。
+Core 独占 core.sqlite（当前 schema v9），保存 Workspace 名称/描述/挂载 primary、关系、组件状态、operation 等级覆盖、凭据公开字段与 owner、凭据引用元数据、`component + slot + resourceKey` 绑定与事件记录；资源秘密在 OS Keyring，Root 派生验证材料单独持久化。组件定义、Remote Targets 的 targets.yaml/state.sqlite 与模板库仍各有归属。旧结构只保证相邻版本的一跳迁移，运行时不做自动迁移，版本不符明确拒绝；迁移维护与升级步骤由[开发与验证](development.md#数据迁移)负责，停写备份由 [Core](../packages/core/README.md#持久化与恢复)维护，秘密和备份后果由[安全子系统](subsystems/core/security.md#持久化错误与备份)维护。
 
 
 ## 控制与演进

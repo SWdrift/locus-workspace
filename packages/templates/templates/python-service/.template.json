@@ -1,0 +1,7 @@
+{
+  "schema": "locus.template/v1",
+  "id": "python-service",
+  "name": "Python service",
+  "version": "1.0.0",
+  "description": "Python 标准库服务骨架"
+}

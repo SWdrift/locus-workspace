@@ -1,0 +1,7 @@
+{
+  "schema": "locus.template/v1",
+  "id": "ts-lib",
+  "name": "TypeScript library",
+  "version": "1.0.0",
+  "description": "可发布的 TypeScript 库骨架"
+}

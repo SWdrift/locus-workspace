@@ -24,23 +24,36 @@ export interface Mount {
   readonly workspaceId: string
   readonly name: string
   readonly path: string
+  /** shell 默认 cwd；每个 Workspace 最多一个。 */
+  readonly primary: boolean
   readonly createdAt: string
 }
 
 export interface Workspace {
   readonly id: string
   readonly name: string
+  readonly description?: string
   readonly createdAt: string
   readonly relations: readonly WorkspaceRelation[]
   readonly mounts: readonly Mount[]
 }
 
+export interface WorkspaceUpdate {
+  readonly name?: string
+  readonly description?: string
+}
+
+export interface MountUpdate {
+  readonly name?: string
+  readonly primary?: boolean
+}
+
 /** 长期工作语境用例；同步成功返回即完成本地持久写入。 */
 export interface WorkspaceService {
-  create(name: string): Workspace
+  create(name: string, options?: { readonly description?: string }): Workspace
   list(): readonly Workspace[]
   get(id: string): Workspace
-  rename(id: string, name: string): Workspace
+  update(id: string, input: WorkspaceUpdate): Workspace
   link(
     id: string,
     kind: WorkspaceRelation['kind'],
@@ -54,7 +67,8 @@ export interface WorkspaceService {
 
 /** Workspace 内的本机目录挂载；同一 Workspace 内名称与路径都唯一。 */
 export interface MountService {
-  add(workspaceId: string, path: string, options?: { readonly name?: string }): Mount
+  add(workspaceId: string, path: string, options?: { readonly name?: string; readonly primary?: boolean }): Mount
   list(workspaceId: string): readonly Mount[]
+  update(workspaceId: string, mountIdOrName: string, input: MountUpdate): Mount
   remove(workspaceId: string, mountIdOrName: string): void
 }

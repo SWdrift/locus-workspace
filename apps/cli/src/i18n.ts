@@ -66,6 +66,8 @@ export const i18n = defineI18n('cli', {
 
   'shell.banner': 'Locus shell：{{name}} ({{id}})',
   'shell.mount': '挂载 {{name}}  {{path}}',
+  'shell.primary-suffix': '（primary）',
+  'shell.primary-missing': 'primary 挂载不可访问：{{name}} {{path}}',
   'shell.no-mounts': '没有挂载，使用用户主目录',
   'shell.missing': '缺失：{{paths}}',
   'shell.ready': 'locus 已加入 PATH；exit 退出。',

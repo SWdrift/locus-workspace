@@ -45,7 +45,7 @@
 locus --help
 locus help
 locus help rt://
-locus help locus://workspaces
+locus help locus://ws
 locus --json get locus://operations
 locus --json locus://info
 ```
@@ -65,16 +65,17 @@ locus --json locus://info
 ## Workspace 操作
 
 ```sh
-locus post locus://workspaces --data '{"name":"研究"}'
-locus get locus://workspaces
-locus get locus://workspaces/<id>
-locus patch locus://workspaces/<id> --data '{"name":"研究二"}'
-locus post locus://workspaces/<id>/mounts --data '{"path":"/absolute/project","name":"project"}'
-locus delete locus://workspaces/<id>/mounts/<mount>
-locus delete locus://workspaces/<id>
+locus post locus://ws --data '{"name":"研究","description":"长期语境"}'
+locus get locus://ws
+locus get locus://ws/<id>
+locus patch locus://ws/<id> --data '{"name":"研究二","description":"更新后的描述"}'
+locus post locus://ws/<id>/mounts --data '{"path":"/absolute/project","name":"project","primary":true}'
+locus patch locus://ws/<id>/mounts/<mount> --data '{"primary":true}'
+locus delete locus://ws/<id>/mounts/<mount>
+locus delete locus://ws/<id>
 ```
 
-资源规则归 [Core](../packages/core/README.md#workspace-与关系)。路径参数须 URL 编码，JSON 业务结果位于 data；旧 workspace 别名与 --yes 不再存在，显式写入方法表达调用意图。
+名称唯一（trim 后精确匹配）；每个 Workspace 最多一个 `primary` 挂载，shell 优先用它作为 cwd。资源规则归 [Core](../packages/core/README.md#workspace-与关系)。路径参数须 URL 编码，JSON 业务结果位于 data；旧 workspace 别名与 --yes 不再存在，显式写入方法表达调用意图。
 
 ## 安全与凭据
 
@@ -101,17 +102,21 @@ locus shell <workspace> --print-env
 locus shell <workspace> --command "locus get locus://info"
 ```
 
---shell 指定解释器，--command 执行后退出，--print-env 只输出上下文。本地 shell 使用 UUID 或唯一名称，按挂载选择 cwd 并注入 LOCUS_*，不是沙箱；详情见 [CLI](../apps/cli/README.md#统一-shell)。
+--shell 指定解释器，--command 执行后退出，--print-env 只输出上下文。本地 shell 使用 UUID 或唯一名称；cwd 优先 primary 挂载，缺失时报告 primaryMissing 并回退第一个可访问挂载。注入 LOCUS_*，不是沙箱；详情见 [CLI](../apps/cli/README.md#统一-shell)。
 
 ## 模板操作
 
 ```sh
 locus help template://
 locus get template://templates
+locus get template://templates/minimal
+locus post template://templates --data '{"id":"node-service","source":{"kind":"path","path":"X:/templates/node-service"}}'
+locus patch template://templates/node-service --data '{"description":"Node 服务骨架"}'
+locus delete template://templates/node-service
 locus post template://templates/minimal/instances --data '{"destination":"/absolute/project","dryRun":true}'
 ```
 
-destination 必须是绝对路径，dryRun 是 Body 字段。复制、来源记录与失败语义归 [Templates](../packages/templates/README.md)。
+`GET template://templates` 返回用户模板、内置模板与 problems；用户模板同名遮蔽内置。`destination` 必须是绝对路径，`dryRun` 是 Body 字段；创建只复制内容，不写 `.template.json`。模板库、元信息与失败语义归 [Templates](../packages/templates/README.md)。
 
 ## 远程目标
 

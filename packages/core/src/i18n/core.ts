@@ -197,7 +197,7 @@ export const i18n = defineI18n('core', {
   'storage.init-empty-only': '只初始化全新的空数据库，拒绝修改已有数据库结构',
   'storage.init-version-refused': '拒绝初始化非空或未知版本数据库：{{version}}',
   'storage.version-mismatch':
-    '数据库结构版本 {{version}} 与当前 {{current}} 不兼容；开发阶段不迁移旧结构，请备份后重建数据目录',
+    '数据库结构版本 {{version}} 与当前 {{current}} 不兼容；不自动迁移，请先备份数据目录并执行对应版本迁移后重试',
   'storage.journal-mode': '数据库无法采用 journal_mode=DELETE',
   'storage.open-failed': '无法打开 Core 数据库 {{file}}：{{detail}}',
   'storage.transaction-failed': '数据库事务失败，且无法回滚',
@@ -216,7 +216,10 @@ export const i18n = defineI18n('core', {
   'label.relation-target-namespace': '关系 target.namespace',
   'label.relation-target-id': '关系 target.id',
   'label.relation-source-detail': '关系 source.detail',
-  'workspace.name-conflict': 'Workspace 名称不唯一：{{reference}}',
+  'workspace.name-exists': 'Workspace 名称已存在：{{name}}',
+  'workspace.name-invalid': 'Workspace 名称必须为 1–64 字符且不能包含控制字符',
+  'workspace.description-invalid': 'Workspace 描述必须是字符串',
+  'workspace.description-too-long': 'Workspace 描述最长 {{max}} 字符',
   'workspace.not-found': '找不到 Workspace：{{reference}}',
   'workspace.self-reference': 'Workspace 不能把自身保存为成员或关联',
   'workspace.field-non-empty': '{{field}} 必须是非空字符串',
@@ -275,21 +278,23 @@ export const i18n = defineI18n('core', {
   'operation.components.probe': '按路径 id 执行 external 组件已声明的探针并保存观察结果；无需 Body 或 query。',
   'operation.components.probe-all': '探查全部 external 组件，逐项返回结果或跳过原因；无需 Body 或 query。',
   'operation.components.deploy': '按路径 id 执行组件已声明的部署命令并保存结果；无需 Body 或 query。',
-  'operation.workspaces.list': '列出全部 Workspace 及其挂载和关系；无需 Body 或 query。',
-  'operation.workspaces.create': '创建具有稳定 Identity 的 Workspace；Body 必须提供 name。',
-  'operation.workspaces.get': '按路径 id（Identity 或唯一名称）读取 Workspace、挂载与关系；无需 Body 或 query。',
-  'operation.workspaces.rename': '按路径 id（Identity 或唯一名称）重命名 Workspace；Body 必须提供 name。',
-  'operation.workspaces.remove':
+  'operation.ws.list': '列出全部 Workspace 及其挂载和关系；无需 Body 或 query。',
+  'operation.ws.create': '创建具有稳定 Identity 的 Workspace；Body 必须提供唯一 name，可选 description。',
+  'operation.ws.get': '按路径 id（Identity 或唯一名称）读取 Workspace、挂载与关系；无需 Body 或 query。',
+  'operation.ws.update':
+    '按路径 id（Identity 或唯一名称）更新 Workspace 名称或描述；Body 至少提供 name/description 之一。',
+  'operation.ws.remove':
     '删除路径 id 指定的 Workspace、挂载及相关 Workspace 引用；不删除外部资源，无需 Body 或 query。',
-  'operation.workspaces.mounts.list': '列出路径 id 指定 Workspace 的本机目录挂载；无需 Body 或 query。',
-  'operation.workspaces.mounts.add': '为路径 id 指定的 Workspace 添加挂载；Body 必须提供本机绝对路径 path，可选 name。',
-  'operation.workspaces.mounts.remove':
+  'operation.ws.mounts.list': '列出路径 id 指定 Workspace 的本机目录挂载；无需 Body 或 query。',
+  'operation.ws.mounts.add':
+    '为路径 id 指定的 Workspace 添加挂载；Body 必须提供本机绝对路径 path，可选 name 与 primary。',
+  'operation.ws.mounts.update': '按路径 mount（挂载 Identity 或名称）更新挂载名称或 primary 标记；不改变挂载路径。',
+  'operation.ws.mounts.remove':
     '删除 Workspace 路径 id 下由 mount（挂载 Identity 或名称）指定的挂载；不删除目录，无需 Body 或 query。',
-  'operation.workspaces.relations.list':
-    '列出路径 id 指定 Workspace 的 member 与 association 关系；无需 Body 或 query。',
-  'operation.workspaces.relations.add':
+  'operation.ws.relations.list': '列出路径 id 指定 Workspace 的 member 与 association 关系；无需 Body 或 query。',
+  'operation.ws.relations.add':
     '确认 Workspace 关系；Body 必填 kind（member/association）、namespace、id，可选 source:{kind:manual/discovery,detail}。',
-  'operation.workspaces.relations.remove':
+  'operation.ws.relations.remove':
     '按路径 relation（关系 Identity）解除 Workspace 路径 id 的关系；不删除目标资源，无需 Body 或 query。',
   'operation.security.status': '读取当前 Profile 的 Root 初始化状态与身份信息；无需 Body 或 query。',
   'operation.security.provider': '读取 Credential Provider 后端状态；不读取秘密条目，无需 Body 或 query。',
@@ -319,10 +324,12 @@ export const i18n = defineI18n('core', {
     '检查凭据公开元数据及秘密条目是否存在；Body 必须提供 reference（credential:...）；需要 Root。',
   'field.component-text': 'external 组件的完整 YAML 定义；与 path 二选一。',
   'field.component-path': '本机 external 组件 YAML 文件路径；与 text 二选一。',
-  'field.workspace-name': 'Workspace 名称，不要求唯一。',
-  'field.workspace-new-name': '新的 Workspace 名称，不改变 Identity。',
+  'field.workspace-name': 'Workspace 名称，必须唯一，1–64 字符。',
+  'field.workspace-new-name': '新的 Workspace 名称，必须唯一，不改变 Identity。',
+  'field.workspace-description': 'Workspace 描述，可选，最长 500 字符；空字符串表示清空。',
   'field.mount-path': '本机绝对目录路径；只登记引用，不检查目录存在性。',
   'field.mount-name': '挂载名称；省略时由目录名生成，同一 Workspace 内必须唯一。',
+  'field.mount-primary': '是否作为该 Workspace 的默认 cwd；每个 Workspace 最多一个。',
   'field.relation-kind': '关系种类：member（成员）或 association（关联）。',
   'field.relation-namespace': '目标资源的命名空间；locus.workspace 目标必须存在。',
   'field.relation-id': '目标资源 Identity，不是当前 Workspace 的路径 id。',

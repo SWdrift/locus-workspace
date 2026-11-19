@@ -50,28 +50,28 @@ try {
   assert.match(run(['help', 'template://']).stdout, /template/)
   assert.equal(existsSync(data), false)
 
-  const alpha = invoke('post', 'locus://workspaces', { name: '研究' })
-  const beta = invoke('post', 'locus://workspaces', { name: '子工作区' })
+  const alpha = invoke('post', 'locus://ws', { name: '研究' })
+  const beta = invoke('post', 'locus://ws', { name: '子工作区' })
   for (const workspace of [alpha, beta]) {
     assert.match(workspace.id, /^[0-9a-f-]{36}$/)
     assert.deepEqual(workspace.relations, [])
     assert.deepEqual(workspace.mounts, [])
   }
   assert.deepEqual(
-    invoke('get', 'locus://workspaces').map(workspace => workspace.name),
+    invoke('get', 'locus://ws').map(workspace => workspace.name),
     ['研究', '子工作区'],
   )
-  assert.equal(json(['--json', 'locus://workspaces/' + alpha.id]).data.id, alpha.id)
-  const renamed = invoke('patch', 'locus://workspaces/' + alpha.id, { name: '研究二' })
+  assert.equal(json(['--json', 'locus://ws/' + alpha.id]).data.id, alpha.id)
+  const renamed = invoke('patch', 'locus://ws/' + alpha.id, { name: '研究二' })
   assert.equal(renamed.name, '研究二')
   assert.equal(renamed.id, alpha.id)
 
   const mountPath = join(root, 'files')
   mkdirSync(mountPath)
-  const mounted = invoke('post', 'locus://workspaces/' + alpha.id + '/mounts', { path: mountPath, name: 'files' })
+  const mounted = invoke('post', 'locus://ws/' + alpha.id + '/mounts', { path: mountPath, name: 'files' })
   assert.equal(mounted.name, 'files')
   assert.equal(mounted.path, mountPath)
-  assert.equal(invoke('get', 'locus://workspaces/' + alpha.id + '/mounts').length, 1)
+  assert.equal(invoke('get', 'locus://ws/' + alpha.id + '/mounts').length, 1)
   const context = json(['shell', alpha.id, '--print-env'])
   assert.equal(context.cwd, mountPath)
   assert.equal(context.environment.LOCUS_WORKSPACE_ID, alpha.id)
@@ -82,9 +82,9 @@ try {
   const generatedPath = join(mountPath, 'generated')
   const generated = invoke('post', 'template://templates/minimal/instances', { destination: generatedPath })
   assert.equal(generated.template.id, 'minimal')
-  assert.equal(existsSync(join(generatedPath, '.template.json')), true)
+  assert.equal(existsSync(join(generatedPath, '.template.json')), false)
   assert.equal(existsSync(join(generatedPath, 'template.json')), false)
-  const relationUri = 'locus://workspaces/' + alpha.id + '/relations'
+  const relationUri = 'locus://ws/' + alpha.id + '/relations'
   const relationInput = {
     kind: 'association',
     namespace: 'locus.workspace',
@@ -107,18 +107,18 @@ try {
   })
   assert.equal(selfLink.ok, false)
   assert.equal(selfLink.error.code, 'conflict')
-  assert.equal(invoke('get', 'locus://workspaces/' + alpha.id).relations.length, 2)
+  assert.equal(invoke('get', 'locus://ws/' + alpha.id).relations.length, 2)
   invoke('delete', relationUri + '/' + association.id)
-  const afterUnlink = invoke('get', 'locus://workspaces/' + alpha.id)
+  const afterUnlink = invoke('get', 'locus://ws/' + alpha.id)
   assert.deepEqual(
     afterUnlink.relations.map(relation => relation.id),
     [member.id],
   )
   assert.equal(afterUnlink.mounts.length, 1)
   assert.ok(statSync(join(data, 'core.sqlite')).size > 0)
-  invoke('delete', 'locus://workspaces/' + beta.id)
+  invoke('delete', 'locus://ws/' + beta.id)
   assert.deepEqual(
-    invoke('get', 'locus://workspaces').map(workspace => workspace.id),
+    invoke('get', 'locus://ws').map(workspace => workspace.id),
     [alpha.id],
   )
 
@@ -126,7 +126,7 @@ try {
   for (const old of ['workspace', 'component', 'template', 'remote-targets', 'pg', 'credential', 'events'])
     run([old], { code: 1 })
   run(['bogus'], { code: 1 })
-  invoke('post', 'locus://workspaces', { name: '相对数据目录' }, { environment: { LOCUS_HOME: 'relative-data' } })
+  invoke('post', 'locus://ws', { name: '相对数据目录' }, { environment: { LOCUS_HOME: 'relative-data' } })
   assert.ok(statSync(join(root, 'relative-data/core.sqlite')).size > 0)
   const empty = run(['version'], { code: 2, environment: { LOCUS_HOME: '   ' } })
   assert.match(empty.stderr, /LOCUS_HOME/)
@@ -177,7 +177,7 @@ try {
         'development',
         '--json',
         'post',
-        'locus://workspaces',
+        'locus://ws',
         '--data',
         JSON.stringify({ name: '安全开发隔离' }),
       ],
@@ -193,13 +193,13 @@ try {
     assert.equal(isolated.status, 0, isolated.stderr)
     const created = JSON.parse(isolated.stdout.trim().split(/\r?\n/).at(-1)).data
     assert.equal(
-      json(['--profile', 'development', '--json', 'get', 'locus://workspaces/' + created.id], {
+      json(['--profile', 'development', '--json', 'get', 'locus://ws/' + created.id], {
         environment: { LOCUS_FOLDER_NAME: 'wrapper-isolation' },
       }).data.name,
       '安全开发隔离',
     )
     assert.deepEqual(
-      invoke('get', 'locus://workspaces', undefined, { environment: { LOCUS_FOLDER_NAME: 'wrapper-isolation' } }),
+      invoke('get', 'locus://ws', undefined, { environment: { LOCUS_FOLDER_NAME: 'wrapper-isolation' } }),
       [],
     )
   }

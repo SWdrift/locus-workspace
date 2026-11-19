@@ -1,0 +1,7 @@
+{
+  "schema": "locus.template/v1",
+  "id": "node-service",
+  "name": "Node service",
+  "version": "1.0.0",
+  "description": "Node.js + TypeScript 服务骨架"
+}

@@ -1,0 +1,8 @@
+[project]
+name = "project-service"
+version = "0.1.0"
+description = "Python 服务骨架"
+requires-python = ">=3.11"
+
+[project.scripts]
+project-service = "src.main:main"
