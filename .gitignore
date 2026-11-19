@@ -9,6 +9,7 @@ temp/*
 node_modules/
 
 .env*
+!.env.example
 *.pem
 *.key
 *.p12
