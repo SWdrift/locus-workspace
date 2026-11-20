@@ -8,6 +8,7 @@ packages/*/src/*.generated.ts
 .locus-data/
 temp/*
 node_modules/
+dist/
 
 .env*
 !.env.example

@@ -21,6 +21,17 @@ pnpm locus get locus://operations
 pnpm locus locus://info
 ```
 
+### 可复制打包产物
+
+```sh
+pnpm bundle
+node dist/locus/bin/index.js --help
+```
+
+`pnpm bundle` 先执行 `pnpm build`，再用 esbuild 重建 `dist/locus/`。复制时必须携带整个目录：`bin/` 含入口、共享块与同步懒加载服务，`templates/` 含内置模板，`node_modules/` 含打包后的 YAML 与 Keyring 原生依赖。目标仍需 Node.js 24 或更高；产物不是独立可执行文件，只携带构建环境已安装的原生平台包，不支持跨平台打包。
+
+复制后用 `node <复制目录>/bin/index.js <参数>` 运行，不需要在目标目录安装依赖。数据目录与 `.env` 的读取规则保持不变。`pnpm locus` 与 `locus:register` 仍使用原来的 `apps/cli/lib/index.js`，不会自动切换到打包产物；打包命令不安装或修改本机启动器。
+
 ## URL 调用
 
 get/post/put/patch/delete 后跟资源 URL；裸 URL 默认 GET。多个 URL 只允许 GET。help 无参数只列已注册域与路由数；接受 scheme:// 或资源 URL 时平铺显示方法、路径、认证要求、summary 和公开字段说明，不执行 handler、不触发探针或物化。

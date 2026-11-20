@@ -9,6 +9,7 @@
   },
   "scripts": {
     "build": "node scripts/version.mjs && tsc -b tsconfig.json",
+    "bundle": "pnpm build && node scripts/bundle.mjs",
     "test": "node --test packages/core/test/*.test.mjs components/remote-targets/test/*.test.mjs components/templates/test/*.test.mjs apps/cli/test/*.test.mjs tests/*.test.mjs",
     "test:all": "node tests/run.mjs all",
     "e2e": "node tests/run.mjs e2e",
@@ -29,6 +30,7 @@
   "devDependencies": {
     "@types/node": "^24.19.2",
     "@typescript-eslint/parser": "^8.73.0",
+    "esbuild": "^0.27.0",
     "eslint": "^10.15.0",
     "prettier": "^3.10.1",
     "typescript": "^5.9.3"

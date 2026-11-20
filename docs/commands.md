@@ -8,6 +8,7 @@
 | --- | --- |
 | `pnpm install` | 安装 workspace 依赖并链接本地包 |
 | `pnpm build` | 编译 Core、PostgreSQL、Gitea、Remote Targets、Templates 与 CLI，退出 0 |
+| `pnpm bundle` | 先构建，再生成可整目录复制的 `dist/locus/`，退出 0；运行与平台限制见 [CLI 打包](../apps/cli/README.md#可复制打包产物) |
 | `pnpm test` | 运行模块、CLI、跨包与 Skill 脚本测试，退出 0；范围见[测试系统](testing.md#分层与入口) |
 | `pnpm test:all` | 全量进程内测试，经 `tests/run.mjs` 收集并记录，退出 0 |
 | `pnpm e2e` | 真实 CLI 端到端测试，经 `tests/run.mjs` 执行；2 小时冷却未解除时退出 3 |
