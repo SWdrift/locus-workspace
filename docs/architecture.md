@@ -24,8 +24,6 @@ Workspace 可以没有目录，关系目标是领域解释的 `namespace` / `id`
 | 路径 | 当前职责 |
 |---|---|
 | `packages/core/` | Workspace、组件、operation 路由与 Dispatcher、统一权限平面、凭据保管、绑定、Grant、事件与 SQLite 元数据；不依赖 HTTP、CLI 或具体业务消费者 |
-| `packages/postgres/` | 临时 PostgreSQL 验证消费者：声明 `pg.database.register` / `pg.database.query` 与 `database-auth` 字段槽；不是长期产品包，验证完成后移除 |
-| `packages/gitea/` | Gitea Compose：声明 `gitea.repository.register` / `gitea.repository.request` 与 `api-token` 字段槽，用绑定 origin 的 Authorization Header 发起请求 |
 | `apps/cli/` | 独立 `locus` bin：参数解析、经 Dispatcher 调用 operation、人类/JSON 渲染、统一 shell 与退出码；不重新实现领域规则 |
 | `apps/web/` | 占位，无可运行入口；等真实接口消费需求再实现 |
 | `components/templates/` | 管理模板库、读写 `.template.json` 元信息、复制模板文件夹并计算 digest；导出 `locus` 组件的 `component` 与 `operations` |
@@ -54,8 +52,6 @@ flowchart TB
         direction LR
         TPL["components/templates"]
         RT["components/remote-targets"]
-        PG["packages/postgres"]
-        GITEA["packages/gitea"]
     end
 
 
@@ -82,15 +78,11 @@ flowchart TB
 
     CLI -->|"加载 component + operations"| TPL
     CLI -->|"加载 component + operations"| RT
-    CLI --> PG
-    CLI --> GITEA
     CLI -->|"createLocusCore()"| CORE
 
 
     TPL -->|"defineComponent()"| CORE
     RT -->|"defineComponent()"| CORE
-    PG -->|"defineComponent()"| CORE
-    GITEA -->|"defineComponent()"| CORE
 
 
     CORE --> SQLITE
@@ -100,21 +92,19 @@ flowchart TB
     RT --> YAML
     RT --> EXECA
     RT --> SSH
-    PG --> CORE
-    GITEA --> CORE
     CORE --> NATIVE
     CORE --> KEYRING
 
 
     class SKILL,WEB entry
     class CLI app
-    class TPL,RT,PG,GITEA comp
+    class TPL,RT comp
     class CORE core
     class SQLITE,YAML,FS,EXECA,SSH,NATIVE,KEYRING infra
 ```
 
 
-Core 使用 Node、yaml、组件 runner 的 execa，并懒加载 Keyring；PostgreSQL 与 Gitea 各自依赖 Core，PostgreSQL 运行时使用 `pg`。Remote Targets 依赖 Core、yaml、execa 与 node:sqlite。CLI 显式组合各包和 Commander；Core 不反向依赖任何消费者。
+Core 使用 Node、yaml、组件 runner 的 execa，并懒加载 Keyring；Remote Targets 依赖 Core、yaml、execa 与 node:sqlite。CLI 显式组合各包和 Commander；Core 不反向依赖任何消费者。
 
 
 ## 边界
@@ -128,7 +118,7 @@ Core 使用 Node、yaml、组件 runner 的 execa，并懒加载 Keyring；Postg
 - 面向用户的文案由每个 package 自己的 `src/i18n.ts` 唯一维护；Core 只通过 `@locus/core/i18n` 提供 `defineI18n` 与注册器，不持有其他包文案，也不登记包清单。新增组件导出 `i18n` 并由组合根聚合，不修改 Core。取舍见[按包 i18n 文案目录](../.agents/notes/implemented/architecture/2026-11-19-i18n-catalogs.md)。
 - 包组件首次访问时物化到 `<dataDirectory>/components/<id>.yaml`，版本不一致只标记“需要升级”，显式 upgrade operation 才重写定义字段并保留 `config`；包组件不可删除。
 
-- Compose 用 `defineComponent` 声明 operation 与凭据字段；声明不授予权限。Root 通过组件 operation（如 PUT pg://databases/<id>）写入字段并建立 `component + slot + resourceKey` 绑定，普通 User 只能消费已绑定且 operation 获准的路径。
+- Compose 用 `defineComponent` 声明 operation 与凭据字段；声明不授予权限。Root 通过组件 operation（如 PUT rt://targets/<id>）写入字段并建立 `component + slot + resourceKey` 绑定，普通 User 只能消费已绑定且 operation 获准的路径。
 
 - 默认入口为通用 URL 方法与声明驱动的帮助，旧领域别名和组件 id 顶层回退不再存在；帮助与版本不访问组件服务、不创建数据目录。
 

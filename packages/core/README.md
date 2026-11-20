@@ -7,7 +7,7 @@
 独立 TypeScript 领域内核，负责 Workspace 长期身份、成员/关联、本机目录挂载、组件机制与统一安全平面。Core 不依赖 DSH/Cordis、HTTP、CLI 或具体业务消费者；挂载只保存绝对路径与名称，不检查目录是否存在；组件定义与观察不代替主体授权。
 
 
-`@locus/core` 根入口只导出运行时创建 API、Core 句柄类型与产品版本。协议、组件、安全、Workspace、事件、存储与 i18n 分别通过 `/invocation`、`/components`、`/security`、`/workspaces`、`/events`、`/storage`、`/i18n` 公开子路径消费；入口显式导出，包内直接依赖实现文件。类型跟随所属领域，不建立平行 contracts 包。Compose 的 domain operation 由各普通包（`@locus/postgres`、`@locus/gitea`、`@locus/remote-targets`）提供，Core 不依赖它们。
+`@locus/core` 根入口只导出运行时创建 API、Core 句柄类型与产品版本。协议、组件、安全、Workspace、事件、存储与 i18n 分别通过 `/invocation`、`/components`、`/security`、`/workspaces`、`/events`、`/storage`、`/i18n` 公开子路径消费；入口显式导出，包内直接依赖实现文件。类型跟随所属领域，不建立平行 contracts 包。Compose 的 domain operation 由各普通包（当前为 `@locus/remote-targets`）提供，Core 不依赖它们。
 
 
 ## 源码导航

@@ -47,7 +47,7 @@ try {
   assert.equal(existsSync(CLI), true, '先构建 CLI')
   assert.equal(run(['version']).stdout.trim(), PRODUCT_VERSION)
   assert.match(run(['--help']).stdout, /get/)
-  assert.match(run(['help', 'template://']).stdout, /template/)
+  assert.match(run(['routes', 'template://']).stdout, /template/)
   assert.equal(existsSync(data), false)
 
   const alpha = invoke('post', 'locus://ws', { name: '研究' })

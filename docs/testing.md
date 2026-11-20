@@ -85,7 +85,7 @@ e2e 只保留进程内测试无法覆盖的组合：真实 `apps/cli/lib/index.j
 
 ## 平台与外部依赖
 
-自动化领域测试通过 Node API 使用临时目录与子进程；Gitea 使用真实 Node fetch 与本地 HTTP 服务，PostgreSQL 自动化使用真实 `pg.Pool` 参数但不连接数据库，SSH 真实会话另走显式手工检查。安全临时文件测试在 Windows 实际调用系统 PowerShell 核验 DACL，失败不会降级。CLI 夹具使用临时 CWD，避免读取仓库 .env；pnpm 包装从仓库运行时显式固定隔离目录名。平台无法制造的故障带原因标记，不写成通过。
+自动化领域测试通过 Node API 使用临时目录与子进程；SSH 真实会话另走显式手工检查。安全临时文件测试在 Windows 实际调用系统 PowerShell 核验 DACL，失败不会降级。CLI 夹具使用临时 CWD，避免读取仓库 .env；pnpm 包装从仓库运行时显式固定隔离目录名。平台无法制造的故障带原因标记，不写成通过。
 
 ## 安全与平台验证
 
@@ -96,11 +96,10 @@ e2e 只保留进程内测试无法覆盖的组合：真实 `apps/cli/lib/index.j
 真实消费者手工入口：
 
 ```sh
-node packages/postgres/test/manual-postgres.mjs
 node components/remote-targets/test/manual-ssh.mjs
 ```
 
-PostgreSQL 脚本启动临时 PostgreSQL 16 并执行真实查询；SSH 脚本启动本地 OpenSSH sshd，使用 Core CredentialRef 登录并验证错误私钥拒绝与临时文件清理。缺少本机前置时以非零明确阻塞。
+SSH 脚本启动本地 OpenSSH sshd，使用 Core CredentialRef 登录并验证错误私钥拒绝与临时文件清理。缺少本机前置时以非零明确阻塞。
 
 ## 文档检查
 

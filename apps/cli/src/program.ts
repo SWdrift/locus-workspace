@@ -4,7 +4,7 @@ import type { ComponentStateView } from '@locus/core/invocation'
 import type { SecurityGrantScope, SecurityHost } from '@locus/core/security'
 import { configureGlobalOptions } from './global-options.ts'
 import { registerInvocationCommands } from './commands/invocation.ts'
-import { registerHelpCommand } from './commands/help.ts'
+import { registerRoutesCommand } from './commands/routes.ts'
 import { registerSecurityCommands } from './commands/security.ts'
 import { registerShellCommand } from './commands/shell.ts'
 import type { CallOperation, WithCliApi } from './commands/shared.ts'
@@ -31,9 +31,8 @@ export function createProgram(locus: LocusCore, options: CreateProgramOptions = 
       .name('locus')
       .exitOverride()
       .configureOutput({ outputError: (text, write) => write(usageErrorText(text)) })
-      .description(i18n.t('command.description'))
       .usage('[options] [get|post|put|patch|delete] <uri...> | [command]')
-      .addHelpCommand(false)
+      .helpCommand('help [command]', i18n.t('command.help.description'))
       .showHelpAfterError(),
     {
       profile: options.profile ?? 'production',
@@ -74,7 +73,7 @@ export function createProgram(locus: LocusCore, options: CreateProgramOptions = 
     emit(version, locus.info, locus.info.version)
   })
 
-  registerHelpCommand(program, locus.router)
+  registerRoutesCommand(program, locus.router)
   registerSecurityCommands(program, { call, ui, router: locus.router })
   registerShellCommand(program, { call, router: locus.router })
   return program

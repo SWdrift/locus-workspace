@@ -44,7 +44,7 @@ function data(result) {
   return envelope.data
 }
 
-test('version、静态帮助与 operation 帮助不执行业务、不创建数据目录', (t) => {
+test('version、静态帮助与路由发现不执行业务、不创建数据目录', (t) => {
   const f = fixture(t)
   const version = f.run(['version'])
   assert.equal(version.code, 0)
@@ -55,31 +55,53 @@ test('version、静态帮助与 operation 帮助不执行业务、不创建数�
   const help = f.run(['--help'])
   assert.equal(help.code, 0)
   assert.match(help.stdout, /get/)
-  assert.match(help.stdout, /help \[uri\]/)
-  assert.doesNotMatch(help.stdout, /pg\.database\.register/)
+  assert.match(help.stdout, /routes \[uri\]/)
+  assert.match(help.stdout, /help \[command\]/)
+  assert.doesNotMatch(help.stdout, /rt\.target\.register/)
   assert.equal(existsSync(f.data), false)
 
-  const registered = f.run(['help'])
+  const cliHelp = f.run(['help'])
+  assert.equal(cliHelp.code, 0, cliHelp.stderr)
+  assert.match(cliHelp.stdout, /Usage: locus/)
+  assert.match(cliHelp.stdout, /help \[command\]/)
+
+  const commandHelp = f.run(['help', 'routes'])
+  assert.equal(commandHelp.code, 0, commandHelp.stderr)
+  assert.match(commandHelp.stdout, /Usage: locus routes/)
+
+  const registered = f.run(['routes'])
   assert.equal(registered.code, 0, registered.stderr)
   assert.match(registered.stdout, /locus:\/\//)
-  assert.match(registered.stdout, /pg:\/\//)
-  assert.doesNotMatch(registered.stdout, /pg\.database\.register/)
+  assert.match(registered.stdout, /rt:\/\//)
+  assert.doesNotMatch(registered.stdout, /rt\.target\.register/)
   assert.equal(existsSync(f.data), false)
 
-  const scopes = JSON.parse(f.run(['--json', 'help']).stdout)
-  assert.deepEqual(scopes.find(scope => scope.scheme === 'pg://'), { scheme: 'pg://', routes: 2 })
+  const scopes = JSON.parse(f.run(['--json', 'routes']).stdout)
+  assert.deepEqual(scopes.find(scope => scope.scheme === 'rt://'), { scheme: 'rt://', routes: 12 })
+  assert.equal(scopes.some(scope => scope.scheme === 'pg://' || scope.scheme === 'gitea://'), false)
 
-  const scheme = f.run(['help', 'pg://'])
+  const scheme = f.run(['routes', 'rt://'])
   assert.equal(scheme.code, 0, scheme.stderr)
-  assert.match(scheme.stdout, /pg\.database\.register/)
-  assert.match(scheme.stdout, /pg\.database\.query/)
-  assert.doesNotMatch(scheme.stdout, /rt\.target\.register/)
+  assert.match(scheme.stdout, /rt\.target\.register/)
+  assert.match(scheme.stdout, /rt\.targets\.list/)
+  assert.doesNotMatch(scheme.stdout, /template\./)
 
-  const route = f.run(['help', 'pg://databases/app'])
+  const route = f.run(['routes', 'rt://targets/app'])
   assert.equal(route.code, 0, route.stderr)
-  assert.match(route.stdout, /pg\.database\.register/)
+  assert.match(route.stdout, /rt\.target\.register/)
   assert.match(route.stdout, /password/)
-  assert.match(route.stdout, /host/)
+  assert.match(route.stdout, /privateKey/)
+
+  const nested = f.run(['routes', 'locus://ws'])
+  assert.equal(nested.code, 0, nested.stderr)
+  assert.match(nested.stdout, /locus\.ws\.mounts\.list/)
+  assert.match(nested.stdout, /locus\.ws\.relations\.list/)
+  assert.doesNotMatch(nested.stdout, /locus\.info\.get/)
+
+  const actions = f.run(['routes', 'locus://security/actions'])
+  assert.equal(actions.code, 0, actions.stderr)
+  assert.match(actions.stdout, /locus\.security\.reset-root/)
+  assert.doesNotMatch(actions.stdout, /locus\.security\.status/)
   assert.equal(existsSync(f.data), false)
 })
 
@@ -255,16 +277,16 @@ test('URL 参数、Body 与可信文件选择错误不执行业务', (t) => {
     ['post', 'locus://ws', '--data', '{}', '--file', body],
     ['post', 'locus://ws', '--file', body, '--content-type', 'text/plain'],
     ['post', 'locus://ws', '--field-file', `name=${secret}`],
-    ['put', 'pg://databases/app', '--field-file', `unknown=${secret}`],
+    ['put', 'rt://targets/app', '--field-file', `unknown=${secret}`],
     ['post', 'locus://security/actions/init', '--field-file', `password=${secret}`],
-    ['put', 'pg://databases/app', '--field-file', 'password'],
-    ['put', 'pg://databases/app', '--field-file', `password=${secret}`, '--field-file', `password=${secret}`],
-    ['put', 'pg://databases/app', '--data', '{"password":"不得混入"}', '--field-file', `password=${secret}`],
-    ['put', 'pg://databases/app', '--field-file', `password=${join(f.root, 'missing')}`],
-    ['put', 'pg://databases/app', '--prompt', 'unknown'],
+    ['put', 'rt://targets/app', '--field-file', 'password'],
+    ['put', 'rt://targets/app', '--field-file', `password=${secret}`, '--field-file', `password=${secret}`],
+    ['put', 'rt://targets/app', '--data', '{"password":"不得混入"}', '--field-file', `password=${secret}`],
+    ['put', 'rt://targets/app', '--field-file', `password=${join(f.root, 'missing')}`],
+    ['put', 'rt://targets/app', '--prompt', 'unknown'],
     ['post', 'locus://ws', '--prompt', 'name'],
-    ['put', 'pg://databases/app', '--prompt', 'password', '--prompt', 'password'],
-    ['put', 'pg://databases/app', '--field-file', `password=${secret}`, '--prompt', 'password'],
+    ['put', 'rt://targets/app', '--prompt', 'password', '--prompt', 'password'],
+    ['put', 'rt://targets/app', '--field-file', `password=${secret}`, '--prompt', 'password'],
   ]
   for (const args of invalid) {
     const rejected = f.run(args)
@@ -398,7 +420,7 @@ test('组件 URL 保持物化、动态登记、契约隔离与手动升级', (t)
   const f = fixture(t)
   const initial = data(f.run(['--json', 'get', 'locus://components']))
   assert.equal(initial.problems.length, 0)
-  assert.equal('info' in initial.components[0], false)
+  assert.equal(typeof initial.components[0].info.text, 'string')
   assert.equal(existsSync(join(f.data, 'components', 'remote-targets.yaml')), true)
   const materialized = readFileSync(join(f.data, 'components', 'remote-targets.yaml'), 'utf8')
   const remoteTargets = initial.components.find((component) => component.id === 'remote-targets')
@@ -408,23 +430,23 @@ test('组件 URL 保持物化、动态登记、契约隔离与手动升级', (t)
   assert.doesNotMatch(materialized, /operations:/)
   assert.doesNotMatch(materialized, /credentials:/)
 
-  const postgres = data(f.run(['--json', 'get', 'locus://components/postgres']))
-  assert.deepEqual(postgres.operations.map((operation) => operation.id), ['pg.database.register', 'pg.database.query'])
-  assert.deepEqual(postgres.operations.map((operation) => operation.auth), ['root', 'user'])
-  assert.deepEqual(postgres.credentials[0].fields, [
-    { name: 'host', secret: false, required: true },
-    { name: 'port', secret: false, required: false },
-    { name: 'database', secret: false, required: true },
-    { name: 'username', secret: false, required: true },
-    { name: 'password', secret: true, required: true },
+  const remote = data(f.run(['--json', 'get', 'locus://components/remote-targets']))
+  assert.deepEqual(
+    remote.operations.filter((operation) => operation.fields).map((operation) => operation.id),
+    ['rt.target.register', 'rt.target.credential.update', 'rt.target.migrate'],
+  )
+  assert.equal(remote.operations.find((operation) => operation.id === 'rt.target.register').auth, 'root')
+  assert.equal(remote.operations.find((operation) => operation.id === 'rt.targets.list').auth, 'user')
+  assert.deepEqual(remote.credentials.find((credential) => credential.id === 'ssh-private-key').fields, [
+    { name: 'targetBinding', secret: false, required: true },
+    { name: 'privateKey', secret: true, required: true },
+    { name: 'passphrase', secret: true, required: false },
   ])
-  assert.equal('kind' in postgres.credentials[0], false)
-  assert.equal(postgres.operations.every((operation) => operation.summary.length > 0), true)
-  assert.equal(postgres.operations[0].fields.password.tty, true)
-  assert.equal(postgres.operations[0].fields.password.secret, true)
-  const gitea = data(f.run(['--json', 'get', 'locus://components/gitea']))
-  assert.equal(gitea.operations[0].id, 'gitea.repository.register')
-  assert.equal(data(f.run(['--json', 'get', 'locus://components/remote-targets'])).version, remoteTargets.version)
+  assert.equal('kind' in remote.credentials[0], false)
+  assert.equal(remote.operations.every((operation) => operation.summary.length > 0), true)
+  const register = remote.operations.find((operation) => operation.id === 'rt.target.register')
+  assert.equal(register.fields.password.tty, true)
+  assert.equal(register.fields.password.secret, true)
 
   const template = data(f.run(['--json', 'get', 'locus://components/template']))
   assert.equal(template.id, 'template')

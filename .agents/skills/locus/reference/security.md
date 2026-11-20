@@ -3,7 +3,7 @@
 ## 查询与 Profile
 
 ```sh
-locus help locus://security
+locus routes locus://security
 locus --json get locus://security
 locus --json get locus://security/provider
 locus --json get locus://credentials
@@ -19,8 +19,8 @@ locus --profile development --json get locus://security
 locus init
 locus security reset-root
 locus post locus://security/actions/change-root-password
-locus put locus://security/operations/postgres/pg.database.query --data '{"level":"root"}'
-locus delete locus://security/operations/postgres/pg.database.query
+locus put locus://security/operations/remote-targets/rt.target.register --data '{"level":"root"}'
+locus delete locus://security/operations/remote-targets/rt.target.register
 locus post locus://credentials/actions/cleanup --data '{"apply":false}'
 ```
 

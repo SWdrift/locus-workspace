@@ -16,8 +16,6 @@
     "@locus/core": "workspace:*",
     "@locus/remote-targets": "workspace:*",
     "@locus/templates": "workspace:*",
-    "commander": "^15.0.0",
-    "@locus/postgres": "workspace:*",
-    "@locus/gitea": "workspace:*"
+    "commander": "^15.0.0"
   }
 }

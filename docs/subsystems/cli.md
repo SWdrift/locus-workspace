@@ -2,7 +2,7 @@
 
 ## 范围与边界
 
-CLI 是声明驱动的 URL 客户端和可信本地 Host，不维护领域命令树。组件在代码中声明 operation，Core 汇总路由和授权，CLI 从实际注册表产生帮助、发现和可信输入交互。具体协议归[统一资源调用](invocation.md)，语法归[实用命令](../commands.md)，源码入口归 [CLI](../../apps/cli/README.md#源码导航)。
+CLI 是声明驱动的 URL 客户端和可信本地 Host，不维护领域命令树。组件在代码中声明 operation，Core 汇总路由和授权，CLI 从实际注册表产生路由发现和可信输入交互。具体协议归[统一资源调用](invocation.md)，语法归[实用命令](../commands.md)，源码入口归 [CLI](../../apps/cli/README.md#源码导航)。
 
 ## 设计原则
 
@@ -10,11 +10,11 @@ CLI 是声明驱动的 URL 客户端和可信本地 Host，不维护领域命令
 
 ## 命令树
 
-默认入口是 get/post/put/patch/delete <uri...>；裸 URI 表示 GET。help 无参数只列已注册域与路由数；给出 scheme:// 或资源 URL 时平铺显示该域声明；`--help` 不附全量路由表。手写入口仅 version、init、security reset-root、shell。旧领域命令直接删除，没有翻译 shim，也没有 locus <component-id> 回退。
+默认入口是 get/post/put/patch/delete <uri...>；裸 URI 表示 GET。routes 无参数只列已注册域与路由数；给出 scheme:// 时平铺该域全部路由，给出 URL 前缀时平铺以该前缀开头的路由，给出具体资源 URL 时平铺可用声明。help 是 Commander 内置的 CLI／命令用法，`--help` 不附全量路由表。手写入口仅 version、init、security reset-root、shell。旧领域命令直接删除，没有翻译 shim，也没有 locus <component-id> 回退。
 
 ## 调用生命周期
 
-组合根解析受限全局选项并显式加载所需定义，再创建 Core 与可信 Host。帮助只读声明；调用时解析 Body 和可信字段，经 Dispatcher 完成校验、授权、执行与信封输出。Root 只恢复原闭包，结束时释放 Session 与 Core。
+组合根解析受限全局选项并显式加载所需定义，再创建 Core 与可信 Host。routes 只读声明；调用时解析 Body 和可信字段，经 Dispatcher 完成校验、授权、执行与信封输出。Root 只恢复原闭包，结束时释放 Session 与 Core。
 
 ## 输出与退出码
 

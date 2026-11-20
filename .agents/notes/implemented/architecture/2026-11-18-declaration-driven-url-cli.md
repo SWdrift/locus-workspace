@@ -8,7 +8,7 @@ Status: implemented
 
 ## 决定
 
-CLI 的默认面是五种方法加资源 URL，裸 URL 表示 GET。帮助与发现读取组合根实际注册的 operation 声明；组件提供 summary 和公开字段说明，CLI 不解析 Zod 内部，也不维护业务命令描述表或生成源码。
+CLI 的默认面是五种方法加资源 URL，裸 URL 表示 GET。路由发现读取组合根实际注册的 operation 声明；组件提供 summary 和公开字段说明，CLI 不解析 Zod 内部，也不维护业务命令描述表或生成源码。
 
 只保留 version、初始化、Root 本机接管和 Workspace shell 等确有本机交互价值的入口。其余纯转发领域命令直接删除，调用方、测试和 Skill 使用 URL，不留兼容翻译层。
 
@@ -24,10 +24,10 @@ CLI 的默认面是五种方法加资源 URL，裸 URL 表示 GET。帮助与发
 
 ## 验证
 
-构建、lint、格式检查和全量 191 个进程内／真实 CLI 子进程测试通过。临时注册的新组件无需修改 CLI 即可通过 URL 调用并出现在帮助；帮助不执行 handler、不写入；旧别名明确拒绝；可信字段不能由 Body 注入；授权、持久化、跨进程恢复和 shell 经新入口验证。专门测试 Root 字段拒绝文件、可选字段显式选择、普通 UTF-8 文件边界与秘密不落 SQLite。
+构建、lint、格式检查和全量 191 个进程内／真实 CLI 子进程测试通过。临时注册的新组件无需修改 CLI 即可通过 URL 调用并出现在 routes；routes 不执行 handler、不写入；旧别名明确拒绝；可信字段不能由 Body 注入；授权、持久化、跨进程恢复和 shell 经新入口验证。专门测试 Root 字段拒绝文件、可选字段显式选择、普通 UTF-8 文件边界与秘密不落 SQLite。
 
 ## 后果
 
 这是命令面的破坏性切换，脚本必须迁移到结果信封的 data。通用调用退出码表示 operation 是否成功，远端进程退出码位于结果数据，不再由领域别名透传。声明中的说明与校验必须同处维护，不能让展示元数据成为第二套验证器。
 
-help 和 URL 调用装配完整的组件声明，不再维护 scheme 到包的第二份映射；version、init、Root 接管和本机 shell 仍可只装配 Core。代价是发现全部路由需要加载各包，收益是新增 operation 不再增长 CLI 领域代码。
+routes 发现和 URL 调用装配完整的组件声明，不再维护 scheme 到包的第二份映射；version、init、Root 接管和本机 shell 仍可只装配 Core。代价是发现全部路由需要加载各包，收益是新增 operation 不再增长 CLI 领域代码。

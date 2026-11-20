@@ -3,7 +3,7 @@
 模板库位于 `<dataDirectory>/templates/<id>/`，可直接编辑内容与 `.template.json`。内置模板只作兜底，用户模板同名遮蔽内置。从模板创建项目只复制字节，不写 `.template.json`，不执行脚本或 hook。
 
 ```sh
-locus help template://
+locus routes template://
 locus --json get template://templates
 locus --json get template://templates/minimal
 locus post template://templates --data '{"id":"node-service","source":{"kind":"path","path":"X:/templates/node-service"}}'

@@ -5,7 +5,7 @@
 ## 发现与读取
 
 ```sh
-locus help rt://
+locus routes rt://
 locus --json get rt://targets
 locus --json get rt://targets/<target>
 ```

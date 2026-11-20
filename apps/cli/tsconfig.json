@@ -17,12 +17,6 @@
     },
     {
       "path": "../../components/templates"
-    },
-    {
-      "path": "../../packages/postgres"
-    },
-    {
-      "path": "../../packages/gitea"
     }
   ]
 }

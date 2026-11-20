@@ -3,7 +3,7 @@
 组件描述能力与观察，不授予调用方权限。包组件来自代码，动态组件只接受 external 定义；帮助读取声明不等于探测或部署。
 
 ```sh
-locus help locus://components
+locus routes locus://components
 locus --json get locus://components
 locus --json get locus://components/docker
 locus post locus://components --data '{"path":"/absolute/component.yaml"}'

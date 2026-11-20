@@ -7,7 +7,7 @@ Workspace 具有持久 UUID，可以没有目录。名称唯一（trim 后精确
 ## 调用
 
 ```sh
-locus help locus://ws
+locus routes locus://ws
 locus --json post locus://ws --data '{"name":"研究","description":"长期语境"}'
 locus --json get locus://ws
 locus --json get locus://ws/<id>

@@ -24,7 +24,7 @@ Status: implemented
 
 **事件是 CloudEvents 1.0 子集**：请求成功／失败事件加领域事件；同步监听、逐项隔离异常；SQLite `events` 表 best-effort 持久化。事件用于观察与排障，不承诺完整审计、重放或跨进程订阅。
 
-**Scheme 归属固定**：`locus://` 归 Core，`rt://` 归 remote-targets，`template://` 归 templates，`pg://` 归 postgres，`gitea://` 归 gitea。组合根显式注册，无动态插件加载。`packages/postgres` 仍是临时验证消费者。
+**Scheme 归属固定**：`locus://` 归 Core，`rt://` 归 remote-targets，`template://` 归 templates。组合根显式注册，无动态插件加载。
 
 开发库直接采用 schema v8：凭据绑定改为 resource key，operation 等级替换 capability 等级，新增事件表；此后的结构变更按[本机部署的一跳数据迁移](2026-11-19-single-hop-data-migrations.md)保留相邻版本迁移。
 
@@ -48,4 +48,4 @@ CLI、组件与测试统一经 Dispatcher；旧 `api`、`executeComponent`、cap
 
 Root 认证仍由可信 Host 完成，Dispatcher 只接受真实 Session；Resume 执行 Core 保存的原闭包。Root 重置会撤销所有待处理 Challenge 与 Grant。事件持久化失败不阻断业务，但缺失记录不能证明操作未发生。
 
-运行证据包括：Core 单元测试覆盖解析、路由冲突、方法、tty Body 拒绝、批量部分失败、Root 写／User 读、operation 覆盖、Session Grant 与重置撤销；SQLite 测试覆盖 schema v8、绑定键、Profile 隔离与事件持久化；CLI 测试覆盖 init、pg 登记、operation 覆盖、Root 变更／重置、URL 动词与退出码；包测试覆盖 `pg://`、`gitea://`、`template://`、`rt://` 的 handler 与失败边界。平台与未覆盖项仍由[统一资源调用](../../../../docs/subsystems/invocation.md#限制)与[安全子系统](../../../../docs/subsystems/core/security.md)维护。
+运行证据包括：Core 单元测试覆盖解析、路由冲突、方法、tty Body 拒绝、批量部分失败、Root 写／User 读、operation 覆盖、Session Grant 与重置撤销；SQLite 测试覆盖 schema v8、绑定键、Profile 隔离与事件持久化；CLI 测试覆盖 init、凭据登记（本地测试组件）、operation 覆盖、Root 变更／重置、URL 动词与退出码；包测试覆盖 `template://`、`rt://` 的 handler 与失败边界。平台与未覆盖项仍由[统一资源调用](../../../../docs/subsystems/invocation.md#限制)与[安全子系统](../../../../docs/subsystems/core/security.md)维护。

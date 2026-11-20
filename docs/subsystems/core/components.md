@@ -90,7 +90,7 @@ YAML 物化只保存描述性元数据；`operations`/`credentials` 属于包代
    ├─ template.yaml            # 包物化
    ├─ remote-targets.yaml      # 包物化；config 指向 remote-targets/
    ├─ docker.yaml              # 动态登记
-   └─ postgres/
+   └─ custom/
       ├─ component.yaml        # 文件夹形态
       └─ settings.yaml         # 组件自有配置
 ```

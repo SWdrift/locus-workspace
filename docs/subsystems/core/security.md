@@ -7,7 +7,7 @@
 Core Security 是 Locus 的统一权限真源与凭据保管平面。它提供本机 Root／User 身份、进程内 Session、operation 级授权、Root 认证等级覆盖、operation／session 两种 Grant、按 `component + slot + resourceKey` 精确绑定、公开／秘密字段拆分，以及 OS Keyring 保管。Compose 用 `defineComponent` 声明 operation 表与凭据 slot；CLI 在组件命令中完成参数、提示与 Root 提权，普通 User 通过已获准的 operation 消费字段。
 
 
-Core 不实现 PostgreSQL、HTTP、SSH 或具体业务协议。各 Compose 在自己的普通包中提供 operation handler：`@locus/postgres`、`@locus/gitea` 和 `@locus/remote-targets`。目标配置不保存凭据引用；引用由 `context.credential.write` 生成并由 Core 的绑定内部持有。CLI 是可信本地认证 Host，Web 仍占位。URI、Dispatcher、结果信封与事件的通用协议归[统一资源调用](../invocation.md)。
+Core 不实现 PostgreSQL、HTTP、SSH 或具体业务协议。各 Compose 在自己的普通包中提供 operation handler，当前为 `@locus/remote-targets`。目标配置不保存凭据引用；引用由 `context.credential.write` 生成并由 Core 的绑定内部持有。CLI 是可信本地认证 Host，Web 仍占位。URI、Dispatcher、结果信封与事件的通用协议归[统一资源调用](../invocation.md)。
 
 
 ## 职责
@@ -140,11 +140,6 @@ CLI 只传参数与展示结果，不接触 Keyring、字段拆分或绑定内�
 Remote Targets 负责 SSH 协议、目标领域约束、operation handler 与秘密载体；Core 只负责字段拆分、精确绑定与交付。SSH 使用目标配置中的 host/port/login 与信任锚，并由 Remote Targets 保存目标安全摘要；配置变化需要 Root 重新确认；这些端点不由 User 请求参数替换。具体 API、失败与平台限制由 [Remote Targets README](../../../components/remote-targets/README.md) 维护：系统 OpenSSH/Plink 与受限临时文件。
 
 
-- [PostgreSQL](../../../packages/postgres/README.md)：临时验证消费者，验证完成后移除。
-- [Gitea](../../../packages/gitea/README.md)：绑定 origin 的 Bearer 请求。
-- [Remote Targets](../../../packages/remote-targets/README.md)：系统 OpenSSH/Plink 与受限临时文件。
-
-
 ## 远程目标安全边界
 
 
@@ -170,8 +165,6 @@ Core SQLite 当前 `user_version=9`，包含 Workspace、关系、挂载、组�
 | --- | --- | --- |
 | Root、SQLite、CLI Host | 真实 TTY 初始化／密码变更／重置／Ctrl+C；跨进程锁定与世代回归通过 | macOS／Linux TTY 尚未运行 |
 | Keyring | 独立临时非管理员 OS 账户、ASCII／Unicode／RSA PEM、原生 2560/2561 边界、Missing、跨进程读取、条目及账户／Profile 清理通过 | 重启持久性、锁定、共享服务不可用未验证；macOS／Linux 后端未运行 |
-| PostgreSQL | 临时 PostgreSQL 16、scram-sha-256、Core 交付字段、真实 `pg.Pool` 查询 | 外部生产数据库、连接池故障与长事务未覆盖 |
-| Gitea | 真实 Node fetch 本地 HTTP 服务，Header、跨源、重定向、401/403、网络失败 | 未连接真实 Gitea 实例 |
 | SSH | 真实 OpenSSH 9.5 客户端与本地 Git OpenSSH 9.4 服务端；Core 字段、正确密钥、错误密钥、主机固定、临时文件清理 | POSIX 权限代码未在 POSIX 系统运行；未验证外部生产目标；Plink 真实登录未验证 |
 | 带口令私钥 | 迁移明确拒绝，不自动去口令 | 口令交付契约未冻结 |
 
@@ -180,7 +173,6 @@ Core SQLite 当前 `user_version=9`，包含 Workspace、关系、挂载、组�
 
 
 ```sh
-node packages/postgres/test/manual-postgres.mjs
 node components/remote-targets/test/manual-ssh.mjs
 ```
 

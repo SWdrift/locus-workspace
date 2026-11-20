@@ -19,8 +19,6 @@ type ComponentLoader = () => Promise<ComponentModule>
 const componentLoaders: readonly ComponentLoader[] = [
   async () => import('@locus/templates'),
   async () => import('@locus/remote-targets'),
-  async () => import('@locus/postgres'),
-  async () => import('@locus/gitea'),
 ]
 
 /** 环境、全局参数、包组件与可信 Host 都由这一入口装配。 */

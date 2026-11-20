@@ -5,7 +5,7 @@ description: 通过声明驱动的资源 URL 管理 Workspace、组件、模板�
 
 # Locus Workspace
 
-默认使用资源 URL，不使用已移除的领域命令别名。先用 locus help <scheme://> 或 GET locus://operations 读取当前注册声明，再按方法调用；--json 结果的业务数据位于 data。
+默认使用资源 URL，不使用已移除的领域命令别名。先用 locus routes <scheme://> 或 GET locus://operations 读取当前注册声明，再按方法调用；--json 结果的业务数据位于 data。
 
 ## 分层索引
 
@@ -22,11 +22,11 @@ description: 通过声明驱动的资源 URL 管理 Workspace、组件、模板�
 ## 快速流程
 
 ```sh
-locus help locus://ws
+locus routes locus://ws
 locus --json get locus://ws
 locus --json post locus://ws --data '{"name":"研究"}'
 locus --json get locus://components
-locus help rt://
+locus routes rt://
 locus --json get rt://targets
 locus shell <workspace>
 ```

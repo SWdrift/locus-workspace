@@ -9,9 +9,8 @@ import { fileURLToPath } from 'node:url'
 import test from 'node:test'
 import { createLocusCore } from '@locus/core'
 import { defineComponent } from '@locus/core/components'
-import { defineOperation } from '@locus/core/invocation'
+import { defineCredential, defineOperation } from '@locus/core/invocation'
 import { createMemoryCredentialProvider, createMemorySecurityStore, SecurityFailure } from '@locus/core/security'
-import { component as postgresComponent, operations as postgresOperations } from '@locus/postgres'
 import { component as remoteTargetsComponent, operations as remoteTargetsOperations } from '@locus/remote-targets'
 import { createProgram } from '../lib/program.js'
 import { createTerminalSecurityUI } from '../lib/host/terminal.js'
@@ -48,7 +47,7 @@ async function fixture(t, components = [], { persistent = false } = {}) {
   let host
   const core = createLocusCore({
     dataDirectory,
-    components: [{ component: postgresComponent, operations: postgresOperations }, ...components],
+    components,
     security: {
       ...(persistent ? {} : { store: createMemorySecurityStore() }),
       provider: createMemoryCredentialProvider(),
@@ -151,7 +150,58 @@ function temporaryComponent() {
   }
 }
 
-test('真实入口的 version、help 与非 TTY init 保持惰性', () => {
+function credentialComponent() {
+  const entryAuth = defineCredential({
+    id: 'entry-auth',
+    fields: [
+      { name: 'host', secret: false, required: true },
+      { name: 'database', secret: false, required: true },
+      { name: 'username', secret: false, required: true },
+      { name: 'password', secret: true, required: true, tty: true },
+    ],
+  })
+  const register = defineOperation({
+    id: 'vault.entry.register',
+    summary: '登记路径 id 指定的条目并绑定密码；Body 必填 host、database 与 username。',
+    method: 'PUT', scheme: 'vault', authority: 'entries', path: '/:id', auth: 'root',
+    input: {
+      parse(value) {
+        assert.ok(value !== null && typeof value === 'object' && !Array.isArray(value))
+        for (const key of ['host', 'database', 'username', 'password']) {
+          assert.equal(typeof value[key], 'string')
+        }
+        return {
+          host: value.host, database: value.database, username: value.username, password: value.password,
+        }
+      },
+    },
+    output: {
+      parse(value) {
+        assert.equal(value.registered, true)
+        assert.equal(typeof value.reference, 'string')
+        return value
+      },
+    },
+    fields: {
+      password: { description: '条目密码', secret: true, tty: true, file: true, required: true },
+    },
+    async run(_query, input, context) {
+      const reference = await context.credential.write(entryAuth, context.url.pathParams.id ?? '', {
+        host: input.host, database: input.database, username: input.username, password: input.password,
+      })
+      return { registered: true, reference }
+    },
+  })
+  return {
+    definition: defineComponent({
+      id: 'vault', version: '1', name: '保险库', summary: '验证凭据绑定与公开字段拆分', kind: 'locus',
+      credentials: [entryAuth],
+      operations: [register],
+    }),
+  }
+}
+
+test('真实入口的 version、routes 与非 TTY init 保持惰性', () => {
   const root = mkdtempSync(join(tmpdir(), 'locus-cli-entry-'))
   try {
     const cli = fileURLToPath(new URL('../lib/index.js', import.meta.url))
@@ -162,9 +212,9 @@ test('真实入口的 version、help 与非 TTY init 保持惰性', () => {
     const version = run(['version'])
     assert.equal(version.status, 0)
     assert.equal(existsSync(join(root, 'data')), false)
-    const help = run(['help', 'locus://security/actions/change-root-password'])
-    assert.equal(help.status, 0, help.stderr)
-    assert.match(help.stdout, /locus\.security\.change-root-password/)
+    const routes = run(['routes', 'locus://security/actions/change-root-password'])
+    assert.equal(routes.status, 0, routes.stderr)
+    assert.match(routes.stdout, /locus\.security\.change-root-password/)
     assert.equal(existsSync(join(root, 'data')), false)
     const init = run(['init'])
     assert.equal(init.status, 2)
@@ -203,19 +253,19 @@ test('URL 动词由可信 Host 收集 tty 字段并完成 init', async (t) => {
   assert.equal(status.initialized, true)
 })
 
-test('pg PUT 先收集 tty 密码再完成 Root 授权；URL 凭据查询不包含秘密', async (t) => {
-  const setup = await fixture(t)
+test('凭据 operation 先收集 tty 密码再完成 Root 授权；URL 凭据查询不包含秘密', async (t) => {
+  const setup = await fixture(t, [credentialComponent().definition])
   await success(await invoke(t, setup, ['--json', 'init'], scriptedUI([ROOT_PASSWORD, ROOT_PASSWORD])))
   const ui = scriptedUI([SECRET, ROOT_PASSWORD])
   const registered = success(await invoke(t, setup, [
-    '--json', 'put', 'pg://databases/app', '--data',
+    '--json', 'put', 'vault://entries/app', '--data',
     '{"host":"localhost","database":"app","username":"u"}',
   ], ui)).data
   assert.equal(registered.registered, true)
   assert.match(registered.reference, /^credential:/)
   assert.equal(ui.prompts.length, 2)
   assert.match(ui.prompts[0], /密码/)
-  assert.equal(ui.prompts[1], 'Root 密码（授权 postgres:pg.database.register）：')
+  assert.equal(ui.prompts[1], 'Root 密码（授权 vault:vault.entry.register）：')
 
   const list = success(await invoke(t, setup, [
     '--json', 'get', 'locus://credentials',
@@ -225,14 +275,14 @@ test('pg PUT 先收集 tty 密码再完成 Root 授权；URL 凭据查询不包�
   assert.equal(JSON.stringify(list).includes(SECRET), false)
 
   const bindings = success(await invoke(t, setup, [
-    '--json', 'get', 'locus://credentials/postgres',
+    '--json', 'get', 'locus://credentials/vault',
   ], scriptedUI([ROOT_PASSWORD]))).data.bindings
-  assert.equal(bindings[0].componentId, 'postgres')
-  assert.equal(bindings[0].slot, 'database-auth')
+  assert.equal(bindings[0].componentId, 'vault')
+  assert.equal(bindings[0].slot, 'entry-auth')
   assert.equal(bindings[0].resourceKey, 'app')
 
   const binding = success(await invoke(t, setup, [
-    '--json', 'get', 'locus://credentials/postgres/database-auth/app',
+    '--json', 'get', 'locus://credentials/vault/entry-auth/app',
   ], scriptedUI([ROOT_PASSWORD]))).data
   assert.equal(binding.credential.reference, registered.reference)
   assert.equal(binding.binding.reference, registered.reference)
@@ -245,20 +295,20 @@ test('pg PUT 先收集 tty 密码再完成 Root 授权；URL 凭据查询不包�
   assert.equal(status.present, true)
 })
 
-test('pg 的公开 Body 文件与可信密码文件分离，文件输入不重复提示、不进入事件或 SQLite', async (t) => {
-  const setup = await fixture(t, [], { persistent: true })
+test('凭据 operation 的公开 Body 文件与可信密码文件分离，文件输入不重复提示、不进入事件或 SQLite', async (t) => {
+  const setup = await fixture(t, [credentialComponent().definition], { persistent: true })
   success(await invoke(t, setup, ['--json', 'init'], scriptedUI([ROOT_PASSWORD, ROOT_PASSWORD])))
-  const bodyFile = join(setup.dataDirectory, 'postgres-body.json')
-  const passwordFile = join(setup.dataDirectory, 'postgres-password.txt')
+  const bodyFile = join(setup.dataDirectory, 'vault-body.json')
+  const passwordFile = join(setup.dataDirectory, 'vault-password.txt')
   writeFileSync(bodyFile, '{"host":"localhost","database":"app","username":"u"}', 'utf8')
   writeFileSync(passwordFile, SECRET, 'utf8')
   const ui = scriptedUI([ROOT_PASSWORD])
   const registered = success(await invoke(t, setup, [
-    '--json', 'put', 'pg://databases/app', '--file', bodyFile,
+    '--json', 'put', 'vault://entries/app', '--file', bodyFile,
     '--field-file', `password=${passwordFile}`,
   ], ui)).data
   assert.equal(registered.registered, true)
-  assert.deepEqual(ui.prompts, ['Root 密码（授权 postgres:pg.database.register）：'])
+  assert.deepEqual(ui.prompts, ['Root 密码（授权 vault:vault.entry.register）：'])
   const status = success(await invoke(t, setup, [
     '--json', 'post', 'locus://credentials/actions/status', '--data',
     JSON.stringify({ reference: registered.reference }),
@@ -328,24 +378,24 @@ test('远程目标使用 Nodecrypto 私钥文件或显式 password 提示，不�
 })
 
 test('安全 operation 的 GET、PUT Body 与 DELETE 改变授权等级', async (t) => {
-  const setup = await fixture(t)
+  const setup = await fixture(t, [credentialComponent().definition])
   await success(await invoke(t, setup, ['--json', 'init'], scriptedUI([ROOT_PASSWORD, ROOT_PASSWORD])))
 
   const listed = success(await invoke(t, setup, [
     '--json', 'get', 'locus://security/operations',
   ], scriptedUI([ROOT_PASSWORD]))).data
-  const register = listed.find((item) => item.operation === 'pg.database.register')
+  const register = listed.find((item) => item.operation === 'vault.entry.register')
   assert.equal(register.effectiveAuthLevel, 'root')
 
   const set = success(await invoke(
-    t, setup, ['--json', 'put', 'locus://security/operations/postgres/pg.database.register', '--data', '{"level":"user"}'],
+    t, setup, ['--json', 'put', 'locus://security/operations/vault/vault.entry.register', '--data', '{"level":"user"}'],
     scriptedUI([ROOT_PASSWORD]),
   )).data
   assert.equal(set.effectiveAuthLevel, 'user')
   assert.equal(set.source, 'override')
 
   const reset = success(await invoke(
-    t, setup, ['--json', 'delete', 'locus://security/operations/postgres/pg.database.register'],
+    t, setup, ['--json', 'delete', 'locus://security/operations/vault/vault.entry.register'],
     scriptedUI([ROOT_PASSWORD]),
   )).data
   assert.equal(reset.effectiveAuthLevel, 'root')
@@ -470,30 +520,30 @@ test('events URL query 按类型筛选请求事件', async (t) => {
   assert.equal(events.every((event) => event.type === 'locus.request.succeeded'), true)
 })
 
-test('临时组件仅凭 operation 声明接入 URL 与帮助，帮助展示字段但不执行或落盘', async (t) => {
+test('临时组件仅凭 operation 声明接入 URL 与路由发现，routes 展示字段但不执行或落盘', async (t) => {
   const temporary = temporaryComponent()
   const setup = await fixture(t, [temporary.definition])
   const ui = scriptedUI()
-  for (const args of [['--help'], ['help']]) {
-    const help = await invoke(t, setup, args, ui)
-    assert.ok(help.error === undefined || help.error.exitCode === 0, help.stderr)
-    assert.doesNotMatch(help.stdout, /temporary\.read/)
-    assert.doesNotMatch(help.stdout, /temporary\.write/)
+  for (const args of [['--help'], ['routes']]) {
+    const output = await invoke(t, setup, args, ui)
+    assert.ok(output.error === undefined || output.error.exitCode === 0, output.stderr)
+    assert.doesNotMatch(output.stdout, /temporary\.read/)
+    assert.doesNotMatch(output.stdout, /temporary\.write/)
     assert.equal(temporary.calls(), 0)
     assert.deepEqual(ui.prompts, [])
     assert.equal(existsSync(join(setup.dataDirectory, 'core.sqlite')), false)
   }
   for (const args of [
-    ['help', 'temporary://'],
-    ['help', 'temporary://items/new'],
+    ['routes', 'temporary://'],
+    ['routes', 'temporary://items/new'],
   ]) {
-    const help = await invoke(t, setup, args, ui)
-    assert.ok(help.error === undefined || help.error.exitCode === 0, help.stderr)
-    assert.match(help.stdout, /temporary\.read/)
-    assert.match(help.stdout, /temporary\.write/)
-    assert.match(help.stdout, /读取路径 id 指定的临时项目/)
-    assert.match(help.stdout, /必需令牌/)
-    assert.match(help.stdout, /可选令牌/)
+    const output = await invoke(t, setup, args, ui)
+    assert.ok(output.error === undefined || output.error.exitCode === 0, output.stderr)
+    assert.match(output.stdout, /temporary\.read/)
+    assert.match(output.stdout, /temporary\.write/)
+    assert.match(output.stdout, /读取路径 id 指定的临时项目/)
+    assert.match(output.stdout, /必需令牌/)
+    assert.match(output.stdout, /可选令牌/)
     assert.equal(temporary.calls(), 0)
     assert.deepEqual(ui.prompts, [])
     assert.equal(existsSync(join(setup.dataDirectory, 'core.sqlite')), false)

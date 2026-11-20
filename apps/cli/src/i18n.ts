@@ -1,14 +1,14 @@
 import { defineI18n } from '@locus/core/i18n'
 
 export const i18n = defineI18n('cli', {
-  'command.description': 'Locus 本地工作空间：资源 URL 与 operation。',
   'command.version.description': '读取 Locus 产品版本',
   'command.init.description': '在可信 TTY 上以隐藏输入初始化 Root；不从参数或环境读取密码',
   'command.security.description': '接管本机 Root 管理',
   'command.reset-root.description': '接管本机管理：在 TTY 上明确确认后替换 Root 密码并撤销旧授权；不提供 --yes 绕过',
   'command.shell.description': '在 Workspace 上下文中启动用户 shell；注入 locus、挂载与 LOCUS_* 环境',
   'command.method.description': '按 URL 直接调用 operation（{{method}}）',
-  'command.help.description': '无参数列出已注册域；给出 scheme:// 或资源 URL 时平铺显示声明',
+  'command.help.description': '显示 CLI 或指定命令的用法',
+  'command.routes.description': '列出已注册域；给出 scheme:// 或 URL 前缀时平铺显示路由声明',
   'init.success': 'Root 与默认 User 已初始化。',
   'reset.cancelled': '已取消本机管理接管',
   'reset.success': 'Root 已重置，旧授权已撤销；Workspace 与资源凭据未删除。',
@@ -59,10 +59,10 @@ export const i18n = defineI18n('cli', {
   'usage.body-json': 'Body 不是合法 JSON',
   'usage.unknown-command': '未知命令：{{uri}}',
 
-  'help.route-line': '{{scheme}}{{count}} 条路由',
-  'help.no-routes': '没有匹配的已注册路由：{{uri}}',
-  'help.trait-required': '必填',
-  'help.trait-optional': '可选',
+  'routes.route-line': '{{scheme}}{{count}} 条路由',
+  'routes.no-routes': '没有匹配的已注册路由：{{uri}}',
+  'routes.trait-required': '必填',
+  'routes.trait-optional': '可选',
 
   'shell.banner': 'Locus shell：{{name}} ({{id}})',
   'shell.mount': '挂载 {{name}}  {{path}}',

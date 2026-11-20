@@ -40,13 +40,14 @@
 
 ## URL 调用
 
-默认命令面来自当前组件声明；先用 help 查看方法、URL 模板、认证与字段说明。五个方法入口只实现一次，新增 operation 不需要 CLI 代码。
+默认命令面来自当前组件声明；先用 routes 查看方法、URL 模板、认证与字段说明。五个方法入口只实现一次，新增 operation 不需要 CLI 代码。
 
 ```sh
 locus --help
 locus help
-locus help rt://
-locus help locus://ws
+locus routes
+locus routes rt://
+locus routes locus://ws
 locus --json get locus://operations
 locus --json locus://info
 ```
@@ -55,7 +56,8 @@ locus --json locus://info
 | --- | --- |
 | get/post/put/patch/delete <uri...> | 显式方法调用；多个 URL 只允许 GET |
 | <uri> | 默认 GET，不推断写操作 |
-| help [uri] | 无参数列出已注册域与路由数；给定 scheme:// 或资源 URL 时平铺显示声明；不执行 handler |
+| routes [uri] | 无参数列出已注册域与路由数；给定 scheme:// 时平铺该域全部路由，给定 URL 前缀（如 locus://ws）时平铺以该前缀开头的路由，给定具体资源 URL 时平铺可用声明；不执行 handler |
+| help [command] | Commander 内置：显示 CLI 或指定命令的用法；`--help` 与其等价 |
 | --data <json> / --file <path或-> | 普通 JSON Body，互斥；- 从 stdin 读取 |
 | --field-file <field=path> | 可重复；只用于 tty 且 file:true 的可信字段 |
 | --prompt <field> | 可重复；显式选择可选的 TTY 字段 |
@@ -108,7 +110,7 @@ locus shell <workspace> --command "locus get locus://info"
 ## 模板操作
 
 ```sh
-locus help template://
+locus routes template://
 locus get template://templates
 locus get template://templates/minimal
 locus post template://templates --data '{"id":"node-service","source":{"kind":"path","path":"X:/templates/node-service"}}'
@@ -122,7 +124,7 @@ locus post template://templates/minimal/instances --data '{"destination":"/absol
 ## 远程目标
 
 ```sh
-locus help rt://
+locus routes rt://
 locus get rt://targets
 locus get rt://targets/<id>/system
 locus put rt://targets/<id> --file registration.json --field-file privateKey=/absolute/key.pem
@@ -136,7 +138,7 @@ registration.json 的 Body 包含 spec 字符串；目标定义和凭据字段�
 ## 组件操作
 
 ```sh
-locus help locus://components
+locus routes locus://components
 locus get locus://components
 locus get locus://components/docker
 locus post locus://components --data '{"path":"/absolute/component.yaml"}'
@@ -158,4 +160,4 @@ locus get 'locus://events?limit=20'
 
 ## 输出与退出码
 
-调用 JSON 使用 InvocationResult，数据位于 data；help JSON 是描述数组，本地 Host 输入／认证失败按 code 诊断。退出码 0/1/2/3 分别表示 operation 成功、输入拒绝、业务或授权失败、批量部分失败；业务状态与远端进程退出码必须另外检查。本地 shell --command 仍透传子进程退出码。version 与帮助不创建数据目录，普通未知旧命令退出 1，不提供兼容翻译。
+调用 JSON 使用 InvocationResult，数据位于 data；routes 给出 URI 时 JSON 是描述数组，本地 Host 输入／认证失败按 code 诊断。退出码 0/1/2/3 分别表示 operation 成功、输入拒绝、业务或授权失败、批量部分失败；业务状态与远端进程退出码必须另外检查。本地 shell --command 仍透传子进程退出码。version、`--help` 与 routes 不创建数据目录，普通未知旧命令退出 1，不提供兼容翻译。
