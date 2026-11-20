@@ -172,7 +172,7 @@ test('本地链接拒绝越界、编码越界、绝对路径与反斜杠', async
 });
 
 test('既有维护目录内的新模块文档自动受检，无需登记', async (t) => {
-  for (const name of ['packages/example/README.md', 'plugins/example/README.md', 'scripts/README.md']) {
+  for (const name of ['packages/example/README.md', 'components/example/README.md', 'plugins/example/README.md', 'scripts/README.md']) {
     await t.test(name, (t) => {
       const root = fixture(t);
       put(root, name, '# 模块\n\n[失效引用](missing.md)\n');

@@ -14,7 +14,7 @@ Status: implemented
 
 每次实际运行前后自动追加 UTC 单行记录，格式为 `<UTC> suite=<all|e2e> start` 与 `<UTC> suite=<all|e2e> passed|failed duration=<秒>`；强制运行带 `forced=true`。失败、中断与强制运行都从 `start` 时刻起占用窗口。历史 `temp/e2e-runs.log` 的 `start` 记录继续计入 e2e 冷却，避免升级后立即解锁。
 
-`all` 的文件收集替代原来的 shell glob：`packages/*/test/*.test.mjs`、`apps/*/test/*.test.mjs`、`tests/*.test.mjs`，排序后交给 `node --test`。e2e 运行 `tests/e2e/*.mjs`，当前为 `cli-workflow.mjs`：使用真实构建产物、独立进程与 `pnpm locus` 包装验证完整命令链。e2e 仍要求 pnpm 注入的 `npm_execpath`，因此 `pnpm e2e` 是有效入口，直接 `node tests/run.mjs e2e` 返回 2。
+`all` 的文件收集替代原来的 shell glob：`packages/*/test/*.test.mjs`、`components/*/test/*.test.mjs`、`apps/*/test/*.test.mjs`、`tests/*.test.mjs`，排序后交给 `node --test`。e2e 运行 `tests/e2e/*.mjs`，当前为 `cli-workflow.mjs`：使用真实构建产物、独立进程与 `pnpm locus` 包装验证完整命令链。e2e 仍要求 pnpm 注入的 `npm_execpath`，因此 `pnpm e2e` 是有效入口，直接 `node tests/run.mjs e2e` 返回 2。
 
 ## 备选方案
 

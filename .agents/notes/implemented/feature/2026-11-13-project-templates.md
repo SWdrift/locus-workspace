@@ -18,7 +18,7 @@ Workspace 可以挂载多个本机目录，但新建项目仍需手工复制文�
 
 模板源支持：
 
-- 内置模板 ID，来自 `packages/templates/templates/<id>/`；
+- 内置模板 ID，来自 `components/templates/templates/<id>/`；
 - 本地目录，传入路径存在时优先于同名内置模板。
 
 不建立模板注册表或配置文件。

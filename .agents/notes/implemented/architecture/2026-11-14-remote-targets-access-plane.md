@@ -8,7 +8,7 @@ Status: implemented
 
 ## 决定
 
-新增 `packages/remote-targets`，由 CLI 的 `remote-targets` 命令域调用，把目标登记为声明式数据并提供 `probe`、`exec`、`shell` 三个动作。
+新增 `components/remote-targets`，由 CLI 的 `remote-targets` 命令域调用，把目标登记为声明式数据并提供 `probe`、`exec`、`shell` 三个动作。
 
 ### 存储
 

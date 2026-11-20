@@ -115,6 +115,6 @@ Core 把目标安全配置摘要 `targetBinding` 作为凭据公开字段保存�
 
 ## 验证依据
 
-- `pnpm test` 覆盖配置校验、路径逃逸、引号、SSH/Plink 参数、凭据绑定、迁移、能力检查、组件前置检查与 SQLite 跨实例读取；`packages/remote-targets/test/security-integration.test.mjs` 使用真实 Core 与内存 Provider。
-- 真实目标验证：`node packages/remote-targets/test/manual-ssh.mjs` 在受控临时目录启动本地 OpenSSH sshd，使用 Core 绑定凭据、受限临时私钥和固定 known_hosts 执行 `whoami`，并验证错误私钥拒绝与临时文件清理。
+- `pnpm test` 覆盖配置校验、路径逃逸、引号、SSH/Plink 参数、凭据绑定、迁移、能力检查、组件前置检查与 SQLite 跨实例读取；`components/remote-targets/test/security-integration.test.mjs` 使用真实 Core 与内存 Provider。
+- 真实目标验证：`node components/remote-targets/test/manual-ssh.mjs` 在受控临时目录启动本地 OpenSSH sshd，使用 Core 绑定凭据、受限临时私钥和固定 known_hosts 执行 `whoami`，并验证错误私钥拒绝与临时文件清理。
 - CLI 用例只验证通用 URL、可信字段文件／TTY 输入、JSON/人类输出与调用退出码；配置校验与执行语义由服务测试覆盖。

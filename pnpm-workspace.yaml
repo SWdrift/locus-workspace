@@ -1,7 +1,8 @@
 packages:
   - apps/*
   - packages/*
-
+  - components/*
+
 catalog:
   execa: ^10.2.1
   pg: ^8.23.1

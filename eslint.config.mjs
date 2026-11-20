@@ -1,7 +1,9 @@
 import tsParser from '@typescript-eslint/parser'
 
 const outsidePackage = {
-  regex: '^(?:\\.\\./)+(?:packages|apps)/|^(?:\\.\\./)+[^/]+/(?:src|lib)/|^@locus/[^/]+/(?:src|lib)(?:/|$)',
+  // 从包内 src 到仓库级 components 至少跨三层，避免误判 Core 内部的同名领域目录。
+  regex:
+    '^(?:\\.\\./)+(?:packages|apps)/|^(?:\\.\\./){3,}components/|^(?:\\.\\./)+[^/]+/(?:src|lib)/|^@locus/[^/]+/(?:src|lib)(?:/|$)',
   message: '跨包只能使用 package exports，不能访问其他包的源码或构建内部路径。',
 }
 const coreRuntime = {
@@ -42,12 +44,12 @@ const coreImports = {
   ],
 }
 // 每包自己的 i18n 表是唯一允许出现中文文案字面量的位置。
-const i18nFiles = ['apps/*/src/i18n.ts', 'packages/*/src/i18n.ts']
+const i18nFiles = ['apps/*/src/i18n.ts', 'packages/*/src/i18n.ts', 'components/*/src/i18n.ts']
 const coreI18nFiles = ['packages/core/src/i18n/**/*.ts']
 
 export default [
   {
-    files: ['apps/*/src/**/*.ts', 'packages/*/src/**/*.ts'],
+    files: ['apps/*/src/**/*.ts', 'packages/*/src/**/*.ts', 'components/*/src/**/*.ts'],
     ignores: ['**/src/i18n.ts', 'packages/core/src/i18n/**'],
     languageOptions: { parser: tsParser },
     rules: {
@@ -72,8 +74,8 @@ export default [
     },
   },
   {
-    files: ['packages/*/src/**/*.ts'],
-    ignores: ['packages/core/src/**', '**/src/i18n.ts'],
+    files: ['components/*/src/**/*.ts'],
+    ignores: ['**/src/i18n.ts'],
     rules: {
       'no-restricted-imports': [
         'error',

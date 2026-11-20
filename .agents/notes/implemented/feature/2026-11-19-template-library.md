@@ -44,4 +44,4 @@ operation 为 `GET template://templates`、`GET template://templates/<id>`、`PO
 
 ## 测试
 
-`packages/templates/test/templates.test.mjs` 覆盖模板库列表、详情、注册、元信息更新、删除、用户遮蔽内置、直接编辑、纯复制、无 `.template.json`、dry-run、排除、目标约束、缺失源、符号链接与 Dispatcher 错误映射。`pnpm test` 与 `pnpm docs:check` 为验证入口。
+`components/templates/test/templates.test.mjs` 覆盖模板库列表、详情、注册、元信息更新、删除、用户遮蔽内置、直接编辑、纯复制、无 `.template.json`、dry-run、排除、目标约束、缺失源、符号链接与 Dispatcher 错误映射。`pnpm test` 与 `pnpm docs:check` 为验证入口。

@@ -5,18 +5,18 @@ import { fileURLToPath, pathToFileURL } from 'node:url'
 import test from 'node:test'
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url))
-const PACKAGES = join(ROOT, 'packages')
+const COMPONENTS = join(ROOT, 'components')
 
 test('每个组件包导出唯一的组件定义与 operation 表', async () => {
-  const directories = readdirSync(PACKAGES, { withFileTypes: true })
-    .filter((entry) => entry.isDirectory() && entry.name !== 'core')
+  const directories = readdirSync(COMPONENTS, { withFileTypes: true })
+    .filter((entry) => entry.isDirectory())
     .map((entry) => entry.name)
   const seen = new Set()
   const modules = new Map()
   for (const directory of directories) {
-    const manifest = JSON.parse(readFileSync(join(PACKAGES, directory, 'package.json'), 'utf8'))
+    const manifest = JSON.parse(readFileSync(join(COMPONENTS, directory, 'package.json'), 'utf8'))
     const module = await import(
-      pathToFileURL(join(PACKAGES, directory, 'lib', 'index.js')).href
+      pathToFileURL(join(COMPONENTS, directory, 'lib', 'index.js')).href
     )
     const component = module.component
     assert.equal(typeof component?.id, 'string', `${manifest.name} 缺少 component 导出`)
@@ -26,7 +26,7 @@ test('每个组件包导出唯一的组件定义与 operation 表', async () => 
     seen.add(component.id)
     modules.set(component.id, { manifest, module })
   }
-  assert.deepEqual([...seen].sort(), ['gitea', 'postgres', 'remote-targets', 'template'])
+  assert.deepEqual([...seen].sort(), ['remote-targets', 'template'])
 
   for (const { module } of modules.values()) {
     const { component, operations } = module

@@ -13,4 +13,4 @@ locus post template://templates/minimal/instances --data '{"destination":"/absol
 locus post template://templates/minimal/instances --data '{"destination":"/absolute/new-project"}'
 ```
 
-目标必须是绝对路径且不存在，父目录必须存在；通用 URL 客户端不转换相对路径。`GET template://templates` 返回 `templates` 与 `problems`；用户模板优先，同名遮蔽内置。内置模板不能直接修改或删除，先 `POST` 用户副本。模板内容与失败语义见 [Templates](../../../../packages/templates/README.md)。
+目标必须是绝对路径且不存在，父目录必须存在；通用 URL 客户端不转换相对路径。`GET template://templates` 返回 `templates` 与 `problems`；用户模板优先，同名遮蔽内置。内置模板不能直接修改或删除，先 `POST` 用户副本。模板内容与失败语义见 [Templates](../../../../components/templates/README.md)。

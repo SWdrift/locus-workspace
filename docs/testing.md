@@ -7,7 +7,7 @@
 | 层级 | 入口 | 运行内容 |
 | --- | --- | --- |
 | 快速层 | `pnpm test` | 模块测试与跨模块测试；不含 e2e |
-| 全量进程内 | `pnpm test:all` | 经 `tests/run.mjs` 运行 `packages/*/test/`、`apps/*/test/` 与 `tests/*.test.mjs`；不含 e2e |
+| 全量进程内 | `pnpm test:all` | 经 `tests/run.mjs` 运行 `packages/*/test/`、`components/*/test/`、`apps/*/test/` 与 `tests/*.test.mjs`；不含 e2e |
 | 单文件 | `pnpm test:file <文件>` | 直接运行一个 `node --test` 文件，可附加 `--test-name-pattern <模式>` 过滤用例 |
 | CLI 端到端 | `pnpm e2e` | 经 `tests/run.mjs` 运行 `tests/e2e/*.mjs`，使用真实构建产物与独立进程；受[高耗时操作节流](#高耗时操作节流)约束 |
 | 快速门禁 | `pnpm verify` | 构建、依赖边界、格式检查、快速层与文档检查 |
@@ -45,7 +45,7 @@ e2e 只保留进程内测试无法覆盖的组合：真实 `apps/cli/lib/index.j
 
 | 被测行为 | 归属 | 示例 |
 | --- | --- | --- |
-| 模块内部行为：解析、校验、持久化、适配器参数 | `packages/<模块>/test/` | Remote Targets 的配置校验与 SSH/Plink 参数 |
+| 模块内部行为：解析、校验、持久化、适配器参数 | 所属包的 `test/` | Remote Targets 的配置校验与 SSH/Plink 参数 |
 | 模块自己的命令域：参数、输入来源、输出与退出码 | 该模块的 `test/`；CLI 作为主体时放 `apps/cli/test/` | `remote-targets`、`template` 与 Workspace 命令 |
 | 两个及以上模块协同，且无单一归属 | `tests/*.test.mjs` | Skill 脚本经 CLI 创建 Workspace |
 | 真实入口、独立进程、跨进程恢复、完整命令链与 pnpm 包装 | `tests/e2e/*.mjs` | 端到端命令与退出码 |
@@ -57,7 +57,7 @@ e2e 只保留进程内测试无法覆盖的组合：真实 `apps/cli/lib/index.j
 
 ## 目录与形态
 
-- `packages/*/test/` 与 `apps/*/test/` 是模块测试，使用 `node:test`；模块内部行为与该模块命令域的子进程用例都在此处。Core、Remote Targets、Templates 与 CLI 各自注册 `test` script。
+- `packages/*/test/`、`components/*/test/` 与 `apps/*/test/` 是模块测试，使用 `node:test`；模块内部行为与该模块命令域的子进程用例都在此处。Core、Remote Targets、Templates 与 CLI 各自注册 `test` script。
 - `tests/*.test.mjs` 只放跨模块组合，使用真实构建产物与独立进程；当前为 Skill 脚本、包组件契约与 i18n 注册器一致性用例。
 - `tests/e2e/*.mjs` 是端到端脚本，不匹配 `*.test.mjs`，因此不会被快速层或全量层误收集。
 - `tests/run.mjs` 是系统性测试入口，负责文件收集、冷却检查与运行记录；名称不匹配 `*.test.mjs`，不会被自身收集。
@@ -97,7 +97,7 @@ e2e 只保留进程内测试无法覆盖的组合：真实 `apps/cli/lib/index.j
 
 ```sh
 node packages/postgres/test/manual-postgres.mjs
-node packages/remote-targets/test/manual-ssh.mjs
+node components/remote-targets/test/manual-ssh.mjs
 ```
 
 PostgreSQL 脚本启动临时 PostgreSQL 16 并执行真实查询；SSH 脚本启动本地 OpenSSH sshd，使用 Core CredentialRef 登录并验证错误私钥拒绝与临时文件清理。缺少本机前置时以非零明确阻塞。

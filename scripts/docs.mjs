@@ -3,7 +3,7 @@ import { lstatSync, readFileSync, readdirSync, realpathSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-const SCAN_ROOTS = ['README.md', 'AGENTS.md', 'docs', '.agents/notes', 'packages', 'plugins', 'scripts'];
+const SCAN_ROOTS = ['README.md', 'AGENTS.md', 'docs', '.agents/notes', 'packages', 'components', 'plugins', 'scripts'];
 const IGNORED_NAMES = new Set(['.git', 'node_modules', 'temp']);
 const NOTE_STATES = new Set(['proposed', 'implemented', 'rejected', 'archived']);
 const NOTE_KINDS = new Set(['feature', 'bug-fix', 'simplification', 'architecture', 'process', 'testing']);

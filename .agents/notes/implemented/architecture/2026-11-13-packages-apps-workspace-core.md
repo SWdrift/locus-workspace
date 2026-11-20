@@ -18,7 +18,7 @@ Locus 作为项目内 DSH profile 插件运行后，CLI 不是可直接调用的
 - [apps/cli](../../../../apps/cli/README.md) 是独立 Node 可执行程序，提供 `locus` bin，只依赖 `@locus/core` 与 Commander。命令树仅保留 `version` 与 `workspace`；没有 profile、Cordis 注入、`ui`、`fs`、`shell`。
 - `apps/web` 只保留占位 README。没有空服务器、路由或前端框架，等出现真实接口消费需求再实现。
 - 删除 `packages/contracts`、`packages/application`、`packages/host-dsh`、`packages/dsh-surface`、`packages/ui`、`plugins/filesystem` 与 `.dsh` profile 装配文档。共享类型进入 core；Workspace 用例不再经过独立 application 层。
-- 删除 DSH 依赖与对应的 Host/UI/shell 测试，保留 `tests/run.mjs` 分层入口、`test:all`、`e2e`、`verify:full` 与 2 小时 e2e 冷却。收集范围改为 `packages/*/test`、`apps/*/test` 与 `tests/*.test.mjs`，e2e 改为真实 CLI 场景。
+- 删除 DSH 依赖与对应的 Host/UI/shell 测试，保留 `tests/run.mjs` 分层入口、`test:all`、`e2e`、`verify:full` 与 2 小时 e2e 冷却。收集范围改为 `packages/*/test`、`components/*/test`、`apps/*/test` 与 `tests/*.test.mjs`，e2e 改为真实 CLI 场景。
 - `core.sqlite`、`user_version=1`、Workspace 身份与关系表不变；本次不迁移或删除用户数据。
 
 CLI 每次进程启动直接创建 Core，命令完成后 `dispose()`；`--json` 输出单一 JSON，诊断写 stderr，退出码保持 0 成功、1 参数/帮助拒绝、2 业务或持久化失败。数据目录的配置契约由 [2026-11-14 数据目录配置](2026-11-14-data-directory-configuration.md) 维护。

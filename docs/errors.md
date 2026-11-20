@@ -16,7 +16,7 @@
 
 失败只在这三处改变形态，其余位置保持原对象与码。
 
-1. **能力包 operation 边界。** [withService](../packages/remote-targets/src/operations/context.ts) 与 [atOperationBoundary](../packages/templates/src/operations.ts) 捕获本包领域失败，按包内 `ERROR_CODES` 映射为 `InvocationFailure`，把领域码写入 `details.domain`，并以 `cause` 挂上原错误。其余领域 `details` 展开保留；未识别的异常原样上抛给 Dispatcher。
+1. **能力包 operation 边界。** [withService](../components/remote-targets/src/operations/context.ts) 与 [atOperationBoundary](../components/templates/src/operations.ts) 捕获本包领域失败，按包内 `ERROR_CODES` 映射为 `InvocationFailure`，把领域码写入 `details.domain`，并以 `cause` 挂上原错误。其余领域 `details` 展开保留；未识别的异常原样上抛给 Dispatcher。
 2. **Dispatcher。** [toFailure](../packages/core/src/invocation/errors.ts) 用 `kind` 查分派表，把失败规范为协议码与固定消息，再由 `errorResult()` 冻结失败信封并发布请求事件。
 
 | kind | 协议码 | details |

@@ -53,11 +53,11 @@ CLI 只读取当前 CWD 可选的 .env，既有环境变量优先。仓库开发
 
 ## 项目模板
 
-使用 template://templates 及其 instances 资源；参数与当前声明通过 locus help template:// 查阅，领域语义见 [Templates](../../packages/templates/README.md)。destination 必须由调用方给出绝对路径，不再由领域别名转换。
+使用 template://templates 及其 instances 资源；参数与当前声明通过 locus routes template:// 查阅，领域语义见 [Templates](../../components/templates/README.md)。destination 必须由调用方给出绝对路径，不再由领域别名转换。
 
 ## 远程目标
 
-使用 rt://targets 资源；配置、字段、凭据交付和失败语义归 [Remote Targets](../../packages/remote-targets/README.md)。资源凭据文件通过 --field-file 明确选择字段，密码可通过 --prompt password 隐藏输入；CLI 不解释目标 spec。
+使用 rt://targets 资源；配置、字段、凭据交付和失败语义归 [Remote Targets](../../components/remote-targets/README.md)。资源凭据文件通过 --field-file 明确选择字段，密码可通过 --prompt password 隐藏输入；CLI 不解释目标 spec。
 
 ## 组件
 

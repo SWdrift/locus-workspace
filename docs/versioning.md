@@ -6,7 +6,7 @@
 
 根 [package.json](../package.json) 的 `version` 是仓库唯一版本，所有构建产物、CLI 输出与组件定义都以它为准。
 
-- 子包 `packages/*` 与 `apps/*` 的 `package.json` 不声明 `version`；它们不独立发版。
+- 子包 `packages/*`、`components/*` 与 `apps/*` 的 `package.json` 不声明 `version`；它们不独立发版。
 - 源码、文档与测试不写死版本字面量；需要判定版本时读取根 `package.json` 或 Core 的 `LOCUS_VERSION`。
 - 版本值只要求非空字符串，脚本不校验 SemVer，也不解释语义。
 

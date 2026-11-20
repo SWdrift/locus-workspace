@@ -144,7 +144,7 @@ function collectPackageTests(group) {
 }
 
 function testFiles() {
-  const files = [...collectPackageTests('packages'), ...collectPackageTests('apps')]
+  const files = [...collectPackageTests('packages'), ...collectPackageTests('components'), ...collectPackageTests('apps')]
   const tests = join(REPO, 'tests')
   for (const file of readdirSync(tests)) {
     if (file.endsWith('.test.mjs')) files.push(join(tests, file))

@@ -39,4 +39,4 @@ locus delete rt://targets/<target>
 
 普通 JSON 在 data，探测需检查 data.ok，命令需检查 data.exitCode；通用 CLI 不透传远端进程退出码。services/restart 只服务 cmd 目标。unknown-result 且 executionCompleted 表示执行已完成但清理失败，需人工核对而非自动重试。删除目标清理观察，不撤销 Core 绑定或删除信任锚。
 
-字段与失败分类见 [Remote Targets](../../../../packages/remote-targets/README.md)。
+字段与失败分类见 [Remote Targets](../../../../components/remote-targets/README.md)。

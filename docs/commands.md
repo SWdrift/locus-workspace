@@ -116,7 +116,7 @@ locus delete template://templates/node-service
 locus post template://templates/minimal/instances --data '{"destination":"/absolute/project","dryRun":true}'
 ```
 
-`GET template://templates` 返回用户模板、内置模板与 problems；用户模板同名遮蔽内置。`destination` 必须是绝对路径，`dryRun` 是 Body 字段；创建只复制内容，不写 `.template.json`。模板库、元信息与失败语义归 [Templates](../packages/templates/README.md)。
+`GET template://templates` 返回用户模板、内置模板与 problems；用户模板同名遮蔽内置。`destination` 必须是绝对路径，`dryRun` 是 Body 字段；创建只复制内容，不写 `.template.json`。模板库、元信息与失败语义归 [Templates](../components/templates/README.md)。
 
 ## 远程目标
 
@@ -130,7 +130,7 @@ locus post rt://targets/<id>/jobs --data '{"command":["whoami"]}'
 locus delete rt://targets/<id>
 ```
 
-registration.json 的 Body 包含 spec 字符串；目标定义和凭据字段由组件校验。远端状态与 exitCode 位于 data，不透传为通用 CLI 退出码。交互 Shell 使用 jobs 的 interactive:true；凭据、迁移、信任与清理失败语义归 [Remote Targets](../packages/remote-targets/README.md)。
+registration.json 的 Body 包含 spec 字符串；目标定义和凭据字段由组件校验。远端状态与 exitCode 位于 data，不透传为通用 CLI 退出码。交互 Shell 使用 jobs 的 interactive:true；凭据、迁移、信任与清理失败语义归 [Remote Targets](../components/remote-targets/README.md)。
 
 ## 组件操作
 

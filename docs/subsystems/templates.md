@@ -8,11 +8,11 @@
 
 | 组件 | 职责 |
 | --- | --- |
-| `packages/templates` | 解析模板库、读写 `.template.json`、复制文件、计算 digest；导出 `component` 与 `operations` |
+| `components/templates` | 解析模板库、读写 `.template.json`、复制文件、计算 digest；导出 `component` 与 `operations` |
 | `apps/cli` | 通用 `template://` 调用与信封输出；目标路径由调用方明确给出 |
 | `.agents/skills/locus` | Agent 使用模板命令的索引与操作参考 |
 
-模块契约见 [Templates README](../../packages/templates/README.md)，命令语法见[实用命令](../commands.md#模板操作)，设计取舍见[模板库决定](../../.agents/notes/implemented/feature/2026-11-19-template-library.md)。
+模块契约见 [Templates README](../../components/templates/README.md)，命令语法见[实用命令](../commands.md#模板操作)，设计取舍见[模板库决定](../../.agents/notes/implemented/feature/2026-11-19-template-library.md)。
 
 ## 模板库
 
@@ -97,14 +97,14 @@ interface CreateTemplateResult {
 - 不写实例记录，目标项目不包含 `.template.json`；模板来源由用户或 Git 自己维护。
 - 目标必须不存在；没有覆盖或 `--force` 路径。
 - 模板中的符号链接与设备、FIFO 等特殊文件明确失败，不跟随、不复制。
-- 默认排除 VCS、依赖目录与模板元信息；完整列表见 [Templates README](../../packages/templates/README.md#复制)。
+- 默认排除 VCS、依赖目录与模板元信息；完整列表见 [Templates README](../../components/templates/README.md#复制)。
 - 只复制字节；不替换变量、不渲染文本、不自动 `git init`、不执行模板 hook。
 - 不修改源模板；源目录中的文件内容与目录结构保持原样。
 - 删除或修改模板不影响已经创建的项目；项目来源由用户或 Git 自己维护。
 
 ## 失败边界
 
-失败分类包括：非法元信息、非法 id、非法目标、模板不存在、目标已存在、用户模板已存在、修改内置模板、符号链接、特殊文件与文件系统 IO。具体 code、触发条件与 CLI 退出码由 [Templates README](../../packages/templates/README.md#失败)与[实用命令](../commands.md#输出与退出码)维护。
+失败分类包括：非法元信息、非法 id、非法目标、模板不存在、目标已存在、用户模板已存在、修改内置模板、符号链接、特殊文件与文件系统 IO。具体 code、触发条件与 CLI 退出码由 [Templates README](../../components/templates/README.md#失败)与[实用命令](../commands.md#输出与退出码)维护。
 
 失败不会留下目标目录：临时目录在 rename 前失败时被清理；rename 成功后不再回滚已创建项目。
 
@@ -114,4 +114,4 @@ interface CreateTemplateResult {
 
 ## 验证
 
-Templates [模块测试](../../packages/templates/test/templates.test.mjs)覆盖模板库 CRUD、元信息更新、用户模板遮蔽内置、直接编辑、纯复制、排除、digest、dry-run、目标约束、非法元信息、缺失源与符号链接，并经真实 Dispatcher 验证错误分类；CLI 参数与输出归客户端测试，e2e 覆盖在挂载内创建项目。验证入口见[测试系统](../testing.md#归属与去重)。
+Templates [模块测试](../../components/templates/test/templates.test.mjs)覆盖模板库 CRUD、元信息更新、用户模板遮蔽内置、直接编辑、纯复制、排除、digest、dry-run、目标约束、非法元信息、缺失源与符号链接，并经真实 Dispatcher 验证错误分类；CLI 参数与输出归客户端测试，e2e 覆盖在挂载内创建项目。验证入口见[测试系统](../testing.md#归属与去重)。

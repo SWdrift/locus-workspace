@@ -2,7 +2,7 @@
 
 ## Control Plane Role
 
-本平面控制两块相互独立的能力：`packages/templates` 的模板库与纯复制，以及 `packages/core` Workspace 的身份、名称、描述与挂载；`apps/cli` 只提供 URL 形式的调用与 shell。模板负责把一套文件复制成项目目录，Workspace 负责长期语境与挂载；二者没有 API 关联，唯一联系是用户把模板生成目录 `mount` 进某个 ws。
+本平面控制两块相互独立的能力：`components/templates` 的模板库与纯复制，以及 `packages/core` Workspace 的身份、名称、描述与挂载；`apps/cli` 只提供 URL 形式的调用与 shell。模板负责把一套文件复制成项目目录，Workspace 负责长期语境与挂载；二者没有 API 关联，唯一联系是用户把模板生成目录 `mount` 进某个 ws。
 
 模板库、纯复制、Workspace v9、名称唯一、`description` 与 `primary` 已落地，并通过 `pnpm verify`、迁移实跑与 e2e。
 
@@ -16,7 +16,7 @@ Gitea 流水线、远程机器关联、仓库绑定与部署不在本平面；`p
 - [项目架构](../docs/architecture.md)：组件职责、依赖方向与扩展边界。
 - [Core](../packages/core/README.md)：装配、Workspace、挂载、持久化与迁移。
 - [项目模板子系统](../docs/subsystems/templates.md)：模板范围、复制流程、不变量与失败边界。
-- [Templates](../packages/templates/README.md)：模板源、API 与失败码。
+- [Templates](../components/templates/README.md)：模板源、API 与失败码。
 - [CLI](../apps/cli/README.md) 与[统一资源调用](../docs/subsystems/invocation.md)：URL 调用、帮助投影与退出码。
 - [实用命令](../docs/commands.md#模板操作)：当前命令语法。
 - [Locus Skill](../.agents/skills/locus/SKILL.md)：Agent 入口与参考页。
@@ -24,13 +24,13 @@ Gitea 流水线、远程机器关联、仓库绑定与部署不在本平面；`p
 
 ## Scope
 
-- `packages/templates/src`：模板库解析、元信息、复制、digest 与 operation。
-- `packages/templates/templates/`：内置模板源；目标是多套静态骨架。
-- `packages/templates/test`：模板库 CRUD、元信息、复制、排除与失败。
+- `components/templates/src`：模板库解析、元信息、复制、digest 与 operation。
+- `components/templates/templates/`：内置模板源；目标是多套静态骨架。
+- `components/templates/test`：模板库 CRUD、元信息、复制、排除与失败。
 - `packages/core/src/workspaces`、`packages/core/src/storage/schema/workspace.ts`、`packages/core/src/storage/database.ts`：Workspace 名称唯一、`description`、`primary` 与 schema v9 迁移。
 - `packages/core/test`：Workspace/挂载行为、唯一性、primary 与迁移。
 - `apps/cli`：URL 调用与 `locus shell` 的选择逻辑；不新增领域别名树。
-- `docs/subsystems/templates.md`、`packages/templates/README.md`、`packages/core/README.md`、`docs/commands.md`、`.agents/skills/locus/reference/templates.md` 与 workspace 参考。
+- `docs/subsystems/templates.md`、`components/templates/README.md`、`packages/core/README.md`、`docs/commands.md`、`.agents/skills/locus/reference/templates.md` 与 workspace 参考。
 - 不包含：Gitea/CI、远程目标关联、仓库绑定、项目实体、模板变量渲染、hook、`git init`、模板升级/三方合并、Web。
 
 ## Core Rules

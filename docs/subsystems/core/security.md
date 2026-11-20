@@ -137,7 +137,7 @@ CLI 只传参数与展示结果，不接触 Keyring、字段拆分或绑定内�
 ## 消费者交付边界
 
 
-PostgreSQL、Gitea 与 Remote Targets 各自负责协议、目标领域约束、operation handler 与秘密载体；Core 只负责字段拆分、精确绑定与交付。PostgreSQL 在 Root 登记时固定 host/port/database，Gitea 固定 origin，SSH 使用目标配置中的 host/port/login 与信任锚，并由 Remote Targets 保存目标安全摘要；配置变化需要 Root 重新确认；这些端点不由 User 请求参数替换。具体 API、失败与平台限制由各包 README 维护：
+Remote Targets 负责 SSH 协议、目标领域约束、operation handler 与秘密载体；Core 只负责字段拆分、精确绑定与交付。SSH 使用目标配置中的 host/port/login 与信任锚，并由 Remote Targets 保存目标安全摘要；配置变化需要 Root 重新确认；这些端点不由 User 请求参数替换。具体 API、失败与平台限制由 [Remote Targets README](../../../components/remote-targets/README.md) 维护：系统 OpenSSH/Plink 与受限临时文件。
 
 
 - [PostgreSQL](../../../packages/postgres/README.md)：临时验证消费者，验证完成后移除。
@@ -148,7 +148,7 @@ PostgreSQL、Gitea 与 Remote Targets 各自负责协议、目标领域约束、
 ## 远程目标安全边界
 
 
-SSH 协议、目标模型、迁移流程与临时文件交付归 Remote Targets；本页只记录与 Core 的交界：目标配置只保存认证方式，凭据按 `component + slot + target id` 绑定并在 Core 内部持有引用；旧 `auth.path/root` 只供显式迁移读取，字段与绑定由 Core 校验，带口令私钥仍明确阻塞。详见[远程目标](../remote-targets.md)与 [Remote Targets README](../../../packages/remote-targets/README.md)。
+SSH 协议、目标模型、迁移流程与临时文件交付归 Remote Targets；本页只记录与 Core 的交界：目标配置只保存认证方式，凭据按 `component + slot + target id` 绑定并在 Core 内部持有引用；旧 `auth.path/root` 只供显式迁移读取，字段与绑定由 Core 校验，带口令私钥仍明确阻塞。详见[远程目标](../remote-targets.md)与 [Remote Targets README](../../../components/remote-targets/README.md)。
 
 
 ## 持久化、错误与备份
@@ -181,7 +181,7 @@ Core SQLite 当前 `user_version=9`，包含 Workspace、关系、挂载、组�
 
 ```sh
 node packages/postgres/test/manual-postgres.mjs
-node packages/remote-targets/test/manual-ssh.mjs
+node components/remote-targets/test/manual-ssh.mjs
 ```
 
 

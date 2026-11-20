@@ -10,7 +10,7 @@
 
 - [cp-meta](cp-meta.md)、[同 scope 记忆](cpm-2026-11-15-core-security.md)：控制与恢复工作入口。
 - [架构](../docs/architecture.md)、[开发](../docs/development.md)、[测试](../docs/testing.md)、[文档规范](../docs/AGENTS.md)：工程约束。
-- [Core](../packages/core/README.md#安全服务)、[CLI](../apps/cli/README.md#安全-host-与-profile)、[PostgreSQL](../packages/postgres/README.md)、[Gitea](../packages/gitea/README.md)、[Remote Targets](../packages/remote-targets/README.md)：事实所有者。
+- [Core](../packages/core/README.md#安全服务)、[CLI](../apps/cli/README.md#安全-host-与-profile)、[PostgreSQL](../packages/postgres/README.md)、[Gitea](../packages/gitea/README.md)、[Remote Targets](../components/remote-targets/README.md)：事实所有者。
 - 更新使用 create-control-plane；收束使用 compact-control-plane。未验证项不得写成已交付事实。
 
 ## Scope

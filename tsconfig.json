@@ -6,10 +6,10 @@
       "path": "./packages/core"
     },
     {
-      "path": "./packages/remote-targets"
+      "path": "./components/remote-targets"
     },
     {
-      "path": "./packages/templates"
+      "path": "./components/templates"
     },
     {
       "path": "./apps/cli"

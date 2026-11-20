@@ -45,7 +45,7 @@
 
 | 子系统 | 状态 | 模块拆分 | 设计文档 | 验收 | 备注 |
 | --- | --- | --- | --- | --- | --- |
-| Core Security（原密钥管理） | 已拆出独立平面 | — | — | — | 身份、授权、Grant 与 Credential 统一进入 Core；首个消费方案例为 `packages/remote-targets`；[cp-2026-11-15-core-security.md](./cp-2026-11-15-core-security.md) |
+| Core Security（原密钥管理） | 已拆出独立平面 | — | — | — | 身份、授权、Grant 与 Credential 统一进入 Core；首个消费方案例为 `components/remote-targets`；[cp-2026-11-15-core-security.md](./cp-2026-11-15-core-security.md) |
 | kanban（看板） | 清单已到，边界待冻结 | — | — | — | 首批清单第二项；范围与依赖顺序待用户确认 |
 | 远程目标接入 | 已拆出独立平面 | — | — | — | [cp-2026-11-14-remote-targets.md](./cp-2026-11-14-remote-targets.md) |
 | 待补充 | — | — | — | — | 用户稍后提供 |
